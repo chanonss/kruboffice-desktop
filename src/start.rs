@@ -71,8 +71,35 @@ impl Palette {
 /// double-clicked file on macOS) before it shows the Start Center.
 pub const LAUNCH_GRACE: Duration = Duration::from_millis(600);
 
+/// The three apps' icons (their own glass artwork, placed in `icons/` by the packaging).
+#[derive(Default)]
+struct Icons {
+    loaded: bool,
+    textures: Vec<(App, egui::TextureHandle)>,
+}
+
+/// The largest icon file read.
+const MAX_ICON_BYTES: u64 = 4 * 1024 * 1024;
+
+fn load_icon(ctx: &egui::Context, path: &std::path::Path, name: &str) -> Option<egui::TextureHandle> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_ICON_BYTES {
+        return None;
+    }
+    let img = image::load_from_memory_with_format(&std::fs::read(path).ok()?, image::ImageFormat::Png).ok()?;
+    if img.width() > 1024 || img.height() > 1024 {
+        return None;
+    }
+    let rgba = img.to_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+    Some(ctx.load_texture(name, color, egui::TextureOptions::LINEAR))
+}
+
 pub struct StartCenter {
     install: Option<Installation>,
+    resources: Option<PathBuf>,
+    icons: Icons,
     recent: Vec<Recent>,
     status: Option<(String, Instant)>,
     started: Instant,
@@ -87,6 +114,8 @@ impl StartCenter {
     pub fn new(install: Option<Installation>, initial: Vec<PathBuf>) -> StartCenter {
         StartCenter {
             install,
+            resources: None,
+            icons: Icons::default(),
             recent: Vec::new(),
             status: None,
             started: Instant::now(),
@@ -95,6 +124,27 @@ impl StartCenter {
             #[cfg(target_os = "macos")]
             events: None,
         }
+    }
+
+    /// The app's resources folder, where the packaging puts `icons/` and `fonts/`.
+    pub fn with_resources(mut self, dir: Option<PathBuf>) -> StartCenter {
+        self.resources = dir;
+        self
+    }
+
+    fn icon(&mut self, ctx: &egui::Context, app: App) -> Option<egui::TextureHandle> {
+        if !self.icons.loaded {
+            self.icons.loaded = true;
+            if let Some(dir) = &self.resources {
+                for a in App::ALL {
+                    let path = dir.join("icons").join(format!("{}-192.png", a.name().to_ascii_lowercase()));
+                    if let Some(t) = load_icon(ctx, &path, a.name()) {
+                        self.icons.textures.push((a, t));
+                    }
+                }
+            }
+        }
+        self.icons.textures.iter().find(|(a, _)| *a == app).map(|(_, t)| t.clone())
     }
 
     #[cfg(target_os = "macos")]
@@ -174,7 +224,7 @@ impl StartCenter {
     }
 }
 
-fn app_tile(ui: &mut egui::Ui, app: App, p: &Palette) -> bool {
+fn app_tile(ui: &mut egui::Ui, app: App, p: &Palette, texture: Option<&egui::TextureHandle>) -> bool {
     let size = vec2(150.0, 170.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let painter = ui.painter_at(rect);
@@ -182,8 +232,15 @@ fn app_tile(ui: &mut egui::Ui, app: App, p: &Palette) -> bool {
     if resp.hovered() || resp.has_focus() {
         painter.rect_stroke(icon.expand(5.0), CornerRadius::same(26), Stroke::new(3.0, colour(app)), egui::StrokeKind::Outside);
     }
-    painter.rect_filled(icon, CornerRadius::same(22), colour(app));
-    painter.text(icon.center() + vec2(0.0, 2.0), Align2::CENTER_CENTER, letter(app), bold(58.0), GOLD);
+    match texture {
+        Some(t) => {
+            painter.image(t.id(), icon, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+        }
+        None => {
+            painter.rect_filled(icon, CornerRadius::same(22), colour(app));
+            painter.text(icon.center() + vec2(0.0, 2.0), Align2::CENTER_CENTER, letter(app), bold(58.0), GOLD);
+        }
+    }
     painter.text(rect.center_top() + vec2(0.0, 126.0), Align2::CENTER_CENTER, app.thai_name(), bold(17.0), p.text);
     painter.text(
         rect.center_top() + vec2(0.0, 150.0),
@@ -193,6 +250,24 @@ fn app_tile(ui: &mut egui::Ui, app: App, p: &Palette) -> bool {
         p.sub,
     );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// Text on one line, cut with "…" when it's wider than `width`.
+fn one_line(painter: &egui::Painter, text: String, font: FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple(text, font, color, width);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('…');
+    painter.layout_job(job)
+}
+
+/// A folder with the home folder written as `~`.
+fn short_folder(folder: &str) -> String {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    match folder.strip_prefix(home.as_str()) {
+        Some(rest) if !home.is_empty() => format!("~{rest}"),
+        _ => folder.to_string(),
+    }
 }
 
 fn when(t: Option<SystemTime>) -> String {
@@ -235,10 +310,28 @@ impl eframe::App for StartCenter {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if !self.shown {
+        if self.shown {
+            self.draw(ui);
+        }
+    }
+}
+
+impl StartCenter {
+    /// Show the Start Center now with these recent files (screenshots and tests).
+    pub fn show_with(&mut self, recent: Vec<Recent>) {
+        self.shown = true;
+        self.recent = recent;
+    }
+
+    /// Draw the Start Center.
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        // Fonts set with `set_fonts` take effect from the next frame; drawing with the bold family
+        // before then would panic inside egui, so wait a frame instead.
+        if !ctx.fonts(|f| f.families().contains(&FontFamily::Name(BOLD.into()))) {
+            ctx.request_repaint();
             return;
         }
-        let ctx = ui.ctx().clone();
         let p = Palette::of(&ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(p.bg)).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -264,17 +357,20 @@ impl eframe::App for StartCenter {
                     ui.label(RichText::new("วันนี้ ...อยากทำอะไรดีครับ?").font(bold(24.0)).color(p.text));
                     ui.add_space(26.0);
                     ui.horizontal(|ui| {
-                        let width = 3.0 * 150.0 + 2.0 * 36.0;
+                        // Up to 36 pt between the tiles, less in a narrow window.
+                        let gap = ((ui.available_width() - 3.0 * 150.0) / 2.0).clamp(4.0, 36.0);
+                        let width = 3.0 * 150.0 + 2.0 * gap;
                         ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                        ui.spacing_mut().item_spacing.x = 36.0;
+                        ui.spacing_mut().item_spacing.x = gap;
                         for app in [App::KhianKrub, App::KhitKrub, App::PhutKrub] {
-                            if app_tile(ui, app, &p) {
+                            let texture = self.icon(&ctx, app);
+                            if app_tile(ui, app, &p, texture.as_ref()) {
                                 self.launch_app(app);
                             }
                         }
                     });
                     ui.add_space(18.0);
-                    let open = egui::Button::new(RichText::new("📂  เปิดไฟล์…").size(15.0).color(p.text))
+                    let open = egui::Button::new(RichText::new("เปิดไฟล์…").size(15.0).color(p.text))
                         .fill(p.card)
                         .stroke(Stroke::new(1.0, p.sub.gamma_multiply(0.4)))
                         .corner_radius(CornerRadius::same(8))
@@ -304,6 +400,7 @@ impl eframe::App for StartCenter {
                             ui.label(RichText::new("ไฟล์ที่เปิดล่าสุดจากทั้งสามโปรแกรมจะแสดงที่นี่").size(13.0).color(p.sub));
                         }
                         let mut clicked = None;
+                        let icons = self.icons.textures.clone();
                         for r in &self.recent {
                             let (rect, resp) = ui.allocate_exact_size(vec2(column, 44.0), Sense::click());
                             let painter = ui.painter_at(rect);
@@ -311,19 +408,31 @@ impl eframe::App for StartCenter {
                                 painter.rect_filled(rect, CornerRadius::same(8), p.card);
                             }
                             let badge = egui::Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(28.0, 28.0));
-                            painter.rect_filled(badge, CornerRadius::same(7), colour(r.app));
-                            painter.text(badge.center(), Align2::CENTER_CENTER, letter(r.app), bold(17.0), GOLD);
+                            match icons.iter().find(|(a, _)| *a == r.app) {
+                                Some((_, t)) => {
+                                    painter.image(
+                                        t.id(),
+                                        badge,
+                                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                        Color32::WHITE,
+                                    );
+                                }
+                                None => {
+                                    painter.rect_filled(badge, CornerRadius::same(7), colour(r.app));
+                                    painter.text(badge.center(), Align2::CENTER_CENTER, letter(r.app), bold(17.0), GOLD);
+                                }
+                            }
                             let name = r.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                             let folder = r.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
-                            painter.text(rect.min + vec2(46.0, 6.0), Align2::LEFT_TOP, name, FontId::proportional(14.5), p.text);
-                            painter.text(rect.min + vec2(46.0, 25.0), Align2::LEFT_TOP, folder, FontId::proportional(11.5), p.sub);
-                            painter.text(
-                                rect.right_center() - vec2(8.0, 0.0),
-                                Align2::RIGHT_CENTER,
-                                when(r.modified),
-                                FontId::proportional(11.5),
+                            let age = painter.layout_no_wrap(when(r.modified), FontId::proportional(11.5), p.sub);
+                            let room = (column - 46.0 - age.size().x - 20.0).max(40.0);
+                            painter.galley(rect.min + vec2(46.0, 5.0), one_line(&painter, name, FontId::proportional(14.5), p.text, room), p.text);
+                            painter.galley(
+                                rect.min + vec2(46.0, 25.0),
+                                one_line(&painter, short_folder(&folder), FontId::proportional(11.5), p.sub, room),
                                 p.sub,
                             );
+                            painter.galley(rect.right_center() - vec2(8.0 + age.size().x, age.size().y / 2.0), age, p.sub);
                             if resp.on_hover_text(r.path.display().to_string()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 clicked = Some(r.path.clone());
                             }

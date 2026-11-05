@@ -16,6 +16,11 @@ KrubOffice is one app for macOS and Windows with three programs inside. Open any
 
 Opened without a file, KrubOffice shows the same welcome as [kruboffice.app](https://kruboffice.app/): the three programs, Open File, and the recent files of all three.
 
+<p align="center">
+  <img src="docs/images/start-light.png" alt="The KrubOffice Start Center in Thai: the KrubOffice logo, the welcome วันนี้ ...อยากทำอะไรดีครับ?, the three app icons เขียนครับ, คิดครับ and พูดครับ, the เปิดไฟล์… button and three recent files" width="49%">
+  <img src="docs/images/start-dark.png" alt="The same Start Center in the dark theme" width="49%">
+</p>
+
 ## How it is put together
 
 - **This repository** holds the launcher (`src/`: Start Center, file-type dispatch), the packaging

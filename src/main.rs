@@ -14,12 +14,8 @@
 // No console window behind the Start Center on Windows.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-mod dispatch;
-mod fonts;
-mod recent;
-mod start;
-
 use eframe::egui;
+use kruboffice::{dispatch, fonts, start};
 
 const USAGE: &str = "Usage: kruboffice [FILE...]\n\nOpens each file in KhianKrub (documents), KhitKrub (spreadsheets) or PhutKrub (presentations).\nWith no file, shows the KrubOffice Start Center.";
 
@@ -80,7 +76,7 @@ fn main() {
             .with_title("KrubOffice")
             .with_app_id("app.kruboffice.desktop")
             .with_inner_size([820.0, 680.0])
-            .with_min_inner_size([520.0, 480.0])
+            .with_min_inner_size([560.0, 520.0])
             .with_drag_and_drop(true)
             // Shown once it's clear the launcher wasn't started just to open a file.
             .with_visible(false),
@@ -92,7 +88,7 @@ fn main() {
         options,
         Box::new(move |cc| {
             fonts::install(&cc.egui_ctx, resources.as_deref());
-            let app = start::StartCenter::new(install, files);
+            let app = start::StartCenter::new(install, files).with_resources(resources.clone());
             #[cfg(target_os = "macos")]
             let app = {
                 let ctx = cc.egui_ctx.clone();

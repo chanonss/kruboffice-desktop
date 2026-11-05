@@ -105,6 +105,20 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 cp "$LAUNCHER" "$APP/Contents/MacOS/kruboffice"
 make_icns "$KHIANKRUB_SRC/packaging/web/public/icons/krubOffice-maskable-512.png" "$APP/Contents/Resources/KrubOffice.icns"
 
+# The Start Center's app icons (the apps' own glass artwork) and its interface font, Sarabun
+# (SIL OFL 1.1), the same files the web apps use: from KhianKrub's web build when it has them,
+# else from their source, Google Fonts' OFL repository.
+mkdir -p "$APP/Contents/Resources/icons" "$APP/Contents/Resources/fonts"
+cp "$KHIANKRUB_SRC/assets/app-icon/khiankrub-192.png" "$KHITKRUB_SRC/assets/app-icon/khitkrub-192.png" \
+   "$PHUTKRUB_SRC/assets/app-icon/phutkrub-192.png" "$APP/Contents/Resources/icons/"
+for f in Sarabun-Regular.ttf Sarabun-SemiBold.ttf OFL.txt; do
+    if [ -f "$KHIANKRUB_SRC/dist/web/fonts/$f" ]; then
+        cp "$KHIANKRUB_SRC/dist/web/fonts/$f" "$APP/Contents/Resources/fonts/$f"
+    else
+        curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/$f" -o "$APP/Contents/Resources/fonts/$f"
+    fi
+done
+
 add_helper() {
     local name="$1" bin="$2" exe="$3" icon="$4" version="$5"
     local h="$APP/Contents/Helpers/$name.app"
