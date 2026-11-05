@@ -77,8 +77,8 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
     </UI>
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="KrubOffice">
-        <Directory Id="FontsFolder" Name="fonts" />
-        <Directory Id="IconsFolder" Name="icons" />
+        <Directory Id="KrubOfficeFontsDir" Name="fonts" />
+        <Directory Id="KrubOfficeIconsDir" Name="icons" />
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
@@ -107,12 +107,12 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
         <File Id="NoticesTxt" Source="$(var.BinDir)\\THIRD-PARTY-NOTICES.txt" />
       </Component>
       <!-- The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons. -->
-      <Component Id="KrubOfficeFonts" Directory="FontsFolder" Guid="58547059-F83A-4D64-8BAF-D8E5F81A2A9A">
+      <Component Id="KrubOfficeFonts" Directory="KrubOfficeFontsDir" Guid="58547059-F83A-4D64-8BAF-D8E5F81A2A9A">
         <File Id="SarabunRegular" Source="$(var.BinDir)\\fonts\\Sarabun-Regular.ttf" KeyPath="yes" />
         <File Id="SarabunSemiBold" Source="$(var.BinDir)\\fonts\\Sarabun-SemiBold.ttf" />
         <File Id="SarabunOfl" Source="$(var.BinDir)\\fonts\\OFL.txt" />
       </Component>
-      <Component Id="KrubOfficeIcons" Directory="IconsFolder" Guid="DEC8460C-A4CA-429A-B90E-F224F26219D7">
+      <Component Id="KrubOfficeIcons" Directory="KrubOfficeIconsDir" Guid="DEC8460C-A4CA-429A-B90E-F224F26219D7">
         <File Id="KhianKrubIcon" Source="$(var.BinDir)\\icons\\khiankrub-192.png" KeyPath="yes" />
         <File Id="KhitKrubIcon" Source="$(var.BinDir)\\icons\\khitkrub-192.png" />
         <File Id="PhutKrubIcon" Source="$(var.BinDir)\\icons\\phutkrub-192.png" />
