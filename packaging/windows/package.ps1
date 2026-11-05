@@ -17,10 +17,16 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $Version = (Select-String -Path (Join-Path $Root 'Cargo.toml') -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $Version) { throw 'version not found in Cargo.toml' }
 
+# The C runtime goes inside each program (+crt-static), so no Visual C++ Redistributable is needed:
+# without it a fresh Windows says "VCRUNTIME140.dll was not found". Scoped to the target (hence
+# --target below) so build scripts and proc-macros on the host are unaffected.
+$Target = 'x86_64-pc-windows-msvc'
+[Environment]::SetEnvironmentVariable('CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS', '-C target-feature=+crt-static')
+
 function Build($Dir, $Package) {
     Push-Location $Dir
     try {
-        cargo build --release -p $Package
+        cargo build --release -p $Package --target $Target
         if ($LASTEXITCODE -ne 0) { throw "cargo build -p $Package failed in $Dir" }
     } finally { Pop-Location }
 }
@@ -33,10 +39,10 @@ $Dist = Join-Path $Root 'dist'
 $Stage = Join-Path $Dist 'stage'
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Stage | Out-Null
-Copy-Item (Join-Path $Root 'target\release\kruboffice.exe') (Join-Path $Stage 'kruboffice.exe')
-Copy-Item (Join-Path $KhianKrub 'target\release\wordcraft.exe') (Join-Path $Stage 'khiankrub.exe')
-Copy-Item (Join-Path $KhitKrub 'target\release\gridcraft.exe') (Join-Path $Stage 'khitkrub.exe')
-Copy-Item (Join-Path $PhutKrub 'target\release\deckcraft.exe') (Join-Path $Stage 'phutkrub.exe')
+Copy-Item (Join-Path $Root 'target\x86_64-pc-windows-msvc\release\kruboffice.exe') (Join-Path $Stage 'kruboffice.exe')
+Copy-Item (Join-Path $KhianKrub 'target\x86_64-pc-windows-msvc\release\wordcraft.exe') (Join-Path $Stage 'khiankrub.exe')
+Copy-Item (Join-Path $KhitKrub 'target\x86_64-pc-windows-msvc\release\gridcraft.exe') (Join-Path $Stage 'khitkrub.exe')
+Copy-Item (Join-Path $PhutKrub 'target\x86_64-pc-windows-msvc\release\deckcraft.exe') (Join-Path $Stage 'phutkrub.exe')
 
 # The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons, next to kruboffice.exe.
 New-Item -ItemType Directory -Force (Join-Path $Stage 'fonts'), (Join-Path $Stage 'icons') | Out-Null
@@ -60,6 +66,14 @@ python -I (Join-Path $Root 'packaging\notices.py') @NoticeArgs
 if ($LASTEXITCODE -ne 0) { throw 'notices.py failed' }
 
 # File types: packaging/types.txt, kept equal to the launcher's table by a unit test.
+# Check: no program may need the Visual C++ runtime DLLs (a fresh Windows doesn't have them).
+foreach ($exe in Get-ChildItem $Stage -Filter *.exe) {
+    $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName)).ToLowerInvariant()
+    foreach ($dll in 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'api-ms-win-crt-') {
+        if ($text.Contains($dll)) { throw "$($exe.Name) still needs $($dll) (build with +crt-static)" }
+    }
+}
+
 $Wxs = Join-Path $Dist 'kruboffice.wxs'
 Get-Content -Encoding utf8 (Join-Path $Root 'packaging\types.txt') | python -I (Join-Path $Root 'packaging\windows\make_wxs.py') $Wxs
 if ($LASTEXITCODE -ne 0) { throw 'make_wxs.py failed' }
