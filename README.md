@@ -1,6 +1,6 @@
 # KrubOffice สำหรับเดสก์ท็อป · KrubOffice for the desktop
 
-**สถานะ: กำลังพัฒนา ยังไม่เผยแพร่ / Status: in development, not published.**
+**รุ่นทดลอง / Beta.** [ดาวน์โหลดและวิธีติดตั้ง / Download and install](https://kruboffice.app/desktop.html)
 
 KrubOffice เป็นแอปเดียวสำหรับ macOS และ Windows ที่รวมโปรแกรมสามตัวไว้ข้างใน เปิดไฟล์ใดก็ได้ แล้ว KrubOffice จะเลือกโปรแกรมให้เอง
 
@@ -54,6 +54,15 @@ with `https://github.com/chanonss/kruboffice-desktop/releases/download/` or the 
   "macos": {"name": "KrubOffice-0.1.0-macos-universal.dmg", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-macos-universal.dmg", "size": 101711872},
   "windows": {"name": "KrubOffice-0.1.0-windows-x64.msi", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-windows-x64.msi", "size": 67108864}}}
 ```
+
+## Releasing
+
+1. Each program's web release comes first; pin its source commit and version in `packaging/sources.json`.
+2. Write the Thai release notes in `packaging/release-notes/vX.Y.Z.md` (drafts go to the owner first) and set
+   `version` in `Cargo.toml`.
+3. Push the tag `vX.Y.Z`. `.github/workflows/release.yml` builds the Mac app (Apple silicon and Intel) and the
+   Windows installer, checks both (the installer is installed and removed on the runner), publishes the release
+   with `SHA256SUMS`, and commits `latest.json`. It reads the private sources with the `SOURCES_TOKEN` secret.
 
 ## Building (macOS)
 

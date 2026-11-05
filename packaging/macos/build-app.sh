@@ -10,10 +10,11 @@
 # KrubOffice, which passes each to its program. The helpers declare no file types of their own,
 # so Finder doesn't offer them separately.
 #
-# Usage: packaging/macos/build-app.sh [--skip-build] [--out DIR]
+# Usage: packaging/macos/build-app.sh [--skip-build] [--universal] [--out DIR]
+#   --universal                                 one app for Apple silicon and Intel (needs both Rust targets)
 #   KHIANKRUB_SRC, KHITKRUB_SRC, PHUTKRUB_SRC   source folders (default: siblings of this repo)
 #   MACOS_SIGN_IDENTITY                         codesign identity; default "-" (ad-hoc)
-# Builds for this Mac's architecture (a universal build is the release workflow's job).
+# Without --universal it builds for this Mac's architecture only.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -23,9 +24,11 @@ KHITKRUB_SRC="${KHITKRUB_SRC:-$DEV/khitkrub-web}"
 PHUTKRUB_SRC="${PHUTKRUB_SRC:-$DEV/phutkrub-web}"
 OUT="$ROOT/dist"
 BUILD=1
+UNIVERSAL=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-build) BUILD=0 ;;
+        --universal) UNIVERSAL=1 ;;
         --out) shift; OUT="$1" ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -42,16 +45,28 @@ for v in "$VERSION" "$khian_version" "$khit_version" "$phut_version"; do
     [ -n "$v" ] || { echo "error: a version number is missing" >&2; exit 1; }
 done
 
-if [ "$BUILD" = 1 ]; then
-    (cd "$ROOT" && cargo build --release)
-    (cd "$KHIANKRUB_SRC" && cargo build --release -p wordcraft)
-    (cd "$KHITKRUB_SRC" && cargo build --release -p gridcraft)
-    (cd "$PHUTKRUB_SRC" && cargo build --release -p deckcraft)
-fi
-LAUNCHER="${CARGO_TARGET_DIR:-$ROOT/target}/release/kruboffice"
-KHIAN_BIN="$KHIANKRUB_SRC/target/release/wordcraft"
-KHIT_BIN="$KHITKRUB_SRC/target/release/gridcraft"
-PHUT_BIN="$PHUTKRUB_SRC/target/release/deckcraft"
+# Build one program; prints the path of its binary (a universal one with --universal).
+#   build_bin SRC_DIR PACKAGE BINARY [TARGET_DIR]
+build_bin() {
+    local src="$1" pkg="$2" bin="$3" tdir="${4:-$1/target}"
+    if [ "$UNIVERSAL" = 1 ]; then
+        if [ "$BUILD" = 1 ]; then
+            (cd "$src" && CARGO_TARGET_DIR="$tdir" cargo build --release -p "$pkg" --target aarch64-apple-darwin --target x86_64-apple-darwin >&2)
+        fi
+        mkdir -p "$tdir/universal"
+        lipo -create "$tdir/aarch64-apple-darwin/release/$bin" "$tdir/x86_64-apple-darwin/release/$bin" -output "$tdir/universal/$bin"
+        echo "$tdir/universal/$bin"
+    else
+        if [ "$BUILD" = 1 ]; then
+            (cd "$src" && CARGO_TARGET_DIR="$tdir" cargo build --release -p "$pkg" >&2)
+        fi
+        echo "$tdir/release/$bin"
+    fi
+}
+LAUNCHER="$(build_bin "$ROOT" kruboffice kruboffice "${CARGO_TARGET_DIR:-$ROOT/target}")"
+KHIAN_BIN="$(build_bin "$KHIANKRUB_SRC" wordcraft wordcraft)"
+KHIT_BIN="$(build_bin "$KHITKRUB_SRC" gridcraft gridcraft)"
+PHUT_BIN="$(build_bin "$PHUTKRUB_SRC" deckcraft deckcraft)"
 for f in "$LAUNCHER" "$KHIAN_BIN" "$KHIT_BIN" "$PHUT_BIN"; do
     test -x "$f" || { echo "error: $f is missing; build first" >&2; exit 1; }
 done
@@ -132,10 +147,13 @@ add_helper KhitKrub "$KHIT_BIN" khitkrub "$KHITKRUB_SRC/assets/app-icon/khitkrub
 add_helper PhutKrub "$PHUT_BIN" phutkrub "$PHUTKRUB_SRC/assets/app-icon/phutkrub-512.png" "$phut_version"
 
 # KrubOffice's Info.plist: one document type per program, with the extensions from the
-# launcher's own table (`kruboffice --list-types`), so the two can't disagree.
+# launcher's own table (packaging/types.txt, which a unit test keeps equal to it).
 python3 -I "$ROOT/packaging/macos/info_plist.py" "$VERSION" "$khian_version" "$khit_version" "$phut_version" \
-    < <("$LAUNCHER" --list-types) > "$APP/Contents/Info.plist"
+    < "$ROOT/packaging/types.txt" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
+
+# Smaller download: drop debugging symbols (the bundle was 233 MB unstripped).
+strip -x "$APP/Contents/MacOS/kruboffice" "$APP"/Contents/Helpers/*.app/Contents/MacOS/*
 
 # Sign inside out: the helpers, then the whole app.
 for h in "$APP"/Contents/Helpers/*.app; do

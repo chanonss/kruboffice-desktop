@@ -1,0 +1,3 @@
+KhianKrub	docx,docm,dotx,dotm,doc,dot,rtf,odt,txt,md,markdown,html,htm,tex,latex,ltx
+KhitKrub	xlsx,xlsm,xltx,xltm,xls,xlt,xlsb,ods,csv,tsv,slk
+PhutKrub	pptx,potx,ppsx,deckcraft

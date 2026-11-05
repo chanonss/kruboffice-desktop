@@ -189,6 +189,13 @@ pub fn file_args(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
+    /// The installers read packaging/types.txt (`kruboffice --list-types`); it must match this table.
+    #[test]
+    fn packaging_types_match_the_table() {
+        let expected: String = App::ALL.iter().map(|a| format!("{}\t{}\n", a.name(), a.extensions().join(","))).collect();
+        assert_eq!(include_str!("../packaging/types.txt"), expected, "run `kruboffice --list-types > packaging/types.txt`");
+    }
+
     #[test]
     fn each_extension_belongs_to_one_program() {
         let mut seen = std::collections::HashMap::new();

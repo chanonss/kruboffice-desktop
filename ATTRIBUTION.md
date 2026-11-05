@@ -1,6 +1,6 @@
 # Attribution
 
-This repository's only image files are screenshots of KrubOffice itself (below). It holds no font or icon files. The app icons in a built KrubOffice are made
+This repository's image files are screenshots of KrubOffice itself and the Windows icon (below). It holds no font files. The app icons in a built KrubOffice are made
 at build time (`packaging/macos/build-app.sh`) from the apps' own icons, each recorded in its
 repository's `ATTRIBUTION.md`:
 
@@ -26,3 +26,4 @@ Screenshots in this repository:
 | File | Author | Source | Licence |
 |---|---|---|---|
 | `docs/images/start-light.png`, `docs/images/start-dark.png` | Chanon Sarasuk | rendered offscreen by `examples/shot.rs` (our own interface, icons and Sarabun) | MIT OR Apache-2.0 (Sarabun: SIL OFL 1.1) |
+| `packaging/windows/kruboffice.ico` | Chanon Sarasuk | packed (16–256 px) from khiankrub-web `packaging/web/public/icons/krubOffice-maskable-512.png` | MIT OR Apache-2.0 |

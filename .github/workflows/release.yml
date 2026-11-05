@@ -1,0 +1,176 @@
+# Build KrubOffice for macOS (Apple silicon and Intel) and Windows (x64), check both, and publish
+# them as a GitHub release, then write latest.json (read by kruboffice.app's download card and
+# desktop.html).
+#
+# Start it by pushing a tag that matches Cargo.toml's version (`git tag v0.1.0 && git push origin
+# v0.1.0`); run it by hand (workflow_dispatch) to build and check without releasing.
+#
+# The three programs come from private repositories at the commits in packaging/sources.json, read
+# with the SOURCES_TOKEN secret: a fine-grained token with read-only Contents access to
+# khiankrub-web-source, khitkrub-web-source and phutkrub-web-source.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the pinned sources
+        id: src
+        run: |
+          for app in khiankrub khitkrub phutkrub; do
+            echo "${app}_repo=$(jq -r ".${app}.repo" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+            echo "${app}_ref=$(jq -r ".${app}.ref" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+          done
+          echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khiankrub_repo }}", ref: "${{ steps.src.outputs.khiankrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khiankrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khitkrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/phutkrub-web }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+      - name: Build KrubOffice.app (Apple silicon and Intel)
+        env:
+          KHIANKRUB_SRC: ${{ github.workspace }}/src/khiankrub-web
+          KHITKRUB_SRC: ${{ github.workspace }}/src/khitkrub-web
+          PHUTKRUB_SRC: ${{ github.workspace }}/src/phutkrub-web
+        run: packaging/macos/build-app.sh --universal
+      - name: Check the app
+        run: |
+          app=dist/KrubOffice.app
+          for b in "$app/Contents/MacOS/kruboffice" "$app"/Contents/Helpers/*.app/Contents/MacOS/*; do
+            lipo -archs "$b" | grep -q arm64 && lipo -archs "$b" | grep -q x86_64 || { echo "not universal: $b"; exit 1; }
+          done
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/kruboffice" --version
+          test "$("$app/Contents/MacOS/kruboffice" --list-types)" = "$(cat packaging/types.txt)"
+          plutil -lint "$app/Contents/Info.plist"
+          ls "$app/Contents/Resources/fonts/Sarabun-Regular.ttf" "$app/Contents/Resources/icons/khiankrub-192.png"
+      - name: Disk image
+        run: packaging/macos/make-dmg.sh dist/KrubOffice.app "dist/KrubOffice-${{ steps.src.outputs.version }}-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: "dist/*.dmg", if-no-files-found: error }
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the pinned sources
+        id: src
+        shell: pwsh
+        run: |
+          $s = Get-Content packaging/sources.json | ConvertFrom-Json
+          foreach ($app in 'khiankrub', 'khitkrub', 'phutkrub') {
+            "${app}_repo=$($s.$app.repo)" >> $env:GITHUB_OUTPUT
+            "${app}_ref=$($s.$app.ref)" >> $env:GITHUB_OUTPUT
+          }
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khiankrub_repo }}", ref: "${{ steps.src.outputs.khiankrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khiankrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khitkrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/phutkrub-web }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install WiX 5.0.2 and its UI and Util extensions
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+      - name: Build the installer
+        shell: pwsh
+        run: packaging/windows/package.ps1 -KhianKrub src/khiankrub-web -KhitKrub src/khitkrub-web -PhutKrub src/phutkrub-web
+      - name: Install, check, and uninstall on the runner
+        shell: pwsh
+        run: |
+          $msi = Resolve-Path "dist/KrubOffice-${{ steps.src.outputs.version }}-windows-x64.msi"
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "install failed: $($p.ExitCode)" }
+          $dir = Join-Path $env:ProgramFiles 'KrubOffice'
+          foreach ($f in 'kruboffice.exe', 'khiankrub.exe', 'khitkrub.exe', 'phutkrub.exe', 'fonts\Sarabun-Regular.ttf', 'icons\khitkrub-192.png') {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "missing after install: $f" }
+          }
+          if (-not (Get-ItemProperty 'HKLM:\Software\RegisteredApplications' -Name KrubOffice -ErrorAction SilentlyContinue)) { throw 'KrubOffice is not in Default apps' }
+          $cmd = (Get-ItemProperty 'HKLM:\Software\Classes\KrubOffice.KhitKrub.xlsx\shell\open\command').'(default)'
+          if ($cmd -notlike '*kruboffice.exe*') { throw "xlsx opens with: $cmd" }
+          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall failed: $($p.ExitCode)" }
+          if (Test-Path (Join-Path $dir 'kruboffice.exe')) { throw 'kruboffice.exe left after uninstall' }
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: "dist/*.msi", if-no-files-found: error }
+
+  release:
+    needs: [macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: main }
+      - name: Check the tag matches the version
+        id: v
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but Cargo.toml says $version"; exit 1; }
+          test -f "packaging/release-notes/${GITHUB_REF_NAME}.md" || { echo "no release notes for ${GITHUB_REF_NAME}"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with: { path: out, merge-multiple: true }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum *.dmg *.msi > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "KrubOffice ${GITHUB_REF_NAME}" \
+            --notes-file "../packaging/release-notes/${GITHUB_REF_NAME}.md" *.dmg *.msi SHA256SUMS
+      - name: Write latest.json for kruboffice.app
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, re
+          v = os.environ["VERSION"]
+          tag = "v" + v
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+          src = json.load(open("packaging/sources.json"))
+          files = {}
+          for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$")):
+              name = next(n for n in os.listdir("out") if re.match(pattern, n))
+              files[key] = {"name": name, "url": base + name, "size": os.path.getsize(os.path.join("out", name))}
+          info = {
+              "version": v,
+              "date": datetime.date.today().isoformat(),
+              "notes": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{tag}",
+              "includes": {k.capitalize().replace("krub", "Krub"): src[k]["version"] for k in ("khiankrub", "khitkrub", "phutkrub")},
+              "files": files,
+          }
+          json.dump(info, open("latest.json", "w"), ensure_ascii=False, indent=1)
+          open("latest.json", "a").write("\n")
+          print(open("latest.json").read())
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git commit -m "latest.json: KrubOffice ${GITHUB_REF_NAME}"
+          git push origin HEAD:main
