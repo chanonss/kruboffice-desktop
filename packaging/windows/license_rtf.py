@@ -1,4 +1,4 @@
-"""The installer's licence page (RTF) from LICENSE.txt, KrubOffice's freeware licence (Thai and English)."""
+"""The installer's licence page (RTF) from LICENSE-MIT and LICENSE-APACHE."""
 import sys
 from pathlib import Path
 
@@ -15,6 +15,7 @@ def rtf(text):
         else:
             out.append(ch)
     return "".join(out)
-body = (root / "LICENSE.txt").read_text(encoding="utf-8") + "\nThe licences of the open-source parts are in THIRD-PARTY-NOTICES.txt, installed with KrubOffice.\n"
-# Leelawadee UI: Windows' interface font with Thai letters.
-Path(sys.argv[1]).write_text("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Leelawadee UI;}}\\fs18\n" + rtf(body) + "}\n", encoding="ascii")
+body = ("KrubOffice is open source under the MIT license or the Apache License 2.0, at your option.\n"
+        "The licences of the parts it is built on are in THIRD-PARTY-NOTICES.txt, installed with KrubOffice.\n\n"
+        + (root / "LICENSE-MIT").read_text(encoding="utf-8") + "\n\n" + (root / "LICENSE-APACHE").read_text(encoding="utf-8"))
+Path(sys.argv[1]).write_text("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Segoe UI;}}\\fs18\n" + rtf(body) + "}\n", encoding="ascii")

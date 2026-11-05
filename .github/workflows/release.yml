@@ -7,13 +7,9 @@
 # Start it by pushing a tag that matches Cargo.toml's version (`git tag v0.1.0 && git push origin
 # v0.1.0`); run it by hand (workflow_dispatch) to build and check without releasing.
 #
-# This repository (kruboffice-desktop-source) is private. Releases and latest.json go to the public
-# repository chanonss/kruboffice-desktop (PUBLIC_REPO), which holds nothing else but a README.
-#
-# Secrets:
-#   SOURCES_TOKEN   fine-grained, read-only Contents on khiankrub-web-source, khitkrub-web-source and
-#                   phutkrub-web-source (the three programs, at the commits in packaging/sources.json)
-#   RELEASES_TOKEN  fine-grained, read and write Contents on chanonss/kruboffice-desktop only
+# The three programs come from private repositories at the commits in packaging/sources.json, read
+# with the SOURCES_TOKEN secret: a fine-grained token with read-only Contents access to
+# khiankrub-web-source, khitkrub-web-source and phutkrub-web-source.
 name: Release
 
 on:
@@ -23,9 +19,6 @@ on:
 
 permissions:
   contents: read
-
-env:
-  PUBLIC_REPO: chanonss/kruboffice-desktop
 
 concurrency:
   group: release-${{ github.ref }}
@@ -124,7 +117,7 @@ jobs:
           $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "install failed: $($p.ExitCode)" }
           $dir = Join-Path $env:ProgramFiles 'KrubOffice'
-          foreach ($f in 'kruboffice.exe', 'khiankrub.exe', 'khitkrub.exe', 'phutkrub.exe', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'fonts\Sarabun-Regular.ttf', 'icons\khitkrub-192.png') {
+          foreach ($f in 'kruboffice.exe', 'khiankrub.exe', 'khitkrub.exe', 'phutkrub.exe', 'LICENSE-MIT.txt', 'LICENSE-APACHE.txt', 'THIRD-PARTY-NOTICES.txt', 'fonts\Sarabun-Regular.ttf', 'icons\khitkrub-192.png') {
             if (-not (Test-Path (Join-Path $dir $f))) { throw "missing after install: $f" }
           }
           if (-not (Get-ItemProperty 'HKLM:\Software\RegisteredApplications' -Name KrubOffice -ErrorAction SilentlyContinue)) { throw 'KrubOffice is not in Default apps' }
@@ -141,6 +134,8 @@ jobs:
     # The macOS job may be skipped (off); Windows must have succeeded.
     if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result != 'failure' && needs.macos.result != 'cancelled' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: main }
@@ -153,27 +148,26 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with: { path: out, merge-multiple: true }
-      - name: Publish the release (in the public repository)
+      - name: Publish the release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd out
           shopt -s nullglob
           files=(*.dmg *.msi)
           sha256sum "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
-          gh release create "${GITHUB_REF_NAME}" --repo "${PUBLIC_REPO}" --target main --title "KrubOffice ${GITHUB_REF_NAME}" \
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --target main --title "KrubOffice ${GITHUB_REF_NAME}" \
             --notes-file "../packaging/release-notes/${GITHUB_REF_NAME}.md" "${files[@]}" SHA256SUMS
-      - name: Write latest.json for kruboffice.app (in the public repository)
+      - name: Write latest.json for kruboffice.app
         env:
           VERSION: ${{ steps.v.outputs.version }}
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           python3 - <<'PY'
           import datetime, json, os, re
           v = os.environ["VERSION"]
           tag = "v" + v
-          base = f"https://github.com/{os.environ['PUBLIC_REPO']}/releases/download/{tag}/"
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
           src = json.load(open("packaging/sources.json"))
           files = {}
           for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$")):
@@ -184,7 +178,7 @@ jobs:
           info = {
               "version": v,
               "date": datetime.date.today().isoformat(),
-              "notes": f"https://github.com/{os.environ['PUBLIC_REPO']}/releases/tag/{tag}",
+              "notes": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{tag}",
               "includes": {k.capitalize().replace("krub", "Krub"): src[k]["version"] for k in ("khiankrub", "khitkrub", "phutkrub")},
               "files": files,
           }
@@ -192,9 +186,6 @@ jobs:
           open("latest.json", "a").write("\n")
           print(open("latest.json").read())
           PY
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${PUBLIC_REPO}.git" public
-          cp latest.json public/latest.json
-          cd public
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add latest.json

@@ -1,7 +1,7 @@
 """THIRD-PARTY-NOTICES.txt: the licences and copyright notices of the open-source parts in a KrubOffice build.
 
-KrubOffice is free to use but not open source (LICENSE.txt). The programs inside it are built from
-open-source work (WordCraft, GridCraft and DeckCraft by the ArtCraft team, many Rust libraries, fonts),
+KrubOffice is open source (MIT OR Apache-2.0, LICENSE-MIT and LICENSE-APACHE). The programs inside it are built
+from open-source work (WordCraft, GridCraft and DeckCraft by the ArtCraft team, many Rust libraries, fonts),
 whose licences (MIT, Apache-2.0, BSD, Zlib, SIL OFL …) ask that their notices travel with every copy.
 This file collects them.
 
@@ -84,7 +84,7 @@ def main():
         workspace, package = spec.rsplit(":", 1)
         for p, files in walk(workspace, package, target):
             key = (p["name"], p["version"])
-            if p["name"] == "kruboffice" or key in crates:  # KrubOffice's own launcher is under LICENSE.txt
+            if p["name"] == "kruboffice" or key in crates:  # KrubOffice's own launcher: LICENSE-MIT / LICENSE-APACHE
                 continue
             hashes = [add_text(f"{p['name']} {p['version']}: {f.name}", f) for f in files]
             crates[key] = (p.get("license") or "see licence text", p.get("repository") or "", hashes)
@@ -97,9 +97,9 @@ def main():
     lines = [
         "KrubOffice: third-party notices",
         "",
-        "KrubOffice is free to use but not open source (see LICENSE.txt). It contains the open-source",
-        "software and fonts listed below, each under its own licence. Their licence texts and copyright",
-        "notices follow. Nothing in KrubOffice's own licence limits your rights under these licences.",
+        "KrubOffice is open source under the MIT license or the Apache License 2.0 (LICENSE-MIT.txt,",
+        "LICENSE-APACHE.txt). It contains the open-source software and fonts listed below, each under its",
+        "own licence. Their licence texts and copyright notices follow.",
         "",
         f"Components ({len(crates)} Rust crates):",
         "",

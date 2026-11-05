@@ -152,8 +152,9 @@ python3 -I "$ROOT/packaging/macos/info_plist.py" "$VERSION" "$khian_version" "$k
     < "$ROOT/packaging/types.txt" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-# KrubOffice's licence and the notices of the open-source parts in this build.
-cp "$ROOT/LICENSE.txt" "$APP/Contents/Resources/LICENSE.txt"
+# KrubOffice's licence (MIT OR Apache-2.0) and the notices of the open-source parts in this build.
+cp "$ROOT/LICENSE-MIT" "$APP/Contents/Resources/LICENSE-MIT.txt"
+cp "$ROOT/LICENSE-APACHE" "$APP/Contents/Resources/LICENSE-APACHE.txt"
 notice_args=("$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt" aarch64-apple-darwin "$ROOT:kruboffice" "$KHIANKRUB_SRC:wordcraft" "$KHITKRUB_SRC:gridcraft" "$PHUTKRUB_SRC:deckcraft" --fonts "$APP/Contents/Resources/fonts")
 if [ -d "$KHIANKRUB_SRC/../craft-fonts/fonts" ]; then notice_args+=(--fonts "$KHIANKRUB_SRC/../craft-fonts/fonts"); fi
 python3 -I "$ROOT/packaging/notices.py" "${notice_args[@]}"

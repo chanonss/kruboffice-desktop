@@ -1,7 +1,8 @@
 """Write kruboffice.wxs (WiX Toolset v5) from `kruboffice --list-types` on stdin.
 
 One per-machine install in Program Files\\KrubOffice: the launcher (kruboffice.exe, with the
-only Start Menu shortcut) and the three programs (khiankrub.exe, khitkrub.exe, phutkrub.exe).
+only Start Menu shortcut), the three programs (khiankrub.exe, khitkrub.exe, phutkrub.exe), the licence
+(LICENSE-MIT.txt, LICENSE-APACHE.txt), THIRD-PARTY-NOTICES.txt and the Start Center's fonts and icons.
 Every file type opens through the launcher, which starts the right program. Like KhianKrub's
 installer, nothing takes over an extension's default: KrubOffice is listed under "Open with" and in
 Settings › Default apps, where people choose it.
@@ -99,9 +100,10 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
         <File Id="KhitKrubExe" Source="$(var.BinDir)\\khitkrub.exe" />
         <File Id="PhutKrubExe" Source="$(var.BinDir)\\phutkrub.exe" />
       </Component>
-      <!-- KrubOffice's licence and the open-source notices, next to the programs. -->
+      <!-- KrubOffice's licence (MIT OR Apache-2.0) and the notices of the parts it is built on. -->
       <Component Id="KrubOfficeLicences" Guid="75EF0564-6780-4B6E-A16A-D2CF0E5DDCAE">
-        <File Id="LicenseTxt" Source="$(var.BinDir)\\LICENSE.txt" KeyPath="yes" />
+        <File Id="LicenseMit" Source="$(var.BinDir)\\LICENSE-MIT.txt" KeyPath="yes" />
+        <File Id="LicenseApache" Source="$(var.BinDir)\\LICENSE-APACHE.txt" />
         <File Id="NoticesTxt" Source="$(var.BinDir)\\THIRD-PARTY-NOTICES.txt" />
       </Component>
       <!-- The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons. -->

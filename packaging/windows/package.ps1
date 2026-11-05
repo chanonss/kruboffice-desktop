@@ -47,9 +47,10 @@ Copy-Item (Join-Path $KhianKrub 'assets\app-icon\khiankrub-192.png') (Join-Path 
 Copy-Item (Join-Path $KhitKrub 'assets\app-icon\khitkrub-192.png') (Join-Path $Stage 'icons')
 Copy-Item (Join-Path $PhutKrub 'assets\app-icon\phutkrub-192.png') (Join-Path $Stage 'icons')
 
-# KrubOffice's licence, and the notices of the open-source parts in this build (the three programs'
+# KrubOffice's licence (MIT OR Apache-2.0), and the notices of the open-source parts in this build (the three programs'
 # dependencies and the fonts they embed from the craft-fonts checkout next to them).
-Copy-Item (Join-Path $Root 'LICENSE.txt') (Join-Path $Stage 'LICENSE.txt')
+Copy-Item (Join-Path $Root 'LICENSE-MIT') (Join-Path $Stage 'LICENSE-MIT.txt')
+Copy-Item (Join-Path $Root 'LICENSE-APACHE') (Join-Path $Stage 'LICENSE-APACHE.txt')
 $Fonts = Join-Path (Split-Path -Parent (Resolve-Path $KhianKrub)) 'craft-fonts\fonts'
 $NoticeArgs = @((Join-Path $Stage 'THIRD-PARTY-NOTICES.txt'), 'x86_64-pc-windows-msvc', "$($Root):kruboffice",
     "$((Resolve-Path $KhianKrub)):wordcraft", "$((Resolve-Path $KhitKrub)):gridcraft", "$((Resolve-Path $PhutKrub)):deckcraft")
