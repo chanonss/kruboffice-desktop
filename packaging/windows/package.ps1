@@ -47,6 +47,17 @@ Copy-Item (Join-Path $KhianKrub 'assets\app-icon\khiankrub-192.png') (Join-Path 
 Copy-Item (Join-Path $KhitKrub 'assets\app-icon\khitkrub-192.png') (Join-Path $Stage 'icons')
 Copy-Item (Join-Path $PhutKrub 'assets\app-icon\phutkrub-192.png') (Join-Path $Stage 'icons')
 
+# KrubOffice's licence, and the notices of the open-source parts in this build (the three programs'
+# dependencies and the fonts they embed from the craft-fonts checkout next to them).
+Copy-Item (Join-Path $Root 'LICENSE.txt') (Join-Path $Stage 'LICENSE.txt')
+$Fonts = Join-Path (Split-Path -Parent (Resolve-Path $KhianKrub)) 'craft-fonts\fonts'
+$NoticeArgs = @((Join-Path $Stage 'THIRD-PARTY-NOTICES.txt'), 'x86_64-pc-windows-msvc', "$($Root):kruboffice",
+    "$((Resolve-Path $KhianKrub)):wordcraft", "$((Resolve-Path $KhitKrub)):gridcraft", "$((Resolve-Path $PhutKrub)):deckcraft")
+if (Test-Path $Fonts) { $NoticeArgs += @('--fonts', $Fonts) }
+$NoticeArgs += @('--fonts', (Join-Path $Stage 'fonts'))
+python -I (Join-Path $Root 'packaging\notices.py') @NoticeArgs
+if ($LASTEXITCODE -ne 0) { throw 'notices.py failed' }
+
 # File types: packaging/types.txt, kept equal to the launcher's table by a unit test.
 $Wxs = Join-Path $Dist 'kruboffice.wxs'
 Get-Content -Encoding utf8 (Join-Path $Root 'packaging\types.txt') | python -I (Join-Path $Root 'packaging\windows\make_wxs.py') $Wxs

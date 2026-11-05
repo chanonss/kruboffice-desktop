@@ -75,7 +75,10 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
           Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
     </UI>
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="KrubOffice" />
+      <Directory Id="INSTALLFOLDER" Name="KrubOffice">
+        <Directory Id="FontsFolder" Name="fonts" />
+        <Directory Id="IconsFolder" Name="icons" />
+      </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <Feature Id="Main" Title="KrubOffice" Level="1">
@@ -95,6 +98,22 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
         <File Id="KhianKrubExe" Source="$(var.BinDir)\\khiankrub.exe" KeyPath="yes" />
         <File Id="KhitKrubExe" Source="$(var.BinDir)\\khitkrub.exe" />
         <File Id="PhutKrubExe" Source="$(var.BinDir)\\phutkrub.exe" />
+      </Component>
+      <!-- KrubOffice's licence and the open-source notices, next to the programs. -->
+      <Component Id="KrubOfficeLicences" Guid="75EF0564-6780-4B6E-A16A-D2CF0E5DDCAE">
+        <File Id="LicenseTxt" Source="$(var.BinDir)\\LICENSE.txt" KeyPath="yes" />
+        <File Id="NoticesTxt" Source="$(var.BinDir)\\THIRD-PARTY-NOTICES.txt" />
+      </Component>
+      <!-- The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons. -->
+      <Component Id="KrubOfficeFonts" Directory="FontsFolder" Guid="58547059-F83A-4D64-8BAF-D8E5F81A2A9A">
+        <File Id="SarabunRegular" Source="$(var.BinDir)\\fonts\\Sarabun-Regular.ttf" KeyPath="yes" />
+        <File Id="SarabunSemiBold" Source="$(var.BinDir)\\fonts\\Sarabun-SemiBold.ttf" />
+        <File Id="SarabunOfl" Source="$(var.BinDir)\\fonts\\OFL.txt" />
+      </Component>
+      <Component Id="KrubOfficeIcons" Directory="IconsFolder" Guid="DEC8460C-A4CA-429A-B90E-F224F26219D7">
+        <File Id="KhianKrubIcon" Source="$(var.BinDir)\\icons\\khiankrub-192.png" KeyPath="yes" />
+        <File Id="KhitKrubIcon" Source="$(var.BinDir)\\icons\\khitkrub-192.png" />
+        <File Id="PhutKrubIcon" Source="$(var.BinDir)\\icons\\phutkrub-192.png" />
       </Component>
       <Component Id="KrubOfficeFileTypes" Guid="{GUID_TYPES}">
         <RegistryValue Root="HKLM" Key="Software\\RegisteredApplications" Name="KrubOffice" Value="Software\\KrubOffice\\Capabilities" Type="string" KeyPath="yes" />

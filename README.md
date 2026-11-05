@@ -25,8 +25,10 @@ Opened without a file, KrubOffice shows the same welcome as [kruboffice.app](htt
 
 ## How it is put together
 
-- **This repository** holds the launcher (`src/`: Start Center, file-type dispatch), the packaging
-  (`packaging/macos`, `packaging/windows`) and, later, the release workflow and the Releases page.
+- **This repository** (private) holds the launcher (`src/`: Start Center, file-type dispatch), the packaging
+  (`packaging/macos`, `packaging/windows`) and the release workflow. Releases are published to the public
+  repository [chanonss/kruboffice-desktop](https://github.com/chanonss/kruboffice-desktop), which holds only a README,
+  the releases and `latest.json`.
 - **The programs come from the web apps' repositories** (`khiankrub-web`, `khitkrub-web`,
   `phutkrub-web`): one code line for the web and the desktop. Work lands on the web first; a
   desktop release bundles the latest web releases.
@@ -75,6 +77,7 @@ Builds the launcher and the three programs (sibling folders by default; `KHIANKR
 
 ## Licence
 
-MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). KhianKrub, KhitKrub and PhutKrub are
-adaptations, by Chanon Sarasuk, of WordCraft, GridCraft and DeckCraft by the ArtCraft team. Not
-products of ArtCraft and not affiliated with Microsoft.
+KrubOffice for the desktop is **free to use but not open source**: `LICENSE.txt` (freeware licence, Thai and
+English). This repository is private. The open-source parts it is built on (WordCraft, GridCraft and DeckCraft by
+the ArtCraft team, Rust crates, fonts) keep their own licences; `packaging/notices.py` collects their texts into
+`THIRD-PARTY-NOTICES.txt`, which ships with every build. Not products of ArtCraft and not affiliated with Microsoft.
