@@ -21,6 +21,8 @@ Opened without a file, KrubOffice shows the same welcome as [kruboffice.app](htt
   <img src="docs/images/start-dark.png" alt="The same Start Center in the dark theme" width="49%">
 </p>
 
+ติดตามข่าวและรุ่นใหม่ได้ที่ **[เพจ Facebook ของ KrubOffice](https://www.facebook.com/kruboffice/)** · Follow **[KrubOffice on Facebook](https://www.facebook.com/kruboffice/)** for news and new versions.
+
 ## How it is put together
 
 - **This repository** holds the launcher (`src/`: Start Center, file-type dispatch), the packaging
