@@ -1,6 +1,8 @@
-# Build KrubOffice for macOS (Apple silicon and Intel) and Windows (x64), check both, and publish
-# them as a GitHub release, then write latest.json (read by kruboffice.app's download card and
-# desktop.html).
+# Build KrubOffice for Windows (x64), check it, and publish it as a GitHub release, then write
+# latest.json (read by kruboffice.app's download card and desktop.html).
+#
+# The macOS job is kept but switched off (`if: false` on it): releases are Windows-only for now
+# (owner, 2026-11-05). Turning it on adds the .dmg to the release and to latest.json.
 #
 # Start it by pushing a tag that matches Cargo.toml's version (`git tag v0.1.0 && git push origin
 # v0.1.0`); run it by hand (workflow_dispatch) to build and check without releasing.
@@ -24,6 +26,8 @@ concurrency:
 
 jobs:
   macos:
+    # Off: Windows-only releases for now. Delete this line to build and release the Mac app again.
+    if: false
     runs-on: macos-latest
     timeout-minutes: 150
     steps:
@@ -127,7 +131,8 @@ jobs:
 
   release:
     needs: [macos, windows]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # The macOS job may be skipped (off); Windows must have succeeded.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result != 'failure' && needs.macos.result != 'cancelled' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,10 +153,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd out
-          sha256sum *.dmg *.msi > SHA256SUMS
+          shopt -s nullglob
+          files=(*.dmg *.msi)
+          sha256sum "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
           gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "KrubOffice ${GITHUB_REF_NAME}" \
-            --notes-file "../packaging/release-notes/${GITHUB_REF_NAME}.md" *.dmg *.msi SHA256SUMS
+            --notes-file "../packaging/release-notes/${GITHUB_REF_NAME}.md" "${files[@]}" SHA256SUMS
       - name: Write latest.json for kruboffice.app
         env:
           VERSION: ${{ steps.v.outputs.version }}
@@ -164,7 +171,9 @@ jobs:
           src = json.load(open("packaging/sources.json"))
           files = {}
           for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$")):
-              name = next(n for n in os.listdir("out") if re.match(pattern, n))
+              name = next((n for n in os.listdir("out") if re.match(pattern, n)), None)
+              if name is None:
+                  continue  # this platform isn't in the release
               files[key] = {"name": name, "url": base + name, "size": os.path.getsize(os.path.join("out", name))}
           info = {
               "version": v,
