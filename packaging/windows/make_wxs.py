@@ -20,10 +20,12 @@ GUID_APP = "0A41C885-D116-424A-8BE1-0AFA74164F0A"
 GUID_TYPES = "BF9E9411-BDCE-432D-A7E2-B30E3DC0E4A7"
 GUID_PROGRAMS = "98C017C3-022C-49D3-8035-E367E907CA6D"
 
+# English: an MSI's strings use its code page (Windows-1252 here), which has no Thai letters. Explorer
+# shows these as the file type ("Type" column).
 DESCRIPTION = {
-    "KhianKrub": "เอกสาร (KhianKrub)",
-    "KhitKrub": "ตารางคำนวณ (KhitKrub)",
-    "PhutKrub": "งานนำเสนอ (PhutKrub)",
+    "KhianKrub": "Document (KrubOffice)",
+    "KhitKrub": "Spreadsheet (KrubOffice)",
+    "PhutKrub": "Presentation (KrubOffice)",
 }
 
 programs = []
@@ -85,7 +87,7 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
       <Component Id="KrubOfficeApp" Guid="{GUID_APP}">
         <File Id="KrubOfficeExe" Source="$(var.BinDir)\\kruboffice.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="KrubOffice"
-              Description="เอกสาร ตารางคำนวณ และงานนำเสนอ" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="KrubOffice.ico" IconIndex="0" />
+              Description="Documents, spreadsheets and presentations" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="KrubOffice.ico" IconIndex="0" />
         </File>
         <RegistryValue Root="HKLM" Key="Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\kruboffice.exe" Value="[#KrubOfficeExe]" Type="string" />
       </Component>
@@ -97,7 +99,7 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
       <Component Id="KrubOfficeFileTypes" Guid="{GUID_TYPES}">
         <RegistryValue Root="HKLM" Key="Software\\RegisteredApplications" Name="KrubOffice" Value="Software\\KrubOffice\\Capabilities" Type="string" KeyPath="yes" />
         <RegistryValue Root="HKLM" Key="Software\\KrubOffice\\Capabilities" Name="ApplicationName" Value="KrubOffice" Type="string" />
-        <RegistryValue Root="HKLM" Key="Software\\KrubOffice\\Capabilities" Name="ApplicationDescription" Value="เอกสาร ตารางคำนวณ และงานนำเสนอ ภาษาไทย" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\\KrubOffice\\Capabilities" Name="ApplicationDescription" Value="Thai documents, spreadsheets and presentations" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\\KrubOffice\\Capabilities" Name="ApplicationIcon" Value="&quot;[#KrubOfficeExe]&quot;,0" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\\Classes\\Applications\\kruboffice.exe" Name="FriendlyAppName" Value="KrubOffice" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\\Classes\\Applications\\kruboffice.exe\\shell\\open\\command" Value="{cmd}" Type="string" />

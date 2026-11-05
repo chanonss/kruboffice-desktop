@@ -31,7 +31,7 @@ jobs:
       - name: Read the pinned sources
         id: src
         run: |
-          for app in khiankrub khitkrub phutkrub; do
+          for app in khiankrub khitkrub phutkrub craft_fonts; do
             echo "${app}_repo=$(jq -r ".${app}.repo" packaging/sources.json)" >> "$GITHUB_OUTPUT"
             echo "${app}_ref=$(jq -r ".${app}.ref" packaging/sources.json)" >> "$GITHUB_OUTPUT"
           done
@@ -42,6 +42,10 @@ jobs:
         with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khitkrub-web }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/phutkrub-web }
+      # The programs embed fonts from a craft-fonts checkout next to their sources (../craft-fonts), as on the
+      # development Mac; without it PhutKrub builds with no bundled slide fonts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.craft_fonts_repo }}", ref: "${{ steps.src.outputs.craft_fonts_ref }}", path: src/craft-fonts }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
       - name: Build KrubOffice.app (Apple silicon and Intel)
@@ -76,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $s = Get-Content packaging/sources.json | ConvertFrom-Json
-          foreach ($app in 'khiankrub', 'khitkrub', 'phutkrub') {
+          foreach ($app in 'khiankrub', 'khitkrub', 'phutkrub', 'craft_fonts') {
             "${app}_repo=$($s.$app.repo)" >> $env:GITHUB_OUTPUT
             "${app}_ref=$($s.$app.ref)" >> $env:GITHUB_OUTPUT
           }
@@ -88,6 +92,10 @@ jobs:
         with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khitkrub-web }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/phutkrub-web }
+      # The programs embed fonts from a craft-fonts checkout next to their sources (../craft-fonts), as on the
+      # development Mac; without it PhutKrub builds with no bundled slide fonts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.craft_fonts_repo }}", ref: "${{ steps.src.outputs.craft_fonts_ref }}", path: src/craft-fonts }
       - uses: dtolnay/rust-toolchain@stable
       - name: Install WiX 5.0.2 and its UI and Util extensions
         shell: pwsh
