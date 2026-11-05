@@ -37,6 +37,22 @@ Opened without a file, KrubOffice shows the same welcome as [kruboffice.app](htt
 | Opening a file | Finder sends it to KrubOffice, which passes it on through LaunchServices (a running program gets it in its window) | Explorer starts `kruboffice.exe "file"`, which starts the program with the file |
 | File types | `CFBundleDocumentTypes`, rank Alternate | `OpenWithProgids` and Default apps capabilities; never takes over a default |
 
+## `latest.json`: what kruboffice.app shows
+
+kruboffice.app (the download card and `desktop.html`) reads `latest.json` from this repository's `main` branch
+(`https://raw.githubusercontent.com/chanonss/kruboffice-desktop/main/latest.json`). The release workflow writes it
+after each release's files are uploaded; until it exists, the site shows no download. Download URLs must start
+with `https://github.com/chanonss/kruboffice-desktop/releases/download/` or the site ignores them.
+
+```json
+{"version": "0.1.0", "date": "2026-11-05",
+ "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.1.0",
+ "includes": {"KhianKrub": "0.12.0", "KhitKrub": "0.3.0", "PhutKrub": "0.5.0"},
+ "files": {
+  "macos": {"name": "KrubOffice-0.1.0-macos-universal.dmg", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-macos-universal.dmg", "size": 101711872},
+  "windows": {"name": "KrubOffice-0.1.0-windows-x64.msi", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-windows-x64.msi", "size": 67108864}}}
+```
+
 ## Building (macOS)
 
 ```bash
