@@ -26,6 +26,21 @@ fn resources_dir() -> Option<std::path::PathBuf> {
     if here.ends_with("Contents/MacOS") { here.parent().map(|c| c.join("Resources")) } else { Some(here.to_path_buf()) }
 }
 
+/// The KrubOffice logo (three tiles) for the window and taskbar; egui's own icon otherwise.
+fn app_icon() -> egui::IconData {
+    let png: &[u8] = include_bytes!("../packaging/windows/kruboffice-512.png");
+    match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            egui::IconData { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() }
+        }
+        Err(e) => {
+            log::warn!("app icon: {e}");
+            egui::IconData::default()
+        }
+    }
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -75,6 +90,7 @@ fn main() {
         viewport: egui::ViewportBuilder::default()
             .with_title("KrubOffice")
             .with_app_id("app.kruboffice.desktop")
+            .with_icon(app_icon())
             .with_inner_size([820.0, 680.0])
             .with_min_inner_size([560.0, 520.0])
             .with_drag_and_drop(true)

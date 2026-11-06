@@ -45,7 +45,7 @@ for name, exts in programs:
         prog = f"KrubOffice.{name}.{ext}"
         desc = quoteattr(DESCRIPTION[name])
         types += [
-            f'        <ProgId Id="{prog}" Description={desc} Icon="KrubOfficeExe" IconIndex="0" />',
+            f'        <ProgId Id="{prog}" Description={desc} Icon="{name}FileIcon" IconIndex="0" />',
             f'        <RegistryValue Root="HKLM" Key="Software\\Classes\\{prog}\\shell\\open\\command" Value="{cmd}" Type="string" />',
             f'        <RegistryValue Root="HKLM" Key="Software\\Classes\\.{ext}\\OpenWithProgids" Name="{prog}" Value="" Type="string" />',
             f'        <RegistryValue Root="HKLM" Key="Software\\Classes\\Applications\\kruboffice.exe\\SupportedTypes" Name=".{ext}" Value="" Type="string" />',
@@ -116,6 +116,10 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
         <File Id="KhianKrubIcon" Source="$(var.BinDir)\\icons\\khiankrub-192.png" KeyPath="yes" />
         <File Id="KhitKrubIcon" Source="$(var.BinDir)\\icons\\khitkrub-192.png" />
         <File Id="PhutKrubIcon" Source="$(var.BinDir)\\icons\\phutkrub-192.png" />
+        <!-- Explorer's icons for the files each program opens (.docx shows KhianKrub's, and so on). -->
+        <File Id="KhianKrubFileIcon" Source="$(var.BinDir)\\icons\\khiankrub.ico" />
+        <File Id="KhitKrubFileIcon" Source="$(var.BinDir)\\icons\\khitkrub.ico" />
+        <File Id="PhutKrubFileIcon" Source="$(var.BinDir)\\icons\\phutkrub.ico" />
       </Component>
       <Component Id="KrubOfficeFileTypes" Guid="{GUID_TYPES}">
         <RegistryValue Root="HKLM" Key="Software\\RegisteredApplications" Name="KrubOffice" Value="Software\\KrubOffice\\Capabilities" Type="string" KeyPath="yes" />

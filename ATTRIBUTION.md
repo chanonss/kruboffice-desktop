@@ -26,4 +26,6 @@ Screenshots in this repository:
 | File | Author | Source | Licence |
 |---|---|---|---|
 | `docs/images/start-light.png`, `docs/images/start-dark.png` | Chanon Sarasuk | rendered offscreen by `examples/shot.rs` (our own interface, icons and Sarabun) | MIT OR Apache-2.0 (Sarabun: SIL OFL 1.1) |
-| `packaging/windows/kruboffice.ico` | Chanon Sarasuk | packed (16–256 px) from khiankrub-web `packaging/web/public/icons/krubOffice-maskable-512.png` | MIT OR Apache-2.0 |
+| `packaging/windows/kruboffice-512.png` | Chanon Sarasuk | copy of khiankrub-web `packaging/web/public/icons/krubOffice-512.png` (the window and taskbar icon) | MIT OR Apache-2.0 |
+| `packaging/windows/kruboffice.ico` | Chanon Sarasuk | packed (16–256 px) from `packaging/windows/kruboffice-512.png` | MIT OR Apache-2.0 |
+| `packaging/windows/khiankrub.ico`, `khitkrub.ico`, `phutkrub.ico` | Chanon Sarasuk | packed (16–256 px) by `make_ico.py` from each app's `assets/app-icon/*-512.png` (Explorer's file icons) | MIT OR Apache-2.0 (Thai outline: Sarabun, SIL OFL 1.1) |

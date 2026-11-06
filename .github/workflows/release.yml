@@ -123,6 +123,11 @@ jobs:
           if (-not (Get-ItemProperty 'HKLM:\Software\RegisteredApplications' -Name KrubOffice -ErrorAction SilentlyContinue)) { throw 'KrubOffice is not in Default apps' }
           $cmd = (Get-ItemProperty 'HKLM:\Software\Classes\KrubOffice.KhitKrub.xlsx\shell\open\command').'(default)'
           if ($cmd -notlike '*kruboffice.exe*') { throw "xlsx opens with: $cmd" }
+          # Each file type shows its program's icon in Explorer.
+          foreach ($t in @(@('KhianKrub.docx', 'khiankrub.ico'), @('KhitKrub.xlsx', 'khitkrub.ico'), @('PhutKrub.pptx', 'phutkrub.ico'))) {
+            $icon = (Get-ItemProperty "HKLM:\Software\Classes\KrubOffice.$($t[0])\DefaultIcon").'(default)'
+            if ($icon -notlike "*icons\$($t[1])*") { throw "$($t[0]) icon: $icon" }
+          }
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall failed: $($p.ExitCode)" }
           if (Test-Path (Join-Path $dir 'kruboffice.exe')) { throw 'kruboffice.exe left after uninstall' }

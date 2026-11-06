@@ -23,6 +23,11 @@ if (-not $Version) { throw 'version not found in Cargo.toml' }
 $Target = 'x86_64-pc-windows-msvc'
 [Environment]::SetEnvironmentVariable('CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS', '-C target-feature=+crt-static')
 
+# Each program's About shows its source commit (instead of "development build").
+$env:WORDCRAFT_BUILD_SHA = (git -C $KhianKrub rev-parse HEAD)
+$env:GRIDCRAFT_BUILD_SHA = (git -C $KhitKrub rev-parse HEAD)
+$env:DECKCRAFT_BUILD_SHA = (git -C $PhutKrub rev-parse HEAD)
+
 function Build($Dir, $Package) {
     Push-Location $Dir
     try {
@@ -52,6 +57,8 @@ foreach ($f in 'Sarabun-Regular.ttf', 'Sarabun-SemiBold.ttf', 'OFL.txt') {
 Copy-Item (Join-Path $KhianKrub 'assets\app-icon\khiankrub-192.png') (Join-Path $Stage 'icons')
 Copy-Item (Join-Path $KhitKrub 'assets\app-icon\khitkrub-192.png') (Join-Path $Stage 'icons')
 Copy-Item (Join-Path $PhutKrub 'assets\app-icon\phutkrub-192.png') (Join-Path $Stage 'icons')
+# Explorer's icons for each program's files (packed from the same artwork; see ATTRIBUTION.md).
+foreach ($a in 'khiankrub', 'khitkrub', 'phutkrub') { Copy-Item (Join-Path $Root "packaging\windows\$a.ico") (Join-Path $Stage 'icons') }
 
 # KrubOffice's licence (MIT OR Apache-2.0), and the notices of the open-source parts in this build (the three programs'
 # dependencies and the fonts they embed from the craft-fonts checkout next to them).

@@ -45,6 +45,11 @@ for v in "$VERSION" "$khian_version" "$khit_version" "$phut_version"; do
     [ -n "$v" ] || { echo "error: a version number is missing" >&2; exit 1; }
 done
 
+# Each program's About shows its source commit (instead of "development build").
+export WORDCRAFT_BUILD_SHA="$(git -C "$KHIANKRUB_SRC" rev-parse HEAD 2>/dev/null || true)"
+export GRIDCRAFT_BUILD_SHA="$(git -C "$KHITKRUB_SRC" rev-parse HEAD 2>/dev/null || true)"
+export DECKCRAFT_BUILD_SHA="$(git -C "$PHUTKRUB_SRC" rev-parse HEAD 2>/dev/null || true)"
+
 # Build one program; prints the path of its binary (a universal one with --universal).
 #   build_bin SRC_DIR PACKAGE BINARY [TARGET_DIR]
 build_bin() {
