@@ -355,6 +355,7 @@ impl StartCenter {
                     });
                     ui.add_space(10.0);
                     ui.label(RichText::new("วันนี้ ...อยากทำอะไรดีครับ?").font(bold(24.0)).color(p.text));
+                    ui.label(RichText::new("ไฟล์ของท่านอยู่ในเครื่องของท่าน ไม่ได้อยู่ที่ผมครับ").size(13.0).color(p.sub));
                     ui.add_space(26.0);
                     ui.horizontal(|ui| {
                         // Up to 36 pt between the tiles, less in a narrow window.
