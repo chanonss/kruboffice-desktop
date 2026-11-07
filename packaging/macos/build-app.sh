@@ -167,10 +167,17 @@ python3 -I "$ROOT/packaging/notices.py" "${notice_args[@]}"
 # Smaller download: drop debugging symbols (the bundle was 233 MB unstripped).
 strip -x "$APP/Contents/MacOS/kruboffice" "$APP"/Contents/Helpers/*.app/Contents/MacOS/*
 
-# Sign inside out: the helpers, then the whole app.
+# Sign inside out: the helpers, then the whole app. With a Developer ID identity, as Apple's notary
+# service requires: the hardened runtime and a secure timestamp. Ad-hoc ("-", the default) for
+# local builds.
+if [ "$SIGN" = "-" ]; then
+    sign_args=(--force --sign "$SIGN" --timestamp=none)
+else
+    sign_args=(--force --sign "$SIGN" --options runtime --timestamp)
+fi
 for h in "$APP"/Contents/Helpers/*.app; do
-    codesign --force --sign "$SIGN" --timestamp=none "$h"
+    codesign "${sign_args[@]}" "$h"
 done
-codesign --force --sign "$SIGN" --timestamp=none "$APP"
+codesign "${sign_args[@]}" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "Built $APP (KrubOffice $VERSION: KhianKrub $khian_version, KhitKrub $khit_version, PhutKrub $phut_version)"

@@ -1,8 +1,18 @@
 # Build KrubOffice for Windows (x64), check it, and publish it as a GitHub release, then write
 # latest.json (read by kruboffice.app's download card and desktop.html).
 #
-# The macOS job is kept but switched off (`if: false` on it): releases are Windows-only for now
-# (owner, 2026-11-05). Turning it on adds the .dmg to the release and to latest.json.
+# The macOS job builds a universal app, signs it with the owner's Developer ID Application
+# certificate (hardened runtime), puts it on a signed disk image and has Apple notarize it, then
+# staples the ticket (owner, 2026-11-07: Apple Developer Program). Its secrets, set by the owner in
+# Settings › Secrets and variables › Actions:
+#   MACOS_CERTIFICATE_P12         the certificate and its private key, exported as .p12, base64
+#   MACOS_CERTIFICATE_PASSWORD    the password the .p12 was exported with
+#   MACOS_SIGN_IDENTITY           "Developer ID Application: Name (TEAMID)"
+#   APPLE_API_KEY_P8              an App Store Connect API key (.p8 file), base64
+#   APPLE_API_KEY_ID              its Key ID
+#   APPLE_API_ISSUER_ID           the Issuer ID shown above the keys
+# A tag push without them fails the macOS job (no unsigned Mac release); a manual run builds and
+# checks an ad-hoc signed app instead.
 #
 # Start it by pushing a tag that matches Cargo.toml's version (`git tag v0.1.0 && git push origin
 # v0.1.0`); run it by hand (workflow_dispatch) to build and check without releasing.
@@ -26,8 +36,6 @@ concurrency:
 
 jobs:
   macos:
-    # Off: Windows-only releases for now. Delete this line to build and release the Mac app again.
-    if: false
     runs-on: macos-latest
     timeout-minutes: 150
     steps:
@@ -52,11 +60,37 @@ jobs:
         with: { repository: "${{ steps.src.outputs.craft_fonts_repo }}", ref: "${{ steps.src.outputs.craft_fonts_ref }}", path: src/craft-fonts }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+      - name: Import the Developer ID certificate
+        id: sign
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          if [ -z "$P12" ] || [ -z "$IDENTITY" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "::error::the signing secrets aren't set: no unsigned Mac release"; exit 1; fi
+            echo "No signing secrets: building ad-hoc signed (not for release)."
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kpass="$(openssl rand -hex 24)"
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kpass" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep -F "$IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
       - name: Build KrubOffice.app (Apple silicon and Intel)
         env:
           KHIANKRUB_SRC: ${{ github.workspace }}/src/khiankrub-web
           KHITKRUB_SRC: ${{ github.workspace }}/src/khitkrub-web
           PHUTKRUB_SRC: ${{ github.workspace }}/src/phutkrub-web
+          MACOS_SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
         run: packaging/macos/build-app.sh --universal
       - name: Check the app
         run: |
@@ -70,7 +104,23 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           ls "$app/Contents/Resources/fonts/Sarabun-Regular.ttf" "$app/Contents/Resources/icons/khiankrub-192.png"
       - name: Disk image
+        env:
+          MACOS_SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
         run: packaging/macos/make-dmg.sh dist/KrubOffice.app "dist/KrubOffice-${{ steps.src.outputs.version }}-macos-universal.dmg"
+      - name: Notarize and staple
+        if: ${{ steps.sign.outputs.identity != '-' }}
+        env:
+          KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$KEY_P8" | base64 --decode > "$APPLE_API_KEY_PATH"
+          packaging/macos/notarize.sh "dist/KrubOffice-${{ steps.src.outputs.version }}-macos-universal.dmg"
+          rm -f "$APPLE_API_KEY_PATH"
+      - name: Remove the signing keychain
+        if: ${{ always() && steps.sign.outputs.identity != '' && steps.sign.outputs.identity != '-' }}
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: "dist/*.dmg", if-no-files-found: error }
 
@@ -136,8 +186,8 @@ jobs:
 
   release:
     needs: [macos, windows]
-    # The macOS job may be skipped (off); Windows must have succeeded.
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result != 'failure' && needs.macos.result != 'cancelled' }}
+    # Both platforms must have succeeded: a tag releases Windows and the notarized Mac app together.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
