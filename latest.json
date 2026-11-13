@@ -1,22 +1,22 @@
 {
- "version": "0.3.0",
- "date": "2026-11-09",
- "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.3.0",
+ "version": "0.4.0",
+ "date": "2026-11-13",
+ "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.4.0",
  "includes": {
-  "KhianKrub": "0.15.0",
-  "KhitKrub": "0.4.0",
-  "PhutKrub": "0.6.0"
+  "KhianKrub": "0.16.0",
+  "KhitKrub": "0.5.0",
+  "PhutKrub": "0.7.0"
  },
  "files": {
   "macos": {
-   "name": "KrubOffice-0.3.0-macos-universal.dmg",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.3.0/KrubOffice-0.3.0-macos-universal.dmg",
-   "size": 204268595
+   "name": "KrubOffice-0.4.0-macos-universal.dmg",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-macos-universal.dmg",
+   "size": 204862021
   },
   "windows": {
-   "name": "KrubOffice-0.3.0-windows-x64.msi",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.3.0/KrubOffice-0.3.0-windows-x64.msi",
-   "size": 85450752
+   "name": "KrubOffice-0.4.0-windows-x64.msi",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-windows-x64.msi",
+   "size": 85692416
   }
  }
 }
