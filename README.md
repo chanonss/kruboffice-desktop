@@ -49,7 +49,7 @@ with `https://github.com/chanonss/kruboffice-desktop/releases/download/` or the 
 ```json
 {"version": "0.1.0", "date": "2026-11-05",
  "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.1.0",
- "includes": {"KhianKrub": "0.15.0", "KhitKrub": "0.4.0", "PhutKrub": "0.6.0"},
+ "includes": {"KhianKrub": "0.16.0", "KhitKrub": "0.5.0", "PhutKrub": "0.7.0"},
  "files": {
   "macos": {"name": "KrubOffice-0.1.0-macos-universal.dmg", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-macos-universal.dmg", "size": 101711872},
   "windows": {"name": "KrubOffice-0.1.0-windows-x64.msi", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-windows-x64.msi", "size": 67108864}}}
