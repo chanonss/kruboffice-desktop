@@ -10,6 +10,7 @@ use eframe::egui::{self, Align2, Color32, CornerRadius, FontFamily, FontId, Rich
 use crate::dispatch::{self, App, Installation};
 use crate::fonts::BOLD;
 use crate::recent::{self, Recent};
+use crate::updates::{self, Lang, Text, Updates};
 
 const NAVY: Color32 = Color32::from_rgb(0x1e, 0x3a, 0x8a);
 const TEAL: Color32 = Color32::from_rgb(0x0f, 0x6e, 0x56);
@@ -106,6 +107,10 @@ pub struct StartCenter {
     shown: bool,
     /// Files waiting to be opened (from the command line, drops or Apple events).
     pending: Vec<PathBuf>,
+    /// The update check (`None`: none in this window, as in screenshots and tests).
+    updates: Option<Updates>,
+    /// The language of the update texts.
+    lang: Lang,
     #[cfg(target_os = "macos")]
     events: Option<fmv_macos_events::Inbox>,
 }
@@ -121,6 +126,8 @@ impl StartCenter {
             started: Instant::now(),
             shown: false,
             pending: initial,
+            updates: None,
+            lang: Lang::Thai,
             #[cfg(target_os = "macos")]
             events: None,
         }
@@ -129,6 +136,13 @@ impl StartCenter {
     /// The app's resources folder, where the packaging puts `icons/` and `fonts/`.
     pub fn with_resources(mut self, dir: Option<PathBuf>) -> StartCenter {
         self.resources = dir;
+        self
+    }
+
+    /// Check for updates in this window, with texts in `lang`.
+    pub fn with_updates(mut self, updates: Updates, lang: Lang) -> StartCenter {
+        self.updates = Some(updates);
+        self.lang = lang;
         self
     }
 
@@ -307,6 +321,11 @@ impl eframe::App for StartCenter {
         if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(true)))) {
             self.refresh_recent();
         }
+        if let Some(u) = &mut self.updates
+            && u.tick(&updates::today())
+        {
+            ctx.request_repaint_after(Duration::from_millis(200));
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -335,6 +354,7 @@ impl StartCenter {
         let p = Palette::of(&ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(p.bg)).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                self.update_banner(ui, &p);
                 ui.vertical_centered(|ui| {
                     ui.add_space(36.0);
                     ui.horizontal(|ui| {
@@ -443,10 +463,122 @@ impl StartCenter {
                         }
                         ui.add_space(20.0);
                         ui.label(RichText::new(format!("KrubOffice {} (รุ่นทดลอง) · ใช้ฟรีครับ", env!("CARGO_PKG_VERSION"))).size(11.5).color(p.sub));
+                        self.update_footer(ui, &p);
                         ui.add_space(16.0);
                     });
                 });
             });
+        });
+    }
+}
+
+/// A button in the update banners: the main one navy, the others like Open File.
+fn banner_button<'a>(text: &str, primary: bool, p: &Palette) -> egui::Button<'a> {
+    let (fill, color) = if primary { (NAVY, Color32::WHITE) } else { (p.card, p.text) };
+    egui::Button::new(RichText::new(text).size(13.5).color(color))
+        .fill(fill)
+        .stroke(Stroke::new(1.0, if primary { NAVY } else { p.sub.gamma_multiply(0.4) }))
+        .corner_radius(CornerRadius::same(6))
+        .min_size(vec2(0.0, 28.0))
+}
+
+/// The update check's parts of the Start Center.
+impl StartCenter {
+    /// The column the banners share with the recent files.
+    fn banner_frame(ui: &egui::Ui, p: &Palette) -> (f32, egui::Frame) {
+        let column = 560.0_f32.min(ui.available_width() - 32.0);
+        let dark = ui.visuals().dark_mode;
+        let fill = if dark { Color32::from_rgb(0x2a, 0x26, 0x18) } else { Color32::from_rgb(0xfd, 0xf3, 0xd2) };
+        let frame = egui::Frame::NONE
+            .fill(fill)
+            .stroke(Stroke::new(1.0, p.accent.gamma_multiply(0.6)))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(16, 12));
+        (column, frame)
+    }
+
+    /// At the top: the one-time question, or the news of a newer version.
+    fn update_banner(&mut self, ui: &mut egui::Ui, p: &Palette) {
+        let lang = self.lang;
+        let Some(u) = &mut self.updates else { return };
+        if u.needs_question() {
+            let (column, frame) = Self::banner_frame(ui, p);
+            ui.add_space(20.0);
+            ui.horizontal(|ui| {
+                ui.add_space(((ui.available_width() - column) / 2.0).max(0.0));
+                frame.show(ui, |ui| {
+                    ui.set_width(column - 32.0);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(Text::QuestionTitle.get(lang)).font(bold(15.5)).color(p.text));
+                        ui.add_space(2.0);
+                        ui.label(RichText::new(Text::QuestionBody.get(lang)).size(13.0).color(p.text));
+                        ui.label(RichText::new(Text::QuestionPrivacy.get(lang)).size(12.0).color(p.sub));
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui.add(banner_button(Text::CheckAutomatically.get(lang), true, p)).clicked() {
+                                u.answer_question(true, &updates::today());
+                            }
+                            if ui.add(banner_button(Text::DontCheck.get(lang), false, p)).clicked() {
+                                u.answer_question(false, &updates::today());
+                            }
+                        });
+                    });
+                });
+            });
+            return;
+        }
+        let Some(found) = u.found.clone() else { return };
+        let (column, frame) = Self::banner_frame(ui, p);
+        ui.add_space(20.0);
+        ui.horizontal(|ui| {
+            ui.add_space(((ui.available_width() - column) / 2.0).max(0.0));
+            frame.show(ui, |ui| {
+                ui.set_width(column - 32.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(Text::Available.with_version(lang, &found.version)).font(bold(15.0)).color(p.text));
+                    ui.add_space(6.0);
+                    if ui.add(banner_button(Text::Download.get(lang), true, p)).on_hover_text(updates::DOWNLOAD_PAGE).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(updates::DOWNLOAD_PAGE));
+                        u.close();
+                    }
+                    if ui.add(banner_button(Text::Skip.get(lang), false, p)).clicked() {
+                        u.skip();
+                    }
+                    if ui.add(banner_button(Text::Close.get(lang), false, p)).clicked() {
+                        u.close();
+                    }
+                });
+            });
+        });
+    }
+
+    /// Under the version: "Check for updates", the automatic switch, and what an asked-for
+    /// check found.
+    fn update_footer(&mut self, ui: &mut egui::Ui, p: &Palette) {
+        let lang = self.lang;
+        let Some(u) = &mut self.updates else { return };
+        ui.horizontal_wrapped(|ui| {
+            let link = ui.add_enabled(!u.checking(), egui::Link::new(RichText::new(Text::CheckNow.get(lang)).size(11.5).color(p.text)));
+            if link.clicked() {
+                u.check_now(true, &updates::today());
+            }
+            ui.add_space(12.0);
+            let mut on = u.settings.check == Some(true);
+            if ui.checkbox(&mut on, RichText::new(Text::AutomaticToggle.get(lang)).size(11.5).color(p.sub)).changed() {
+                u.set_automatic(on);
+            }
+        });
+        let line = match &u.status {
+            None => return,
+            Some(updates::Status::Checking) => Text::Checking.get(lang).to_string(),
+            Some(updates::Status::Latest) => Text::Latest.with_version(lang, updates::current()),
+            Some(updates::Status::Failed(why)) => format!("{} ({why})", Text::Failed.get(lang)),
+        };
+        ui.horizontal(|ui| {
+            if u.checking() {
+                ui.add(egui::Spinner::new().size(12.0));
+            }
+            ui.label(RichText::new(line).size(11.5).color(p.sub));
         });
     }
 }

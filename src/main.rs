@@ -15,7 +15,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use eframe::egui;
-use kruboffice::{dispatch, fonts, start};
+use kruboffice::{dispatch, fonts, start, updates};
 
 const USAGE: &str = "Usage: kruboffice [FILE...]\n\nOpens each file in KhianKrub (documents), KhitKrub (spreadsheets) or PhutKrub (presentations).\nWith no file, shows the KrubOffice Start Center.";
 
@@ -104,7 +104,8 @@ fn main() {
         options,
         Box::new(move |cc| {
             fonts::install(&cc.egui_ctx, resources.as_deref());
-            let app = start::StartCenter::new(install, files).with_resources(resources.clone());
+            let lang = kruboffice::recent::settings_root().map(|r| updates::Lang::of_programs(&r)).unwrap_or(updates::Lang::Thai);
+            let app = start::StartCenter::new(install, files).with_resources(resources.clone()).with_updates(updates::Updates::load(), lang);
             #[cfg(target_os = "macos")]
             let app = {
                 let ctx = cc.egui_ctx.clone();

@@ -17,6 +17,9 @@ log = "0.4"
 rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png"] }
 env_logger = { version = "0.11", default-features = false }
+# The update check (`src/updates.rs`) reads latest.json over HTTPS: a small, widely used pure-Rust
+# client (MIT OR Apache-2.0) with rustls for TLS, as KhianKrub used for its own check.
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 fmv-macos-events = "=0.1.0"

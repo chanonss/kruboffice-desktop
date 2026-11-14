@@ -69,6 +69,20 @@ with `https://github.com/chanonss/kruboffice-desktop/releases/download/` or the 
   "windows": {"name": "KrubOffice-0.1.0-windows-x64.msi", "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.1.0/KrubOffice-0.1.0-windows-x64.msi", "size": 67108864}}}
 ```
 
+## Update check
+
+The Start Center (`src/updates.rs`) tells people when a newer KrubOffice is out. The first time it opens it asks
+once whether to check automatically; with a yes it reads `latest.json` (the address above) at most once a day when
+the Start Center opens, and "ดูว่ามีรุ่นใหม่ไหม" under the version checks at once. A newer final version that has a
+file for this platform shows a bar: ไปหน้าดาวน์โหลด opens kruboffice.app/desktop.html, ข้ามรุ่นนี้ hides that
+version, ปิด hides the bar until next time. Nothing is downloaded or installed, and the request carries nothing but
+the app's name and version (User-Agent). The answer, the day of the last check and a skipped version are kept in
+`KrubOffice/settings.json` in the settings folder (macOS `~/Library/Application Support`, Windows `%APPDATA%`,
+Linux `~/.config/kruboffice`). The texts follow the programs' language (Thai unless they are set to English). The
+three programs' own update checks stay off. To try the bar, a debug build reads `KRUBOFFICE_UPDATE_FEED`
+(`https://…` or `http://127.0.0.1:…`) instead; `KRUBOFFICE_SHOT_UPDATES=1 cargo run --example shot -- OUT` draws
+its states.
+
 ## Releasing
 
 1. Each program's web release comes first; pin its source commit and version in `packaging/sources.json`.
