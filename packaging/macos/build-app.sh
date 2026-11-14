@@ -2,9 +2,9 @@
 # Build KrubOffice.app for macOS: the launcher with KhianKrub, KhitKrub and PhutKrub inside.
 #
 #   KrubOffice.app/Contents/MacOS/kruboffice            the launcher (Start Center, file dispatch)
-#   KrubOffice.app/Contents/Helpers/KhianKrub.app       documents      (from ../khiankrub-web)
-#   KrubOffice.app/Contents/Helpers/KhitKrub.app        spreadsheets   (from ../khitkrub-web)
-#   KrubOffice.app/Contents/Helpers/PhutKrub.app        presentations  (from ../phutkrub-web)
+#   KrubOffice.app/Contents/Helpers/KhianKrub.app       documents      (from ../khiankrub)
+#   KrubOffice.app/Contents/Helpers/KhitKrub.app        spreadsheets   (from ../khitkrub)
+#   KrubOffice.app/Contents/Helpers/PhutKrub.app        presentations  (from ../phutkrub)
 #
 # KrubOffice.app declares every file type the three programs open, so Finder sends those files to
 # KrubOffice, which passes each to its program. The helpers declare no file types of their own,
@@ -18,10 +18,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEV="$(cd "$ROOT/.." && pwd)"
-KHIANKRUB_SRC="${KHIANKRUB_SRC:-$DEV/khiankrub-web}"
-KHITKRUB_SRC="${KHITKRUB_SRC:-$DEV/khitkrub-web}"
-PHUTKRUB_SRC="${PHUTKRUB_SRC:-$DEV/phutkrub-web}"
+SUITE_ROOT="$(cd "$ROOT/.." && pwd)"
+KHIANKRUB_SRC="${KHIANKRUB_SRC:-$SUITE_ROOT/khiankrub}"
+KHITKRUB_SRC="${KHITKRUB_SRC:-$SUITE_ROOT/khitkrub}"
+PHUTKRUB_SRC="${PHUTKRUB_SRC:-$SUITE_ROOT/phutkrub}"
 OUT="$ROOT/dist"
 BUILD=1
 UNIVERSAL=0

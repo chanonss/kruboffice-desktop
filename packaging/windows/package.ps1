@@ -1,6 +1,6 @@
 # Build KrubOffice for Windows (x64): the launcher and the three programs, and the MSI installer.
 #
-#   pwsh packaging/windows/package.ps1 -KhianKrub ..\khiankrub-web -KhitKrub ..\khitkrub-web -PhutKrub ..\phutkrub-web
+#   pwsh packaging/windows/package.ps1 -KhianKrub ..\khiankrub -KhitKrub ..\khitkrub -PhutKrub ..\phutkrub
 #
 # Needs Rust, Python 3 and WiX Toolset 5 with its UI and Util extensions:
 #   dotnet tool install --global wix --version 5.0.2
