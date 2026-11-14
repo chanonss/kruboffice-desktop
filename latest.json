@@ -17,6 +17,11 @@
    "name": "KrubOffice-0.4.0-windows-x64.msi",
    "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-windows-x64.msi",
    "size": 85692416
+  },
+  "linux": {
+   "name": "kruboffice_0.4.0_amd64.deb",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/kruboffice_0.4.0_amd64.deb",
+   "size": 85592320
   }
  }
 }
