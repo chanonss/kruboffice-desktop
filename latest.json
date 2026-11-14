@@ -22,6 +22,11 @@
    "name": "kruboffice_0.4.0_amd64.deb",
    "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/kruboffice_0.4.0_amd64.deb",
    "size": 85592320
+  },
+  "linux_appimage": {
+   "name": "KrubOffice-0.4.0-x86_64.AppImage",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-x86_64.AppImage",
+   "size": 107629048
   }
  }
 }
