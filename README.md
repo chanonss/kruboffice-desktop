@@ -84,6 +84,10 @@ Builds the launcher and the three programs (same sibling-folder defaults and ove
 `/usr/lib/kruboffice` (plain Rust executables, no Python), with `/usr/bin/kruboffice` and a menu entry that
 registers the file types. The release workflow builds it for amd64 on Ubuntu 22.04.
 
+`packaging/linux/build-appimage.sh` (after `build-deb.sh`) packs the same files into
+`dist/KrubOffice-<version>-x86_64.AppImage`, one file that runs on most distributions without installing
+(glibc 2.35 or newer).
+
 ## Licence
 
 MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). KhianKrub, KhitKrub and PhutKrub are adaptations, by Chanon

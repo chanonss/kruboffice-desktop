@@ -249,8 +249,24 @@ jobs:
           for d in /usr/share/applications/kruboffice*.desktop; do desktop-file-validate "$d" || echo "::warning::$d did not validate"; done
           sudo apt-get remove -y kruboffice
           test ! -e /usr/lib/kruboffice
+      - name: Build the AppImage
+        run: packaging/linux/build-appimage.sh
+      - name: Run and check the AppImage
+        run: |
+          app="dist/KrubOffice-${{ steps.src.outputs.version }}-x86_64.AppImage"
+          ls -la "$app"
+          # No FUSE on the runner: the runtime extracts itself to a temporary folder instead.
+          "./$app" --appimage-extract-and-run --version
+          test "$("./$app" --appimage-extract-and-run --list-types)" = "$(cat packaging/types.txt)"
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/$app" --appimage-extract >/dev/null)
+          for f in AppRun kruboffice.desktop kruboffice.png usr/lib/kruboffice/khiankrub usr/lib/kruboffice/khitkrub usr/lib/kruboffice/phutkrub usr/lib/kruboffice/fonts/Sarabun-Regular.ttf; do test -e "$RUNNER_TEMP/squashfs-root/$f"; done
       - uses: actions/upload-artifact@v4
-        with: { name: linux, path: "dist/*.deb", if-no-files-found: error }
+        with:
+          name: linux
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+          if-no-files-found: error
 
   release:
     needs: [macos, windows, linux]
@@ -277,7 +293,7 @@ jobs:
         run: |
           cd out
           shopt -s nullglob
-          files=(*.dmg *.msi *.deb)
+          files=(*.dmg *.msi *.deb *.AppImage)
           sha256sum "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
           gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --target main --title "KrubOffice ${GITHUB_REF_NAME}" \
@@ -293,7 +309,7 @@ jobs:
           base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
           src = json.load(open("packaging/sources.json"))
           files = {}
-          for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$"), ("linux", r"^kruboffice_.*_amd64\.deb$")):
+          for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$"), ("linux", r"^kruboffice_.*_amd64\.deb$"), ("linux_appimage", r"^KrubOffice-.*-x86_64\.AppImage$")):
               name = next((n for n in os.listdir("out") if re.match(pattern, n)), None)
               if name is None:
                   continue  # this platform isn't in the release
