@@ -5,7 +5,7 @@
 #   packaging/linux/build-deb.sh
 #
 # Needs Rust, Python 3, dpkg-dev (dpkg-deb, dpkg-shlibdeps), curl, and the programs' build libraries:
-#   sudo apt install build-essential pkg-config python3 dpkg-dev curl libxkbcommon-dev libwayland-dev libx11-dev
+#   sudo apt install build-essential pkg-config python3 dpkg-dev curl libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev
 # Source folders default to siblings of this repo (as for macOS); KHIANKRUB_SRC, KHITKRUB_SRC and PHUTKRUB_SRC override.
 #
 # Layout: everything lives in /usr/lib/kruboffice (the launcher looks for the three programs, fonts/ and
