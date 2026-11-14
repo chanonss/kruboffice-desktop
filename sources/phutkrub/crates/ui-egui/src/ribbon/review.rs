@@ -1,0 +1,58 @@
+use super::{Icon, SlideApp, Ui, Value, big, big_button, big_button_ex, enabled, group, json, rows, run, small_button, tip};
+
+fn comment_nav(app: &mut SlideApp, ui: &mut Ui, forward: bool) {
+    let (icon, label, id) = if forward { (Icon::NextComment, "Next", "comment.next") } else { (Icon::PrevComment, "Previous", "comment.prev") };
+    if small_button(ui, icon, label, enabled(app, id), false).on_hover_text(tip(id, label)).clicked() {
+        let params = match app.ui.comment_focus {
+            Some((slide, index)) if app.session.active().is_some_and(|d| d.selection.slide == slide) => json!({"slide": slide, "index": index}),
+            _ => json!({}),
+        };
+        if let Ok(v) = app.run(id, params)
+            && let (Some(slide), Some(index)) = (v.get("slide").and_then(Value::as_u64), v.get("index").and_then(Value::as_u64))
+            && let (Ok(slide), Ok(index)) = (usize::try_from(slide), usize::try_from(index))
+        {
+            app.ui.comment_focus = Some((slide, index));
+            app.ui.pane = Some("comments".into());
+        }
+    }
+}
+
+pub(super) fn review(app: &mut SlideApp, ui: &mut Ui) {
+    group(ui, |ui| {
+        big(app, ui, Icon::Spelling, tl!("Spelling"), "app.dialog", json!({"id": "spelling"}));
+        big(app, ui, Icon::Thesaurus, tl!("Thesaurus"), "review.thesaurusPane", json!({}));
+    });
+    group(ui, |ui| {
+        big(app, ui, Icon::Accessibility, tl!("Check\nAccessibility"), "app.dialog", json!({"id": "accessibility"}));
+    });
+    group(ui, |ui| {
+        let r = big_button(ui, Icon::Translate, tl!("Translate"), false);
+        let _ = r.on_hover_text(tl!("Translation needs a language model (not bundled)"));
+        big(app, ui, Icon::Language, tl!("Language"), "app.dialog", json!({"id": "language"}));
+    });
+    group(ui, |ui| {
+        big(app, ui, Icon::Compare, tl!("Compare"), "app.compareDialog", json!({}));
+        let comparing = enabled(app, "review.endCompare");
+        if big_button(ui, Icon::Check, tl!("Accept\nAll"), comparing).clicked() {
+            run(app, "review.accept", json!({"all": true}));
+        }
+        if big_button(ui, Icon::Close, tl!("End\nReview"), comparing).clicked() {
+            run(app, "review.endCompare", json!({}));
+            if app.ui.pane.as_deref() == Some("revisions") {
+                app.ui.pane = None;
+            }
+        }
+    });
+    group(ui, |ui| {
+        big(app, ui, Icon::NewComment, tl!("New\nComment"), "app.dialog", json!({"id": "comment"}));
+        rows(ui, |ui| {
+            comment_nav(app, ui, false);
+            comment_nav(app, ui, true);
+        });
+        big(app, ui, Icon::DeleteComment, tl!("Delete"), "comment.delete", json!({}));
+        let show = app.ui.pane.as_deref() == Some("comments");
+        if big_button_ex(ui, Icon::ShowComments, tl!("Show\nComments"), true, false, show).0.clicked() {
+            let _ = app.run("view.pane", json!({"pane": "comments", "toggle": true}));
+        }
+    });
+}

@@ -14,6 +14,8 @@
 #               HANDOFF*.md (working notes), the owner's rules in CLAUDE.md
 #   KhianKrub   apps/khiankrub-drive-server, apps/khiankrub-drive-worker (Drive backends), NEW-MAC.md,
 #               loading-*.html (drafts)
+# Personal details are removed from every program: personal email addresses (the public support address
+# kruboffice@gmail.com stays) and the author fields of Office documents.
 # The script fails if anything it should have removed is still there, or if a file looks like a secret.
 set -euo pipefail
 
@@ -110,6 +112,40 @@ if app == "phutkrub":
 # A personal email address in a change-log note.
 edit("FORK-CHANGES.md", lambda t: re.sub(r"; commits to the public site use `[^`\s]+@[^`\s]+`", "", t))
 edit("xtask/src/layers.rs", lambda t: t.replace(f', "{web}", "xtask"]', ', "xtask"]'))
+
+# Personal details (owner, 2026-11-14): personal email addresses, and the author fields of Office documents.
+# kruboffice@gmail.com is the apps' public support address and stays.
+import os, zipfile
+PUBLIC_EMAILS = {"kruboffice@gmail.com"}
+personal_email = re.compile(r"\b[A-Za-z0-9._%+-]+@(?:gmail\.com|rmutk\.ac\.th|icloud\.com|mac\.com|me\.com|hotmail\.com|outlook\.com|yahoo\.com)\b")
+edit("crates/ui-egui/src/report.rs", lambda t: re.sub(r" \(personal Google account [^)]*\)", "", t))
+for root, _, files in os.walk(dest):
+    for fn in files:
+        p = os.path.join(root, fn)
+        if fn.lower().endswith((".docx", ".xlsx", ".pptx", ".dotx", ".xltx", ".potx")):
+            with zipfile.ZipFile(p) as z:
+                items = [(i, z.read(i.filename)) for i in z.infolist()]
+            changed = False
+            out = []
+            for info, data in items:
+                if info.filename == "docProps/core.xml":
+                    text = data.decode("utf-8")
+                    new = re.sub(r"(<(dc:creator|cp:lastModifiedBy)>)[^<]*(</\2>)", r"\1KrubOffice\3", text)
+                    if new != text:
+                        data, changed = new.encode("utf-8"), True
+                out.append((info, data))
+            if changed:
+                with zipfile.ZipFile(p, "w") as z:
+                    for info, data in out:
+                        z.writestr(info, data)
+            continue
+        try:
+            text = open(p, encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        new = personal_email.sub(lambda m: m.group(0) if m.group(0).lower() in PUBLIC_EMAILS else "(personal address removed)", text)
+        if new != text:
+            open(p, "w", encoding="utf-8").write(new)
 PY
 
   # Cargo.lock without the removed packages; no other dependency changes.
@@ -134,6 +170,14 @@ bad_files="$(cd "$OUT" && find . \( -name '.env' -o -name '.env.*' -o -name '*.p
 [ -z "$bad_files" ] || { echo "error: files that may hold secrets: $bad_files" >&2; exit 1; }
 if grep -r -I -n -E -- '-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[abpr]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{32,}|AIza[0-9A-Za-z_-]{35}|GOCSPX-[A-Za-z0-9_-]{20,}' "$OUT"; then
   echo "error: something that looks like a key or token (above)" >&2; exit 1
+fi
+# Checks: no personal email address and no personal author in an Office document.
+if grep -r -I -n -o -i -E '[A-Za-z0-9._%+-]+@(gmail\.com|rmutk\.ac\.th|icloud\.com|mac\.com|me\.com|hotmail\.com|outlook\.com|yahoo\.com)' "$OUT" | grep -v -i 'kruboffice@gmail\.com'; then
+  echo "error: a personal email address is left (above)" >&2; exit 1
+fi
+if find "$OUT" -type f \( -iname '*.docx' -o -iname '*.xlsx' -o -iname '*.pptx' \) -exec unzip -p {} docProps/core.xml \; 2>/dev/null \
+    | grep -i -E '<(dc:creator|cp:lastModifiedBy)>[^<]*(chanon|sarasuk)'; then
+  echo "error: an Office document still names a person as its author (above)" >&2; exit 1
 fi
 
 # sources/README.md: where each tree comes from.

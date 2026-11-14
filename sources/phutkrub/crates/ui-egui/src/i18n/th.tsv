@@ -1,0 +1,1106 @@
+# Thai (th) interface catalog. Columns, separated by a TAB:
+#   context <TAB> English source <TAB> translation
+#   context    usually empty. `template` words the name of a built-in template or theme where the same
+#              English needs other wording elsewhere; it falls back to the plain entry.
+#   source     the English text exactly as in the code (tl!(...), ribbon labels, command labels)
+#   escapes    \n  \t  \\ inside a column. `{name}` placeholders must appear in both columns, and a
+#              trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+#
+# Clean room: every entry was written from the plain meaning of the English label in ordinary Thai
+# computing vocabulary. No Microsoft PowerPoint (or other product) localisation, string table or
+# translated UI was consulted or copied; add entries the same way.
+# Product, format and technology names (PhutKrub, PDF, PPTX, SmartArt …) stay in Latin letters.
+
+	(no spelling suggestions)	(ไม่มีคำแนะนำการสะกด)
+	(none)	(ไม่มี)
+	+ Add	+ เพิ่ม
+	+ New Comment	+ ข้อคิดเห็นใหม่
+	+ New Slide	+ สไลด์ใหม่
+	+ Row	+ แถว
+	+ Series	+ ชุดข้อมูล
+	3-D	3 มิติ
+	3-D Format	รูปแบบ 3 มิติ
+	3-D Rotation	การหมุน 3 มิติ
+	Accept	ยอมรับ
+	Accept\nAll	ยอมรับ\nทั้งหมด
+	Action	การทำงาน
+	Add Pictures…	เพิ่มรูปภาพ…
+	Add Point	เพิ่มจุด
+	Add Section	เพิ่มส่วน
+	Add Shape	เพิ่มรูปร่าง
+	Add a title with a picture or some text to get layout ideas.	เพิ่มชื่อเรื่องพร้อมรูปภาพหรือข้อความ เพื่อรับแนวคิดเค้าโครง
+	Add to Dictionary	เพิ่มในพจนานุกรม
+	Add\nAnimation	เพิ่ม\nภาพเคลื่อนไหว
+	After:	หลังจาก:
+	Album theme	ธีมของอัลบั้ม
+	Align	จัดแนว
+	Align Left	ชิดซ้าย
+	Align Right	ชิดขวา
+	Align Text	จัดแนวข้อความ
+	Alignment:	การจัดแนว:
+	All slides	ทุกสไลด์
+	Alt Text	ข้อความแสดงแทน
+	Alt text	ข้อความแสดงแทน
+	Alt\nText	ข้อความ\nแสดงแทน
+	An open-source, clean-room project. Not affiliated with Microsoft.	โครงการโอเพนซอร์สที่พัฒนาแบบ clean-room ไม่มีส่วนเกี่ยวข้องกับ Microsoft
+	Angle	มุม
+	Animation Painter (double-click to keep it on)	คัดลอกภาพเคลื่อนไหว (ดับเบิลคลิกเพื่อใช้ต่อเนื่อง)
+	Animation\nPainter	คัดลอก\nภาพเคลื่อนไหว
+	Animation\nPane	บานหน้าต่าง\nภาพเคลื่อนไหว
+	Appearance	ลักษณะที่ปรากฏ
+	Applies to this presentation's theme colours.	ใช้กับสีธีมของงานนำเสนอนี้
+	Apply	ใช้
+	Apply only to this picture	ใช้กับรูปภาพนี้เท่านั้น
+	Apply to All	ใช้กับทั้งหมด
+	Apply to:	ใช้กับ:
+	Apply\nTo All	ใช้กับ\nทั้งหมด
+	Arrange	จัดเรียง
+	Arrows	ลูกศร
+	Artistic\nEffects	เอฟเฟกต์\nศิลปะ
+	As:	เป็น:
+	Audio	เสียง
+	AutoCorrect Options…	ตัวเลือกการแก้ไขอัตโนมัติ…
+	AutoCorrect as you type	แก้ไขอัตโนมัติขณะพิมพ์
+	Automatic bulleted and numbered lists	สร้างรายการหัวข้อย่อยและลำดับเลขอัตโนมัติ
+	Available formats:	รูปแบบที่ใช้ได้:
+	Back	ย้อนกลับ
+	Back (Esc)	ย้อนกลับ (Esc)
+	Background\nStyles	ลักษณะ\nพื้นหลัง
+	Banded Columns	แถบสลับสีคอลัมน์
+	Banded Rows	แถบสลับสีแถว
+	Bevel	ขอบนูน
+	Bold	ตัวหนา
+	Borders	เส้นขอบ
+	Bring Forward	นำขึ้นหนึ่งชั้น
+	Bring to Front	นำมาไว้ข้างหน้า
+	Bring\nForward	นำ\nขึ้นหนึ่งชั้น
+	Browse for Themes…	เลือกธีมจากไฟล์…
+	Bullets	หัวข้อย่อย
+	Bullets and Numbering…	หัวข้อย่อยและลำดับเลข…
+	Cameo	คาเมโอ
+	Camera capture is not available yet	ยังไม่รองรับการจับภาพจากกล้อง
+	Cancel	ยกเลิก
+	Capitalize first letter of sentences	ทำอักษรตัวแรกของประโยคเป็นตัวพิมพ์ใหญ่
+	Capitalize names of days	ทำชื่อวันเป็นตัวพิมพ์ใหญ่
+	Caps	ตัวพิมพ์ใหญ่
+	Cell Margins	ระยะขอบเซลล์
+	Center	กึ่งกลาง
+	Centimeters	เซนติเมตร
+	Change Case	เปลี่ยนตัวพิมพ์
+	Change Colors	เปลี่ยนสี
+	Change File Type	เปลี่ยนชนิดไฟล์
+	Change Picture	เปลี่ยนรูปภาพ
+	Change Picture…	เปลี่ยนรูปภาพ…
+	Change Shape	เปลี่ยนรูปร่าง
+	Change to:	เปลี่ยนเป็น:
+	Change\nChart Type	เปลี่ยน\nชนิดแผนภูมิ
+	Character Spacing	ระยะห่างตัวอักษร
+	Chart	แผนภูมิ
+	Chart cell	เซลล์แผนภูมิ
+	Check\nAccessibility	ตรวจสอบ\nการเข้าถึง
+	Choosing a presentation to reuse needs the desktop app	การเลือกงานนำเสนอเพื่อนำกลับมาใช้ต้องใช้แอปบนเดสก์ท็อป
+	Choosing a sound file needs the desktop app	การเลือกไฟล์เสียงต้องใช้แอปบนเดสก์ท็อป
+	Clear	ล้าง
+	Clear All	ล้างทั้งหมด
+	Clear All Formatting	ล้างรูปแบบทั้งหมด
+	Click a colour in the picture to make it transparent	คลิกสีในรูปภาพเพื่อทำให้โปร่งใส
+	Click a symbol to insert it at the insertion point.	คลิกสัญลักษณ์เพื่อแทรกที่ตำแหน่งเคอร์เซอร์
+	Click the slide to take the colour under the pointer	คลิกที่สไลด์เพื่อดูดสีใต้ตัวชี้
+	Click to add first slide	คลิกเพื่อเพิ่มสไลด์แรก
+	Click to add notes	คลิกเพื่อเพิ่มบันทึกย่อ
+	Click to add text	คลิกเพื่อเพิ่มข้อความ
+	Click to change this one; Shift-click to change all	คลิกเพื่อเปลี่ยนรายการนี้ กด Shift แล้วคลิกเพื่อเปลี่ยนทั้งหมด
+	Close	ปิด
+	Close\nMaster View	ปิด\nมุมมองต้นแบบ
+	Color	สี
+	Colors	สี
+	Columns	คอลัมน์
+	Columns…	คอลัมน์…
+	Comment	ข้อคิดเห็น
+	Comments	ข้อคิดเห็น
+	Compare	เปรียบเทียบ
+	Compare this presentation with a revised copy from Review › Compare.	เปรียบเทียบงานนำเสนอนี้กับฉบับแก้ไขจากตรวจทาน › เปรียบเทียบ
+	Compress	บีบอัด
+	Compress Pictures	บีบอัดรูปภาพ
+	Compression options	ตัวเลือกการบีบอัด
+	Convert	แปลง
+	Convert to Shapes	แปลงเป็นรูปร่าง
+	Convert to SmartArt	แปลงเป็น SmartArt
+	Convert to Text	แปลงเป็นข้อความ
+	Copy	คัดลอก
+	Copy path	คัดลอกที่อยู่ไฟล์
+	Correct TWo INitial CApitals	แก้ไขตัวพิมพ์ใหญ่สองตัวแรกของคำ
+	Correct accidental use of cAPS LOCK key	แก้ไขการเผลอเปิด Caps Lock
+	Corrections	การแก้ไข
+	Create Handouts	สร้างเอกสารแจก
+	Create a PDF Document	สร้างเอกสาร PDF
+	Crop	ครอบตัด
+	Crop to Shape	ครอบตัดเป็นรูปร่าง
+	Custom\nShow	นำเสนอ\nแบบกำหนดเอง
+	Customize Colors…	กำหนดสีเอง…
+	Customize Fonts…	กำหนดฟอนต์เอง…
+	Customize Quick Access Toolbar	กำหนดแถบเครื่องมือด่วน
+	Cut	ตัด
+	Dark appearance	ลักษณะมืด
+	Dark\nMode	โหมด\nมืด
+	Dash	ขีด
+	Dashes	ขีดกลาง
+	Date &\nTime	วันที่และ\nเวลา
+	DeckCraft	PhutKrub
+	DeckCraft has no accounts: there is nothing to sign in to, and your presentations stay on your device.	PhutKrub ไม่มีบัญชีผู้ใช้ จึงไม่ต้องลงชื่อเข้าใช้ และงานนำเสนอของคุณอยู่บนอุปกรณ์ของคุณเอง
+	Decrease Font Size	ลดขนาดฟอนต์
+	Decrease List Level	ลดระดับรายการ
+	Delay:	หน่วงเวลา:
+	Delete	ลบ
+	Delete Columns	ลบคอลัมน์
+	Delete Point	ลบจุด
+	Delete Repeated Word	ลบคำที่ซ้ำ
+	Delete Rows	ลบแถว
+	Delete Slide	ลบสไลด์
+	Delete Table	ลบตาราง
+	Delete cropped areas of pictures	ลบส่วนที่ถูกครอบตัดของรูปภาพ
+	Demote	ลดระดับ
+	Design\nIdeas	แนวคิด\nการออกแบบ
+	Display	การแสดงผล
+	Distribute Columns	กระจายคอลัมน์
+	Distribute Horizontally	กระจายในแนวนอน
+	Distribute Rows	กระจายแถว
+	Distribute Vertically	กระจายในแนวตั้ง
+	Do not check spelling or grammar	ไม่ตรวจการสะกดหรือไวยากรณ์
+	Draw Table	วาดตาราง
+	Duplicate Selected Slides	ทำสำเนาสไลด์ที่เลือก
+	Duplicate Slide	ทำสำเนาสไลด์
+	Duration:	ระยะเวลา:
+	Edit Alt Text…	แก้ไขข้อความแสดงแทน…
+	Edit Photo Album…	แก้ไขอัลบั้มรูปภาพ…
+	Edit Points	แก้ไขจุด
+	Edit Text	แก้ไขข้อความ
+	Edit the data: first row = series names, first column = categories.	แก้ไขข้อมูล: แถวแรกคือชื่อชุดข้อมูล คอลัมน์แรกคือหมวดหมู่
+	Edit\nData	แก้ไข\nข้อมูล
+	Edit\nShape	แก้ไข\nรูปร่าง
+	Editing	การแก้ไข
+	Effect\nOptions	ตัวเลือก\nเอฟเฟกต์
+	Effects	เอฟเฟกต์
+	End Review	สิ้นสุดการตรวจทาน
+	End of slide show	จบการนำเสนอ
+	End\nReview	สิ้นสุด\nการตรวจทาน
+	Equation	สมการ
+	Eraser	ยางลบ
+	Exit Edit Points	ออกจากการแก้ไขจุด
+	Export the presentation as:	ส่งออกงานนำเสนอเป็น:
+	Eyedropper	ตัวดูดสี
+	File	ไฟล์
+	File (Alt+F)	ไฟล์ (Alt+F)
+	Fill	การเติม
+	Find	ค้นหา
+	First Column	คอลัมน์แรก
+	Fit	พอดี
+	Fit slide to current window	ปรับสไลด์ให้พอดีหน้าต่าง
+	Fit to\nWindow	พอดี\nหน้าต่าง
+	Flip Horizontal	พลิกแนวนอน
+	Flip Vertical	พลิกแนวตั้ง
+	Follow Path	เคลื่อนที่ตามเส้นทาง
+	Font	ฟอนต์
+	Font Color	สีฟอนต์
+	Font name	ชื่อฟอนต์
+	Fonts	ฟอนต์
+	Font…	ฟอนต์…
+	Footers	ท้ายกระดาษ
+	For rectangles and rounded rectangles	สำหรับสี่เหลี่ยมและสี่เหลี่ยมมุมมน
+	Format	รูปแบบ
+	Format Background…	จัดรูปแบบพื้นหลัง…
+	Format Painter (double-click to keep it on)	คัดลอกรูปแบบ (ดับเบิลคลิกเพื่อใช้ต่อเนื่อง)
+	Format Shape…	จัดรูปแบบรูปร่าง…
+	Format\nBackground	จัดรูปแบบ\nพื้นหลัง
+	Format\nPane	บานหน้าต่าง\nรูปแบบ
+	Frame Slides	ใส่กรอบสไลด์
+	Frame shape	รูปร่างกรอบ
+	From the top-left corner of the slide	จากมุมซ้ายบนของสไลด์
+	From\nBeginning	จาก\nสไลด์แรก
+	From\nCurrent Slide	จาก\nสไลด์ปัจจุบัน
+	General	ทั่วไป
+	Glow	เรืองแสง
+	Go to	ไปที่
+	Gradient bar	แถบไล่ระดับสี
+	Gradient stops	จุดไล่ระดับสี
+	Gradient…	ไล่ระดับสี…
+	Grayscale	โทนสีเทา
+	Grid and Guides	เส้นตารางและเส้นไกด์
+	Grid\nOptions	ตัวเลือก\nเส้นตาราง
+	Gridlines	เส้นตาราง
+	Group	จัดกลุ่ม
+	Group Objects	จัดกลุ่มวัตถุ
+	Guides	เส้นไกด์
+	Handout\nMaster	ต้นแบบ\nเอกสารแจก
+	Header &\nFooter	หัวกระดาษและ\nท้ายกระดาษ
+	Header Row	แถวส่วนหัว
+	Heading and body fonts for this presentation.	ฟอนต์หัวเรื่องและเนื้อหาของงานนำเสนอนี้
+	Height:	ความสูง:
+	Hide During Show	ซ่อนระหว่างนำเสนอ
+	Hide background graphics	ซ่อนกราฟิกพื้นหลัง
+	Hide\nSlide	ซ่อน\nสไลด์
+	How would you describe this object and its context to someone who is blind or has low vision?	คุณจะอธิบายวัตถุนี้และบริบทของมันให้ผู้ที่มองไม่เห็นหรือสายตาเลือนรางฟังอย่างไร
+	Icons	ไอคอน
+	Ignore All	ข้ามทั้งหมด
+	Inches	นิ้ว
+	Include hidden slides	รวมสไลด์ที่ซ่อนไว้
+	Increase Font Size	เพิ่มขนาดฟอนต์
+	Increase List Level	เพิ่มระดับรายการ
+	Indentation	การเยื้อง
+	Ink to Math (coming soon)	หมึกเป็นสูตรคณิตศาสตร์ (เร็ว ๆ นี้)
+	Ink to Shape: turn drawn lines, rectangles, ovals and triangles into shapes	หมึกเป็นรูปร่าง: เปลี่ยนเส้น สี่เหลี่ยม วงรี และสามเหลี่ยมที่วาดให้เป็นรูปร่าง
+	Ink to Text (coming soon)	หมึกเป็นข้อความ (เร็ว ๆ นี้)
+	Ink to\nMath	หมึกเป็น\nสูตรคณิตศาสตร์
+	Ink to\nShape	หมึกเป็น\nรูปร่าง
+	Ink to\nText	หมึกเป็น\nข้อความ
+	Insert Picture	แทรกรูปภาพ
+	Insert Table…	แทรกตาราง…
+	Insert picture from file…	แทรกรูปภาพจากไฟล์…
+	Insert\nAbove	แทรก\nด้านบน
+	Insert\nBelow	แทรก\nด้านล่าง
+	Insert\nLayout	แทรก\nเค้าโครง
+	Insert\nLeft	แทรก\nทางซ้าย
+	Insert\nPlaceholder	แทรก\nตัวยึดตำแหน่ง
+	Insert\nRight	แทรก\nทางขวา
+	Insert…	แทรก…
+	Italic	ตัวเอียง
+	Justify	กระจายแนว
+	Keep source formatting	คงรูปแบบต้นฉบับ
+	Language	ภาษา
+	Language:	ภาษา:
+	Last Column	คอลัมน์สุดท้าย
+	Layout	เค้าโครง
+	Layouts	เค้าโครง
+	Learn\nMore	ดู\nเพิ่มเติม
+	Leave the slide background out: only what is on the slide is drawn	ไม่รวมพื้นหลังสไลด์: วาดเฉพาะสิ่งที่อยู่บนสไลด์
+	Less Brightness	ลดความสว่าง
+	Less Contrast	ลดความคมชัด
+	Light/Dark appearance	ลักษณะสว่าง/มืด
+	Line	เส้น
+	Line Spacing	ระยะห่างบรรทัด
+	Line Spacing Options…	ตัวเลือกระยะห่างบรรทัด…
+	Link	ลิงก์
+	Link…	ลิงก์…
+	Lock aspect ratio	ล็อกอัตราส่วน
+	Loop until Stopped	เล่นซ้ำจนกว่าจะหยุด
+	Margins (pt)	ระยะขอบ (pt)
+	Measurement units:	หน่วยวัด:
+	Media position	ตำแหน่งสื่อ
+	Merge Shapes	รวมรูปร่าง
+	Merge\nCells	รวม\nเซลล์
+	Merge\nShapes	รวม\nรูปร่าง
+	Month names and AM/PM are listed for English. Other languages list the numeric date and 24-hour time.	ชื่อเดือนและ AM/PM แสดงสำหรับภาษาอังกฤษ ภาษาอื่นแสดงวันที่เป็นตัวเลขและเวลาแบบ 24 ชั่วโมง
+	More Brightness	เพิ่มความสว่าง
+	More Colors… #	สีอื่น ๆ… #
+	More Columns…	คอลัมน์เพิ่มเติม…
+	More Contrast	เพิ่มความคมชัด
+	More presentations	งานนำเสนออื่น ๆ
+	More templates	แม่แบบอื่น ๆ
+	More themes	ธีมอื่น ๆ
+	Move Down	เลื่อนลง
+	Move Section Down	เลื่อนส่วนลง
+	Move Section Up	เลื่อนส่วนขึ้น
+	Move Up	เลื่อนขึ้น
+	Name	ชื่อ
+	Name:	ชื่อ:
+	New	สร้าง
+	New Comment	ข้อคิดเห็นใหม่
+	New Photo Album…	อัลบั้มรูปภาพใหม่…
+	New Slide	สไลด์ใหม่
+	New Slide (⇧⌘N)	สไลด์ใหม่ (⇧⌘N)
+	New Text Box	กล่องข้อความใหม่
+	New\nComment	ข้อคิดเห็น\nใหม่
+	New\nSlide	สไลด์\nใหม่
+	New\nWindow	หน้าต่าง\nใหม่
+	Next	ถัดไป
+	Next Page	หน้าถัดไป
+	No Glow	ไม่เรืองแสง
+	No accessibility issues found. People with disabilities should not have difficulty reading this document.	ไม่พบปัญหาการเข้าถึง ผู้พิการไม่น่ามีปัญหาในการอ่านเอกสารนี้
+	No comments.	ไม่มีข้อคิดเห็น
+	No contributor data was built into this copy.	สำเนานี้ไม่มีข้อมูลผู้ร่วมพัฒนา
+	No differences left.	ไม่มีความแตกต่างเหลืออยู่
+	No icons match.	ไม่พบไอคอนที่ตรงกัน
+	No model credits were built into this copy.	สำเนานี้ไม่มีรายชื่อโมเดล
+	No notes.	ไม่มีบันทึกย่อ
+	No pictures yet	ยังไม่มีรูปภาพ
+	No presentation is open.	ไม่มีงานนำเสนอที่เปิดอยู่
+	None	ไม่มี
+	Normal	ปกติ
+	Not a copy of this presentation: slides are matched by position.	ไม่ใช่สำเนาของงานนำเสนอนี้: จับคู่สไลด์ตามตำแหน่ง
+	Not saved yet	ยังไม่ได้บันทึก
+	Notes	บันทึกย่อ
+	Notes\nMaster	ต้นแบบ\nบันทึกย่อ
+	Nothing to print: every slide in the range is hidden.	ไม่มีอะไรให้พิมพ์: สไลด์ทุกแผ่นในช่วงถูกซ่อนไว้
+	Numbering	ลำดับเลข
+	On Click of… (none)	เมื่อคลิกที่… (ไม่มี)
+	On Mouse Click	เมื่อคลิกเมาส์
+	Open a presentation from a folder (Ctrl+O)	เปิดงานนำเสนอจากโฟลเดอร์ (Ctrl+O)
+	Open another window on this presentation	เปิดหน้าต่างอื่นสำหรับงานนำเสนอนี้
+	Open file location	เปิดตำแหน่งไฟล์
+	Open source under MIT OR Apache-2.0. Not affiliated with Microsoft.	โอเพนซอร์สภายใต้ MIT หรือ Apache-2.0 ไม่มีส่วนเกี่ยวข้องกับ Microsoft
+	Order Objects	ลำดับวัตถุ
+	Ordinals (1st) with superscript	เลขลำดับ (1st) แบบตัวยก
+	Orientation	การวางแนว
+	Orientation:	การวางแนว:
+	Outline	เค้าร่าง
+	Page Setup…	ตั้งค่าหน้ากระดาษ…
+	Paper size	ขนาดกระดาษ
+	Paragraph	ย่อหน้า
+	Paragraph…	ย่อหน้า…
+	Paste	วาง
+	Paste (⌘V)	วาง (⌘V)
+	Paste Formatting	วางเฉพาะรูปแบบ
+	Paste Special…	วางแบบพิเศษ…
+	Paste and Match Formatting	วางและใช้รูปแบบปลายทาง
+	Paste or type an outline. Unindented lines become slide titles; tab-indented lines become bullets.	วางหรือพิมพ์เค้าร่าง บรรทัดที่ไม่เยื้องจะเป็นชื่อเรื่องสไลด์ บรรทัดที่เยื้องด้วยแท็บจะเป็นหัวข้อย่อย
+	Pattern	ลวดลาย
+	Pen	ปากกา
+	Pen Color	สีปากกา
+	Pen Style	ลักษณะปากกา
+	Pen Weight	ความหนาปากกา
+	Percent:	เปอร์เซ็นต์:
+	Photo Album options	ตัวเลือกอัลบั้มรูปภาพ
+	Photo Album…	อัลบั้มรูปภาพ…
+	Photo\nAlbum	อัลบั้ม\nรูปภาพ
+	Pick a design for this slide. Ideas are generated on your device.	เลือกการออกแบบสำหรับสไลด์นี้ แนวคิดถูกสร้างบนอุปกรณ์ของคุณ
+	Pick a graphic; type one item per line.	เลือกกราฟิก แล้วพิมพ์ข้อความหนึ่งรายการต่อหนึ่งบรรทัด
+	Picture	รูปภาพ
+	Picture Border	เส้นขอบรูปภาพ
+	Picture layout	เค้าโครงรูปภาพ
+	Picture source	แหล่งที่มาของรูปภาพ
+	Pictures	รูปภาพ
+	Pictures in album	รูปภาพในอัลบั้ม
+	Play Across Slides	เล่นต่อเนื่องข้ามสไลด์
+	Play Full Screen	เล่นเต็มหน้าจอ
+	Play Narrations	เล่นเสียงบรรยาย
+	Play from\nCurrent Slide	เล่นจาก\nสไลด์ปัจจุบัน
+	Play from\nStart	เล่นจาก\nต้น
+	Play this slide's animations on the canvas	เล่นภาพเคลื่อนไหวของสไลด์นี้บนพื้นที่ทำงาน
+	Position	ตำแหน่ง
+	Position Objects	ตำแหน่งวัตถุ
+	Presentations	งานนำเสนอ
+	Presentations and slide shows, rebuilt from scratch in pure Rust.	งานนำเสนอและสไลด์โชว์ ที่สร้างขึ้นใหม่ทั้งหมดด้วย Rust
+	Presentations you open show up here. Use Open to browse for one.	งานนำเสนอที่คุณเปิดจะแสดงที่นี่ ใช้ปุ่มเปิดเพื่อเลือกไฟล์
+	Presenter\nView	มุมมอง\nผู้บรรยาย
+	Preserve	คงไว้
+	Preset gradients	การไล่ระดับสีที่ตั้งไว้
+	Preview	ตัวอย่าง
+	Previous Page	หน้าก่อนหน้า
+	Print Hidden Slides	พิมพ์สไลด์ที่ซ่อนไว้
+	Print layout	เค้าโครงการพิมพ์
+	Print layout:	เค้าโครงการพิมพ์:
+	Print range	ช่วงที่พิมพ์
+	Product Information	ข้อมูลผลิตภัณฑ์
+	Promote	เพิ่มระดับ
+	Properties	คุณสมบัติ
+	Put a picture in the selected node's picture placeholder	ใส่รูปภาพในตัวยึดตำแหน่งรูปภาพของโหนดที่เลือก
+	Quick\nStyles	ลักษณะ\nด่วน
+	Reading View	มุมมองการอ่าน
+	Recent	ล่าสุด
+	Recolor	ปรับสีใหม่
+	Record	บันทึก
+	Recording narration needs audio capture (coming soon)	การบันทึกเสียงบรรยายต้องใช้การจับเสียง (เร็ว ๆ นี้)
+	Recover Unsaved Presentations	กู้คืนงานนำเสนอที่ยังไม่ได้บันทึก
+	Reflection	การสะท้อน
+	Regroup	จัดกลุ่มใหม่
+	Rehearse\nTimings	ซ้อม\nจับเวลา
+	Reject	ปฏิเสธ
+	Remove	นำออก
+	Remove All Sections	นำส่วนทั้งหมดออก
+	Remove Section	นำส่วนออก
+	Remove Section & Slides	นำส่วนและสไลด์ออก
+	Remove bullets and numbering	นำหัวข้อย่อยและลำดับเลขออก
+	Remove from Quick Access Toolbar	นำออกจากแถบเครื่องมือด่วน
+	Remove from Recent	นำออกจากรายการล่าสุด
+	Remove the picture style	นำลักษณะรูปภาพออก
+	Remove\nBackground	นำ\nพื้นหลังออก
+	Rename	เปลี่ยนชื่อ
+	Rename Section…	เปลี่ยนชื่อส่วน…
+	Repeated word	คำที่ซ้ำ
+	Replace	แทนที่
+	Replace Fonts…	แทนที่ฟอนต์…
+	Replace fractions (1/2) with fraction characters (½)	แทนที่เศษส่วน (1/2) ด้วยอักขระเศษส่วน (½)
+	Replace straight quotes with smart quotes	แทนที่เครื่องหมายคำพูดตรงด้วยเครื่องหมายคำพูดแบบโค้ง
+	Replace text as you type	แทนที่ข้อความขณะพิมพ์
+	Replace:	แทนที่:
+	Replace…	แทนที่…
+	Reply…	ตอบกลับ…
+	Rescan Installed Fonts	สแกนฟอนต์ที่ติดตั้งใหม่
+	Reset	รีเซ็ต
+	Reset Background	รีเซ็ตพื้นหลัง
+	Reset Effects	รีเซ็ตเอฟเฟกต์
+	Reset Picture	รีเซ็ตรูปภาพ
+	Reset Slide	รีเซ็ตสไลด์
+	Reset Slide Background	รีเซ็ตพื้นหลังสไลด์
+	Reset Style	รีเซ็ตลักษณะ
+	Reset to Defaults	คืนค่าเริ่มต้น
+	Resolution	ความละเอียด
+	Reverse the order	กลับลำดับ
+	Rewind after Playing	กรอกลับหลังเล่นจบ
+	Right-click any ribbon button to add it.	คลิกขวาที่ปุ่มใดก็ได้บนริบบิ้นเพื่อเพิ่ม
+	Rotate	หมุน
+	Rotate Left	หมุนซ้าย
+	Rotate Left 90°	หมุนซ้าย 90°
+	Rotate Right	หมุนขวา
+	Rotate Right 90°	หมุนขวา 90°
+	Rotate with shape	หมุนไปพร้อมรูปร่าง
+	Ruler	ไม้บรรทัด
+	Save	บันทึก
+	Save as type	บันทึกเป็นชนิด
+	Scheme name	ชื่อชุดสี
+	Screenshot	ภาพหน้าจอ
+	Screenshot (not available yet)	ภาพหน้าจอ (ยังไม่พร้อมใช้งาน)
+	Search commands (⇧⌘P)	ค้นหาคำสั่ง (⇧⌘P)
+	Search commands…	ค้นหาคำสั่ง…
+	Search for a word	ค้นหาคำ
+	Search icons	ค้นหาไอคอน
+	Section	ส่วน
+	Select	เลือก
+	Select All	เลือกทั้งหมด
+	Select None	ไม่เลือกเลย
+	Select a SmartArt graphic to edit its text.	เลือกกราฟิก SmartArt เพื่อแก้ไขข้อความ
+	Select a chart first.	เลือกแผนภูมิก่อน
+	Select a shape to format it.	เลือกรูปร่างเพื่อจัดรูปแบบ
+	Select a word on the slide, or type one above.	เลือกคำบนสไลด์ หรือพิมพ์คำด้านบน
+	Select an object on the slide and add an animation from the Animations tab.	เลือกวัตถุบนสไลด์ แล้วเพิ่มภาพเคลื่อนไหวจากแท็บภาพเคลื่อนไหว
+	Selection Pane…	บานหน้าต่างการเลือก…
+	Selection\nPane	บานหน้าต่าง\nการเลือก
+	Send Backward	ส่งถอยหลังหนึ่งชั้น
+	Send to Back	ส่งไปไว้ข้างหลัง
+	Send\nBackward	ส่ง\nถอยหลังหนึ่งชั้น
+	Set	ตั้งค่า
+	Set Transparent Color	กำหนดสีโปร่งใส
+	Set Up\nSlide Show	ตั้งค่า\nการนำเสนอ
+	Set as Default Shape	ตั้งเป็นรูปร่างเริ่มต้น
+	Settings	การตั้งค่า
+	Shading	การแรเงา
+	Shadow	เงา
+	Shape Effects	เอฟเฟกต์รูปร่าง
+	Shape Fill	การเติมรูปร่าง
+	Shape Outline	เส้นขอบรูปร่าง
+	Shape\nStyles	ลักษณะ\nรูปร่าง
+	Shapes	รูปร่าง
+	Show	แสดง
+	Show Media Controls	แสดงตัวควบคุมสื่อ
+	Show smart guides	แสดงเส้นไกด์อัจฉริยะ
+	Show type	ชนิดการแสดง
+	Show\nComments	แสดง\nข้อคิดเห็น
+	Size	ขนาด
+	Size and Position…	ขนาดและตำแหน่ง…
+	Slide Show	นำเสนอ
+	Slide Sorter	ตัวเรียงสไลด์
+	Slide text	ข้อความสไลด์
+	Slide title	ชื่อเรื่องสไลด์
+	Slide\nMaster	ต้นแบบ\nสไลด์
+	Slide\nNumber	หมายเลข\nสไลด์
+	Slide\nSize	ขนาด\nสไลด์
+	Slides	สไลด์
+	Slides from Outline…	สไลด์จากเค้าร่าง…
+	Slides per page	จำนวนสไลด์ต่อหน้า
+	Slides sized for:	ขนาดสไลด์สำหรับ:
+	Slides:	สไลด์:
+	SmartArt Styles	ลักษณะ SmartArt
+	SmartArt items	รายการ SmartArt
+	SmartArt text	ข้อความ SmartArt
+	Smooth Corners	มุมเรียบ
+	Snap	จับยึด
+	Snap objects to grid	จับยึดวัตถุกับเส้นตาราง
+	Soft Edges	ขอบนุ่ม
+	Sort	เรียงลำดับ
+	Sound:	เสียง:
+	Spacing	ระยะห่าง
+	Spelling	การสะกด
+	Spelling is checked for languages marked (dictionary).	ตรวจการสะกดสำหรับภาษาที่มีเครื่องหมาย (พจนานุกรม)
+	Split\nCells	แยก\nเซลล์
+	Standard (4:3)	มาตรฐาน (4:3)
+	Standard Colors	สีมาตรฐาน
+	Start Automatically	เริ่มโดยอัตโนมัติ
+	Start:	เริ่ม:
+	Strikethrough	ขีดฆ่า
+	Subscript	ตัวห้อย
+	Superscript	ตัวยก
+	Symbol	สัญลักษณ์
+	Tab stop position (in):	ตำแหน่งแท็บ (นิ้ว):
+	Tab stops:	ตำแหน่งแท็บ:
+	Table	ตาราง
+	Tabs…	แท็บ…
+	Templates	แม่แบบ
+	Text Box	กล่องข้อความ
+	Text Direction	ทิศทางข้อความ
+	Text Effects	เอฟเฟกต์ข้อความ
+	Text Fill	การเติมข้อความ
+	Text Highlight Color	สีเน้นข้อความ
+	Text Outline	เส้นขอบข้อความ
+	Text ruler	ไม้บรรทัดข้อความ
+	Text\nBox	กล่อง\nข้อความ
+	Text\nPane	บานหน้าต่าง\nข้อความ
+	The spelling check is complete. No issues found.	ตรวจการสะกดเสร็จสิ้น ไม่พบปัญหา
+	Theme Colors	สีของธีม
+	Themes	ธีม
+	Themes (whole presentation)	ธีม (ทั้งงานนำเสนอ)
+	Thesaurus	อรรถาภิธาน
+	This presentation has no custom shows (Slide Show ▸ Custom Slide Show).	งานนำเสนอนี้ไม่มีการนำเสนอแบบกำหนดเอง (นำเสนอ ▸ นำเสนอแบบกำหนดเอง)
+	Tile picture as texture	เรียงรูปภาพเป็นพื้นผิว
+	Title	ชื่อเรื่อง
+	Total Row	แถวผลรวม
+	Transform	การแปลง
+	Translate	แปลภาษา
+	Translation needs a language model (not bundled)	การแปลภาษาต้องใช้โมเดลภาษา (ไม่ได้รวมมาด้วย)
+	Transparency	ความโปร่งใส
+	Transparent background	พื้นหลังโปร่งใส
+	Trigger	ตัวกระตุ้น
+	Trim	ตัดต่อ
+	Type an equation in linear form (e.g. a^2+b^2=c^2, x=(-b±√(b^2-4ac))/2a).	พิมพ์สมการแบบเส้นตรง (เช่น a^2+b^2=c^2, x=(-b±√(b^2-4ac))/2a)
+	Type and organise the diagram's text	พิมพ์และจัดระเบียบข้อความของแผนภาพ
+	Type your text here	พิมพ์ข้อความของคุณที่นี่
+	Underline	ขีดเส้นใต้
+	Ungroup	ยกเลิกการจัดกลุ่ม
+	Use Timings	ใช้เวลาที่บันทึกไว้
+	User Information	ข้อมูลผู้ใช้
+	Vertical alignment	การจัดแนวตั้ง
+	Video	วิดีโอ
+	Volume	ระดับเสียง
+	Warp	การบิดโค้ง
+	Weight	ความหนา
+	Widescreen (16:9)	จอกว้าง (16:9)
+	Width	ความกว้าง
+	Width:	ความกว้าง:
+	Window title bar	แถบชื่อหน้าต่าง
+	With	ด้วย
+	With:	ด้วย:
+	Wrap text in shape	ตัดข้อความในรูปร่าง
+	Your changes will be lost if you don't save them.	การเปลี่ยนแปลงของคุณจะสูญหายหากไม่บันทึก
+	Your name (comments):	ชื่อของคุณ (ข้อคิดเห็น):
+	Zoom	ย่อ/ขยาย
+	Zoom In	ขยาย
+	Zoom Out	ย่อ
+	Zoom to	ย่อ/ขยายเป็น
+	[No Sound]	[ไม่มีเสียง]
+	[Stop Previous Sound]	[หยุดเสียงก่อนหน้า]
+	Other Sound…	เสียงอื่น…
+	Loop Until Next Sound	วนซ้ำจนถึงเสียงถัดไป
+	Transitions	การเปลี่ยนสไลด์
+	Animations	ภาพเคลื่อนไหว
+	Design	ออกแบบ
+	Review	ตรวจทาน
+	View	มุมมอง
+	Home	หน้าแรก
+	Insert	แทรก
+	Draw	วาด
+	Exit	ออก
+	Open	เปิด
+	Print	พิมพ์
+	Share	แชร์
+	Export	ส่งออก
+	Info	ข้อมูล
+	Undo	เลิกทำ
+	Redo	ทำซ้ำ
+	OK	ตกลง
+	Yes	ใช่
+	No	ไม่
+	Help	วิธีใช้
+	About	เกี่ยวกับ
+	Search	ค้นหา
+	Options	ตัวเลือก
+	e.g. 1-3, 5	เช่น 1-3, 5
+	in	นิ้ว
+	Grab bag	รวมจิปาถะ
+	About DeckCraft	เกี่ยวกับพูดครับ
+	Accept Revision	ยอมรับการแก้ไข
+	Action Buttons	ปุ่มการทำงาน
+	Action Settings	การตั้งค่าการทำงาน
+	Add Animation	เพิ่มภาพเคลื่อนไหว
+	Add Guide	เพิ่มเส้นไกด์
+	Adjust Shape	ปรับรูปร่าง
+	Align Cell Text	จัดแนวข้อความในเซลล์
+	Animation Styles	ลักษณะภาพเคลื่อนไหว
+	Apply Animation	ใช้ภาพเคลื่อนไหว
+	Apply Design Idea	ใช้แนวคิดการออกแบบ
+	Apply To All	ใช้กับทั้งหมด
+	Artistic Effects	เอฟเฟกต์ศิลปะ
+	Audio from File…	เสียงจากไฟล์…
+	Autofit	ปรับขนาดอัตโนมัติ
+	Change Chart Type	เปลี่ยนชนิดแผนภูมิ
+	Change Layout	เปลี่ยนเค้าโครง
+	Change Spelling	เปลี่ยนการสะกด
+	Chart Elements	องค์ประกอบแผนภูมิ
+	Chart…	แผนภูมิ…
+	Check for Updates…	ตรวจหาการอัปเดต…
+	Close Path	ปิดเส้นทาง
+	Collapse the Ribbon	ย่อริบบิ้น
+	Command Palette	ค้นหาคำสั่ง
+	Community Links	ลิงก์ชุมชน
+	Compare…	เปรียบเทียบ…
+	Connect Shapes	เชื่อมต่อรูปร่าง
+	Custom Slide Show	นำเสนอแบบกำหนดเอง
+	Dark Mode	โหมดมืด
+	Date & Time	วันที่และเวลา
+	Delete Comment	ลบข้อคิดเห็น
+	Delete Guide	ลบเส้นไกด์
+	Delete Layout	ลบเค้าโครง
+	Delete Segment	ลบส่วนของเส้น
+	Delete Text	ลบข้อความ
+	Distribute	กระจาย
+	Duplicate	ทำสำเนา
+	Edit Data	แก้ไขข้อมูล
+	Edit SmartArt Text	แก้ไขข้อความ SmartArt
+	Effect Options	ตัวเลือกเอฟเฟกต์
+	End Show	จบการนำเสนอ
+	Export…	ส่งออก…
+	Find…	ค้นหา…
+	Fit to Window	พอดีหน้าต่าง
+	Flip	พลิก
+	Font Size	ขนาดฟอนต์
+	Format Background	จัดรูปแบบพื้นหลัง
+	Freeform	รูปแบบอิสระ
+	Grid Options…	ตัวเลือกเส้นตาราง…
+	Handout Master	ต้นแบบเอกสารแจก
+	Handout Placeholders	ตัวยึดตำแหน่งเอกสารแจก
+	Header and Footer…	หัวกระดาษและท้ายกระดาษ…
+	Height	ความสูง
+	Hide All	ซ่อนทั้งหมด
+	Hide Background Graphics	ซ่อนกราฟิกพื้นหลัง
+	Hide Slide	ซ่อนสไลด์
+	Ink to Shape	หมึกเป็นรูปร่าง
+	Insert Above	แทรกด้านบน
+	Insert Below	แทรกด้านล่าง
+	Insert Layout	แทรกเค้าโครง
+	Insert Left	แทรกทางซ้าย
+	Insert Picture in SmartArt	แทรกรูปภาพใน SmartArt
+	Insert Picture in SmartArt…	แทรกรูปภาพใน SmartArt…
+	Insert Placeholder	แทรกตัวยึดตำแหน่ง
+	Insert Right	แทรกทางขวา
+	Insert Synonym	แทรกคำพ้องความหมาย
+	Interface Language	ภาษาของเมนู
+	Language for All Text	ภาษาของข้อความทั้งหมด
+	Layout Placeholders	ตัวยึดตำแหน่งเค้าโครง
+	Lock	ล็อก
+	Merge Cells	รวมเซลล์
+	Move	ย้าย
+	Move Guide	ย้ายเส้นไกด์
+	Move Handle	ย้ายที่จับ
+	Move Point	ย้ายจุด
+	Move Section	ย้ายส่วน
+	Move Slide	ย้ายสไลด์
+	New Window	หน้าต่างใหม่
+	Notes Master	ต้นแบบบันทึกย่อ
+	Notes Page	หน้าบันทึกย่อ
+	Notes Placeholders	ตัวยึดตำแหน่งบันทึกย่อ
+	Nudge	ขยับเล็กน้อย
+	Open Dialog	เปิดกล่องโต้ตอบ
+	Open Path	เปิดเส้นทาง
+	Open…	เปิด…
+	Outline View	มุมมองเค้าร่าง
+	Paste Special	วางแบบพิเศษ
+	Picture Styles	ลักษณะรูปภาพ
+	Picture from File…	รูปภาพจากไฟล์…
+	Playback	การเล่น
+	Point Type	ชนิดของจุด
+	Position and Size	ตำแหน่งและขนาด
+	Poster Frame	ภาพปกวิดีโอ
+	Preferences…	การตั้งค่า…
+	Presenter View	มุมมองผู้บรรยาย
+	Preview Animations	แสดงตัวอย่างภาพเคลื่อนไหว
+	Quick Access Toolbar	แถบเครื่องมือด่วน
+	Quick Styles	ลักษณะด่วน
+	Remove All Animations	นำภาพเคลื่อนไหวทั้งหมดออก
+	Remove Animation	นำภาพเคลื่อนไหวออก
+	Remove Background	นำพื้นหลังออก
+	Remove Shape	นำรูปร่างออก
+	Rename Layout	เปลี่ยนชื่อเค้าโครง
+	Rename Section	เปลี่ยนชื่อส่วน
+	Rename Slide	เปลี่ยนชื่อสไลด์
+	Reorder Animation	จัดลำดับภาพเคลื่อนไหวใหม่
+	Reorder Objects	จัดลำดับวัตถุใหม่
+	Replace Fonts	แทนที่ฟอนต์
+	Reply	ตอบกลับ
+	Resolve Thread	ปิดการสนทนา
+	Reuse Slides…	นำสไลด์กลับมาใช้…
+	Ribbon Tab	แท็บริบบิ้น
+	Right-to-Left Text Direction	ทิศทางข้อความขวาไปซ้าย
+	Rotation	การหมุน
+	Save As…	บันทึกเป็น…
+	Segment Type	ชนิดของส่วนเส้น
+	Set Text	ตั้งข้อความ
+	Set Up Slide Show…	ตั้งค่าการนำเสนอ…
+	Set Zoom	ตั้งค่าการย่อ/ขยาย
+	Show All	แสดงทั้งหมด
+	Show/Hide	แสดง/ซ่อน
+	Slide Number	หมายเลขสไลด์
+	Slide Size	ขนาดสไลด์
+	Sound	เสียง
+	Split Cells	แยกเซลล์
+	Table Eraser	ยางลบตาราง
+	Table Style Options	ตัวเลือกลักษณะตาราง
+	Table Styles	ลักษณะตาราง
+	Table…	ตาราง…
+	Task Pane	บานหน้าต่างงาน
+	Text Box Margins	ระยะขอบกล่องข้อความ
+	Text Shadow	เงาข้อความ
+	Text Transform	การแปลงข้อความ
+	Text Transparency	ความโปร่งใสของข้อความ
+	Timing	เวลา
+	Transition	การเปลี่ยนสไลด์
+	Type Text	พิมพ์ข้อความ
+	Variants	รูปแบบอื่น
+	Video from File…	วิดีโอจากไฟล์…
+	Wrap Text in Shape	ตัดข้อความในรูปร่าง
+	Zoom…	ย่อ/ขยาย…
+	Accept All ({})	ยอมรับทั้งหมด ({})
+	Reject All ({})	ปฏิเสธทั้งหมด ({})
+	Action Button: {k}	ปุ่มการทำงาน: {k}
+	Align text to the {l} of the cell	จัดแนวข้อความไปที่{l}ของเซลล์
+	Body sample  {minor}	ตัวอย่างเนื้อหา  {minor}
+	Heading sample  {major}	ตัวอย่างหัวเรื่อง  {major}
+	Compared with {}	เปรียบเทียบกับ {}
+	Couldn't save AutoRecover information: {e}	ไม่สามารถบันทึกข้อมูลกู้คืนอัตโนมัติได้: {e}
+	DeckCraft can't export “{other}”	PhutKrub ไม่สามารถส่งออกเป็น “{other}” ได้
+	Decrease {label}	ลด{label}
+	Increase {label}	เพิ่ม{label}
+	Dictionary: {}	พจนานุกรม: {}
+	Do you want to save the changes you made to {what}?	ต้องการบันทึกการเปลี่ยนแปลงที่ทำกับ {what} หรือไม่
+	Do you want to save the changes you made to “{name}”?	ต้องการบันทึกการเปลี่ยนแปลงที่ทำกับ “{name}” หรือไม่
+	Duration handle {}	ที่จับระยะเวลา {}
+	Timing bar {}	แถบเวลา {}
+	Exported {path}	ส่งออกแล้ว {path}
+	Saved {path}	บันทึกแล้ว {path}
+	Gradient stop {}	จุดไล่ระดับสี {}
+	Insert slides from {name} after the current slide:	แทรกสไลด์จาก {name} ต่อจากสไลด์ปัจจุบัน:
+	Inserted {} slides	แทรก {} สไลด์แล้ว
+	No recent presentations match “{}”.	ไม่พบงานนำเสนอล่าสุดที่ตรงกับ “{}”
+	No themes or templates match “{}”.	ไม่พบธีมหรือแม่แบบที่ตรงกับ “{}”
+	No {} dictionary is installed, so only common misspellings are found. Put a Hunspell .aff/.dic pair in {}.	ยังไม่ได้ติดตั้งพจนานุกรม {} จึงตรวจพบเฉพาะคำสะกดผิดที่พบบ่อย วางไฟล์ Hunspell .aff/.dic ไว้ใน {}
+	On Click of {name}	เมื่อคลิกที่ {name}
+	Opening {name}…	กำลังเปิด {name}…
+	Still opening {name}	ยังเปิด {name} อยู่
+	Stopped opening {}	หยุดเปิด {} แล้ว
+	Saturation {}%	ความอิ่มตัวสี {}%
+	Slide {}	สไลด์ {}
+	Slide {} of {}	สไลด์ {} จาก {}
+	Slide {}: {}{}	สไลด์ {}: {}{}
+	Style {i}	ลักษณะ {i}
+	WordArt style {}	ลักษณะ WordArt {}
+	{ch}  Bullet	{ch}  หัวข้อย่อย
+	{kind_label} (click to change)	{kind_label} (คลิกเพื่อเปลี่ยน)
+	{name} options	ตัวเลือก {name}
+	{n} slides per page	{n} สไลด์ต่อหน้า
+	{path} — this file can't be found	{path} — ไม่พบไฟล์นี้
+	{r} pt glow	เรืองแสง {r} pt
+	{spoken} options	ตัวเลือก {spoken}
+	{tip} options	ตัวเลือก {tip}
+	{} ({} slides)	{} ({} สไลด์)
+	{} contributors · {} commits	{} ผู้ร่วมพัฒนา · {} คอมมิต
+	{} hex	{} hex
+	“{}” is not available yet.	“{}” ยังไม่พร้อมใช้งาน
+	Account	บัญชี
+	After	หลังจาก
+	Black Pen	ปากกาสีดำ
+	Blue Pen	ปากกาสีน้ำเงิน
+	Red Pen	ปากกาสีแดง
+	Delay	หน่วงเวลา
+	Duration	ระยะเวลา
+	Highlighter	ปากกาเน้นข้อความ
+	Pencil	ดินสอ
+	Notes\nPage	หน้า\nบันทึกย่อ
+	Outline\nView	มุมมอง\nเค้าร่าง
+	Reading\nView	มุมมอง\nการอ่าน
+	Slide\nSorter	ตัวเรียง\nสไลด์
+	Previous	ก่อนหน้า
+	Redo (⌘Y)	ทำซ้ำ (⌘Y)
+	Undo (⌘Z)	เลิกทำ (⌘Z)
+	Save (⌘S)	บันทึก (⌘S)
+	Save As	บันทึกเป็น
+	Start from Beginning (⌘⇧Enter)	เริ่มจากสไลด์แรก (⌘⇧Enter)
+
+# Web start screen and browser drafts
+	PhutKrub	พูดครับ
+	Open file	เปิดไฟล์
+	Hello! What would you like to present?	สวัสดีครับ จะนำเสนออะไรดีครับ?
+	Pick a theme, or pick up a draft where you left off.	เลือกธีม หรือทำฉบับร่างที่ค้างไว้ต่อได้เลยนะครับ
+	Blank Presentation	งานนำเสนอเปล่า
+	Starter decks	ชุดสไลด์เริ่มต้น
+	Sample deck: Northern Lights	สไลด์ตัวอย่าง: แสงเหนือ
+	KrubOffice apps	แอปของ KrubOffice
+	KhianKrub	เขียนครับ
+	KhitKrub	คิดครับ
+	Documents	เอกสาร
+	Coming soon	เร็ว ๆ นี้
+	Here	ที่นี่
+	See all apps at kruboffice.app	ดูแอปทั้งหมดที่ kruboffice.app
+	Drafts on this device	ฉบับร่างในอุปกรณ์นี้
+	Kept only in this browser on this device. Save to Google Drive or download a copy to keep it anywhere else.	เก็บไว้เฉพาะในเบราว์เซอร์ของอุปกรณ์นี้ บันทึกลง Google Drive หรือดาวน์โหลดสำเนา หากต้องการเก็บไว้ที่อื่น
+	Kept only in this browser on this device. Download a copy to keep it anywhere else.	เก็บไว้เฉพาะในเบราว์เซอร์ของอุปกรณ์นี้ ดาวน์โหลดสำเนา หากต้องการเก็บไว้ที่อื่น
+	This browser may remove drafts by itself: when it runs short of space, after a long time without a visit, or when a private window closes.	เบราว์เซอร์อาจลบฉบับร่างเอง เมื่อพื้นที่ไม่พอ เมื่อไม่ได้เข้าใช้เป็นเวลานาน หรือเมื่อปิดหน้าต่างส่วนตัว
+	draft	ฉบับร่าง
+	Saved on this device	บันทึกในอุปกรณ์นี้แล้ว
+	Saving…	กำลังบันทึก…
+	Loading drafts…	กำลังโหลดฉบับร่าง…
+	Presentations you make here are kept in this browser, so you can pick up where you left off.	งานนำเสนอที่คุณทำที่นี่จะถูกเก็บไว้ในเบราว์เซอร์นี้ จึงกลับมาทำต่อได้ทุกเมื่อ
+	More options	ตัวเลือกเพิ่มเติม
+	Keep working	ทำต่อ
+	Download a copy	ดาวน์โหลดสำเนา
+	Discard draft…	ทิ้งฉบับร่าง…
+	Permanently discard this draft and its previous copy?	ทิ้งฉบับร่างนี้และสำเนาก่อนหน้าอย่างถาวรหรือไม่?
+	Discard draft	ทิ้งฉบับร่าง
+	Drafts: {}	ฉบับร่าง: {}
+	This draft could not be opened: {}	เปิดฉบับร่างนี้ไม่ได้: {}
+	This draft could not be downloaded: {}	ดาวน์โหลดฉบับร่างนี้ไม่ได้: {}
+	Spreadsheets	ตารางคำนวณ
+
+	Thai Distribution	กระจายข้อความไทย
+# Google Drive (web; shared krub-drive crate)
+	Not connected	ยังไม่ได้เชื่อมต่อ
+	Loading Google Drive…	กำลังโหลด Google Drive…
+	Click Connect to sign in	กดเชื่อมต่อเพื่อลงชื่อเข้าใช้
+	Signing in…	กำลังลงชื่อเข้าใช้…
+	Connected	เชื่อมต่อแล้ว
+	Working with Google Drive…	กำลังทำงานกับ Google Drive…
+	Could not load Google Drive. Check your connection and try again.	ไม่สามารถโหลด Google Drive ได้ โปรดตรวจสอบการเชื่อมต่อแล้วลองใหม่
+	Press Save again to sign in to Google Drive and save.	กดบันทึกอีกครั้งเพื่อลงชื่อเข้าใช้ Google Drive และบันทึก
+	Google Drive sign-in was not completed.	การลงชื่อเข้าใช้ Google Drive ไม่เสร็จสมบูรณ์
+	Could not start Google sign-in.	ไม่สามารถเริ่มลงชื่อเข้าใช้ Google ได้
+	Google Drive is busy. Try saving again in a moment.	Google Drive กำลังทำงานอยู่ โปรดลองบันทึกอีกครั้งในอีกสักครู่
+	Google Drive connection changed. Reopen the Drive file before saving back to it.	การเชื่อมต่อ Google Drive เปลี่ยนไป โปรดเปิดไฟล์จาก Drive อีกครั้งก่อนบันทึกกลับไปยังไฟล์เดิม
+	Could not restore Google Drive. Check your connection and try again.	ไม่สามารถกู้คืนการเชื่อมต่อ Google Drive ได้ โปรดตรวจสอบการเชื่อมต่อแล้วลองใหม่
+	Please connect Google Drive first.	โปรดเชื่อมต่อ Google Drive ก่อน
+	Google Drive disconnected.	ยกเลิกการเชื่อมต่อ Google Drive แล้ว
+	Could not disconnect Google Drive. Check your connection and try again.	ไม่สามารถยกเลิกการเชื่อมต่อ Google Drive ได้ โปรดตรวจสอบการเชื่อมต่อแล้วลองใหม่
+	Could not list Google Drive files.	ไม่สามารถแสดงรายการไฟล์ Google Drive ได้
+	Could not open the Google Drive file.	ไม่สามารถเปิดไฟล์จาก Google Drive ได้
+	Could not open Google Picker.	ไม่สามารถเปิดตัวเลือกไฟล์ Google ได้
+	A new copy was saved to Google Drive.	บันทึกสำเนาใหม่ไปยัง Google Drive แล้ว
+	Google Drive copies are limited to 5 MiB.	สำเนาใน Google Drive จำกัดขนาดไม่เกิน 5 MiB
+	Could not save the copy to Google Drive.	ไม่สามารถบันทึกสำเนาไปยัง Google Drive ได้
+	Signing in to Google Drive to save…	กำลังลงชื่อเข้าใช้ Google Drive เพื่อบันทึก…
+	Saved to Google Drive.	บันทึกลง Google Drive แล้ว
+	This file changed on Google Drive after you opened it. Save a new copy instead.	ไฟล์นี้ถูกแก้ไขใน Google Drive หลังจากที่คุณเปิด โปรดบันทึกเป็นสำเนาใหม่แทน
+	Google Drive saves are limited to 5 MiB.	การบันทึกลง Google Drive จำกัดขนาดไม่เกิน 5 MiB
+	Could not save to Google Drive.	ไม่สามารถบันทึกลง Google Drive ได้
+	This device	เครื่องนี้
+	Choose a file stored on this computer or iPad.	เลือกไฟล์ที่เก็บอยู่ในคอมพิวเตอร์หรือ iPad เครื่องนี้
+	Browse files on this device…	เรียกดูไฟล์ในเครื่อง…
+	Download a copy to this computer or iPad.	ดาวน์โหลดสำเนาลงในคอมพิวเตอร์หรือ iPad เครื่องนี้
+	Save to your Google Drive.	บันทึกลงใน Google Drive ของคุณ
+	Try signing in again	ลองลงชื่อเข้าใช้อีกครั้ง
+	Connect Google Drive	เชื่อมต่อ Google Drive
+	Disconnect Google Drive	ยกเลิกการเชื่อมต่อ Google Drive
+	Choose from Google Drive…	เลือกไฟล์จาก Google Drive…
+	Opened from Google Drive: {name}	เปิดจาก Google Drive: {name}
+	Replaces the file on Google Drive. Drive keeps earlier versions for a while.	แทนที่ไฟล์ใน Google Drive โดย Drive จะเก็บเวอร์ชันก่อนหน้าไว้ระยะหนึ่ง
+	Each save creates a new file. Changes remain unsaved in the editor.	การบันทึกแต่ละครั้งจะสร้างไฟล์ใหม่ การเปลี่ยนแปลงยังคงไม่ได้บันทึกในตัวแก้ไข
+	Save to this file on Google Drive	บันทึกทับไฟล์นี้ใน Google Drive
+	Save a new copy to Google Drive	บันทึกสำเนาใหม่ไปยัง Google Drive
+	Saved to Google Drive	บันทึกใน Google Drive แล้ว
+	Open a PowerPoint presentation from your Google Drive and save it back there.	เปิดงานนำเสนอ PowerPoint จาก Google Drive ของคุณ แล้วบันทึกกลับไปที่เดิมได้
+	Files available to PhutKrub (up to 100):	ไฟล์ที่พูดครับเข้าถึงได้ (สูงสุด 100 ไฟล์):
+	No available PowerPoint presentations found.	ไม่พบงานนำเสนอ PowerPoint ที่เข้าถึงได้
+	Don't Save	ไม่บันทึก
+	{count} presentations	งานนำเสนอ {count} ชุด
+	In the browser the show fills this tab. Presenter View needs a second window, so it is off here.	ในเบราว์เซอร์ การนำเสนอจะเต็มแท็บนี้ มุมมองผู้บรรยายต้องใช้หน้าต่างที่สอง จึงปิดไว้
+	Next ▶	ถัดไป ▶
+	◀ Previous	◀ ก่อนหน้า
+	Resume	เดินต่อ
+	Pause	หยุดชั่วคราว
+	Black on	จอดำ (เปิด)
+	Black	จอดำ
+	White on	จอขาว (เปิด)
+	White	จอขาว
+	All	ทุกสไลด์
+	End	จบ
+	Zoom on	ย่อ/ขยาย (เปิด)
+	All slides on	สไลด์ทั้งหมด (เปิด)
+	A-	ก-
+	A+	ก+
+	The slide show has ended. You can close this window.	จบการนำเสนอแล้ว ปิดหน้าต่างนี้ได้เลย
+	Waiting for the slide show…	กำลังรอการนำเสนอ…
+	The browser blocked the presenter window. Allow pop-ups for this site, then start the show again.	เบราว์เซอร์บล็อกหน้าต่างมุมมองผู้บรรยาย อนุญาตป๊อปอัปสำหรับเว็บไซต์นี้ แล้วเริ่มนำเสนอใหม่
+	Click the preview to zoom.	คลิกที่ภาพตัวอย่างเพื่อซูม
+	Choose a slide in the audience window, or press G to return.	เลือกสไลด์ในหน้าต่างของผู้ชม หรือกด G เพื่อกลับ
+	Choose a slide to show it, or press G to return.	เลือกสไลด์ที่จะแสดง หรือกด G เพื่อกลับ
+	A−	ก−
+	The audience window has closed.	หน้าต่างของผู้ชมปิดไปแล้ว
+	The audience window is not responding.	หน้าต่างของผู้ชมไม่ตอบสนอง
+	Return to the audience window to resume the connection.	กลับไปที่หน้าต่างของผู้ชมเพื่อเชื่อมต่ออีกครั้ง
+	Waiting for the audience window…	กำลังรอหน้าต่างของผู้ชม…
+	Open presenter window	เปิดหน้าต่างมุมมองผู้บรรยาย
+	Opening presenter window…	กำลังเปิดหน้าต่างมุมมองผู้บรรยาย…
+	Popup blocked. Allow popups, then click to retry.	เบราว์เซอร์บล็อกป๊อปอัป อนุญาตป๊อปอัปแล้วคลิกเพื่อลองอีกครั้ง
+	Presenter popup was blocked. Use Open presenter window to retry.	เบราว์เซอร์บล็อกหน้าต่างมุมมองผู้บรรยาย กด เปิดหน้าต่างมุมมองผู้บรรยาย เพื่อลองอีกครั้ง
+	Browser isolation prevented connecting the presenter window	เบราว์เซอร์ไม่อนุญาตให้เชื่อมต่อกับหน้าต่างมุมมองผู้บรรยาย
+	Play this slide's transition	เล่นการเปลี่ยนสไลด์ของสไลด์นี้
+	Reopen	เปิดอีกครั้ง
+	Resolve	แก้ไขแล้ว
+	New versions of PhutKrub come with KrubOffice: see kruboffice.app	พูดครับรุ่นใหม่มากับ KrubOffice ดูได้ที่ kruboffice.app
+	Presenter View — PhutKrub	มุมมองผู้บรรยาย — พูดครับ
+	Version	เวอร์ชัน
+	A free presentation app for Thai and English.\nBased on DeckCraft by the ArtCraft team. Fork by Chanon Sarasuk.	โปรแกรมงานนำเสนอฟรีสำหรับภาษาไทยและภาษาอังกฤษ\nพัฒนาจาก DeckCraft โดยทีม ArtCraft ปรับปรุงโดย Chanon Sarasuk
+	A free, open-source presentation app for Thai and English.\nBased on DeckCraft by the ArtCraft team. Fork by Chanon Sarasuk.	โปรแกรมงานนำเสนอฟรีและโอเพนซอร์สสำหรับภาษาไทยและภาษาอังกฤษ\nพัฒนาจาก DeckCraft โดยทีม ArtCraft ปรับปรุงโดย Chanon Sarasuk
+	KrubOffice: github.com/chanonss/kruboffice-desktop	KrubOffice: github.com/chanonss/kruboffice-desktop
+	Original project: github.com/storytold/deckcraft	โครงการต้นฉบับ: github.com/storytold/deckcraft
+	MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the DeckCraft contributors. Modifications copyright (c) 2026 Chanon Sarasuk.	MIT OR Apache-2.0 ลิขสิทธิ์ (c) 2026 ทีม ArtCraft และผู้ร่วมพัฒนา DeckCraft ส่วนที่ปรับปรุงลิขสิทธิ์ (c) 2026 Chanon Sarasuk
+	The people and models who built PhutKrub.	ผู้ร่วมพัฒนาและโมเดลที่ช่วยสร้างพูดครับ
+	Credits	ผู้ร่วมพัฒนา
+
+	Recover	กู้คืน
+	Local recovery is unavailable.	ไม่สามารถกู้คืนข้อมูลในเครื่องได้
+	Choose a file stored on this computer.	เลือกไฟล์ที่เก็บอยู่ในคอมพิวเตอร์เครื่องนี้
+	Choose where to save on this computer.	เลือกตำแหน่งบันทึกในคอมพิวเตอร์เครื่องนี้
+	Browse…	เรียกดู…
+	Restore opens the available recovery copies.	เปิดสำเนาที่สามารถกู้คืนได้
+	No recovery copies.	ไม่มีสำเนาสำหรับกู้คืน
+
+	Show numbers on ribbon tabs	แสดงหมายเลขบนแท็บริบบิ้น
+	Show the Draw tab	แสดงแท็บวาด
+	More tabs	แท็บเพิ่มเติม
+	Present	นำเสนอ
+	Morph	มอร์ฟ
+	Fade	ค่อยๆ จาง
+	Push	ดัน
+	Wipe	ปัดกวาด
+	Split	แยกออก
+	Reveal	เผยให้เห็น
+	Random Bars	แท่งสุ่ม
+	Shape	รูปร่าง
+	Uncover	เปิดออก
+	Cover	ปิดทับ
+	Flash	แฟลช
+	Fall Over	ล้มลง
+	Drape	ม่านคลุม
+	Curtains	ม่าน
+	Wind	ลม
+	Prestige	ภาพหรู
+	Fracture	แตกร้าว
+	Crush	บดอัด
+	Peel Off	ลอกออก
+	Page Curl	หน้ากระดาษม้วน
+	Airplane	เครื่องบิน
+	Origami	พับกระดาษ
+	Dissolve	ละลาย
+	Checkerboard	กระดานหมากรุก
+	Blinds	มู่ลี่
+	Clock	นาฬิกา
+	Ripple	ระลอกคลื่น
+	Honeycomb	รังผึ้ง
+	Glitter	ประกาย
+	Vortex	วังวน
+	Shred	ฉีกเป็นชิ้น
+	Switch	สลับ
+	Gallery	แกลเลอรี
+	Cube	ลูกบาศก์
+	Doors	ประตู
+	Box	กล่อง
+	Comb	หวี
+	Random	สุ่ม
+	Pan	เลื่อนมุมมอง
+	Ferris Wheel	ชิงช้าสวรรค์
+	Conveyor	สายพาน
+	Window	หน้าต่าง
+	Orbit	วงโคจร
+	Fly Through	บินผ่าน
+	Appear	ปรากฏ
+	Fly In	บินเข้า
+	Float In	ลอยเข้า
+	Wheel	วงล้อ
+	Grow & Turn	ขยายและหมุน
+	Swivel	หมุนรอบแกน
+	Bounce	เด้ง
+	Circle	วงกลม
+	Diamond	เพชร
+	Dissolve In	ละลายเข้า
+	Peek In	แอบมองเข้า
+	Strips	แถบ
+	Expand	ขยายออก
+	Rise Up	ลอยขึ้น
+	Spinner	ตัวหมุน
+	Pulse	เต้นเป็นจังหวะ
+	Color Pulse	สีเต้นเป็นจังหวะ
+	Teeter	โยกเยก
+	Spin	หมุน
+	Grow/Shrink	ขยาย/หด
+	Desaturate	ลดความสด
+	Darken	ทำให้เข้มขึ้น
+	Lighten	ทำให้สว่างขึ้น
+	Object Color	สีวัตถุ
+	Complementary Color	สีตรงข้าม
+	Line Color	สีเส้น
+	Fill Color	สีเติม
+	Bold Flash	ตัวหนากะพริบ
+	Wave	คลื่น
+	Disappear	หายไป
+	Fly Out	บินออก
+	Float Out	ลอยออก
+	Shrink & Turn	หดและหมุน
+	Dissolve Out	ละลายออก
+	Peek Out	แอบมองออก
+	Sink Down	จมลง
+	Contract	หดเข้า
+	Lines	เส้นตรง
+	Arcs	ส่วนโค้ง
+	Turns	เลี้ยว
+	Loops	วนลูป
+	Diagonal Down Right	ทแยงลงขวา
+	Diagonal Up Right	ทแยงขึ้นขวา
+	Zigzag	ซิกแซก
+	Sine Wave	คลื่นไซน์
+	Decaying Wave	คลื่นแผ่ว
+	Heartbeat	ชีพจร
+	Stairs Down	บันไดลง
+	Bounce Right	เด้งไปขวา
+	Bounce Left	เด้งไปซ้าย
+	Spiral Right	เกลียวขวา
+	Spiral Left	เกลียวซ้าย
+	Spring	สปริง
+	Funnel	กรวย
+	Swoosh	เส้นพุ่ง
+	Heart	หัวใจ
+	Crescent Moon	จันทร์เสี้ยว
+	Teardrop	หยดน้ำ
+	Football	ฟุตบอล
+	Plus	เครื่องหมายบวก
+	Right Triangle	สามเหลี่ยมมุมฉาก
+	Curved Square	สี่เหลี่ยมโค้ง
+	Loop de Loop	ลูปวน
+	Bean	ถั่ว
+	Peanut	ถั่วลิสง
+	Neutron	นิวตรอน
+	Custom Path	เส้นทางกำหนดเอง
+	Play	เล่น
+	Stop	หยุด
+	Dynamic Content	เนื้อหาเคลื่อนไหว
+	Exciting	น่าตื่นเต้น
+	Subtle	เรียบง่าย
+	Entrance	เข้า
+	Emphasis	เน้น
+	Motion Paths	เส้นทางการเคลื่อนที่
+	Motion	เส้นทาง
+	Shape Format	รูปแบบรูปร่าง
+	Picture Format	รูปแบบรูปภาพ
+	Table Design	ออกแบบตาราง
+	Chart Design	ออกแบบแผนภูมิ
+	SmartArt Design	ออกแบบ SmartArt
+	Slide Master	ต้นแบบสไลด์
+	Top	บน
+	Middle	กลาง
+	Bottom	ล่าง
+	Narrow	แคบ
+	Wide	กว้าง
+	Center the ribbon tabs (off: start at the left)	จัดแท็บริบบิ้นไว้กึ่งกลาง (ปิด: ชิดซ้าย)
+	Use system interface fonts	ใช้ฟอนต์ระบบสำหรับเมนู
+	Your browser may ask for access to local fonts. Font files stay on this computer.	เบราว์เซอร์อาจขออนุญาตเข้าถึงฟอนต์ในเครื่อง ไฟล์ฟอนต์จะอยู่ในคอมพิวเตอร์เครื่องนี้
+	This browser cannot load system interface fonts. Bundled interface fonts are used.	เบราว์เซอร์นี้ไม่รองรับการโหลดฟอนต์ระบบสำหรับเมนู จึงใช้ฟอนต์ที่มาพร้อมโปรแกรม
+	Available system interface fonts are now in use.	กำลังใช้ฟอนต์ระบบสำหรับเมนูที่มีอยู่ในเครื่อง
+	System interface fonts were not available. Bundled interface fonts are used.	ไม่พบฟอนต์ระบบสำหรับเมนู จึงใช้ฟอนต์ที่มาพร้อมโปรแกรม
+	Interface language	ภาษาของหน้าจอ
+	No Border	ไม่มีเส้นขอบ
+	All Borders	เส้นขอบทั้งหมด
+	Outside Borders	เส้นขอบภายนอก
+	Inside Borders	เส้นขอบภายใน
+	Top Border	เส้นขอบบน
+	Bottom Border	เส้นขอบล่าง
+	Left Border	เส้นขอบซ้าย
+	Right Border	เส้นขอบขวา
+	Inside Horizontal Border	เส้นขอบภายในแนวนอน
+	Inside Vertical Border	เส้นขอบภายในแนวตั้ง
+	Diagonal Down Border	เส้นขอบทแยงลง
+	Diagonal Up Border	เส้นขอบทแยงขึ้น
