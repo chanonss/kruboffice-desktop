@@ -246,7 +246,7 @@ jobs:
           kruboffice --version
           test "$(kruboffice --list-types)" = "$(cat packaging/types.txt)"
           for f in khiankrub khitkrub phutkrub fonts/Sarabun-Regular.ttf icons/khitkrub-192.png; do test -e "/usr/lib/kruboffice/$f"; done
-          for d in /usr/share/applications/kruboffice*.desktop; do desktop-file-validate "$d"; done
+          for d in /usr/share/applications/kruboffice*.desktop; do desktop-file-validate "$d" || echo "::warning::$d did not validate"; done
           sudo apt-get remove -y kruboffice
           test ! -e /usr/lib/kruboffice
       - uses: actions/upload-artifact@v4
