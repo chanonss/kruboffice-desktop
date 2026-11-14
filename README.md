@@ -23,6 +23,20 @@ Opened without a file, KrubOffice shows the same welcome as [kruboffice.app](htt
 
 ติดตามข่าวและรุ่นใหม่ได้ที่ **[เพจ Facebook ของ KrubOffice](https://www.facebook.com/kruboffice/)** · Follow **[KrubOffice on Facebook](https://www.facebook.com/kruboffice/)** for news and new versions.
 
+## Source code · ซอร์สโค้ด
+
+KrubOffice is open source (MIT or Apache-2.0). This repository holds the launcher and the packaging, and in
+[`sources/`](sources/) the source of the three programs exactly as they are built into each release: KhianKrub,
+KhitKrub and PhutKrub, each a fork of an ArtCraft app ([WordCraft](https://github.com/storytold/wordcraft),
+[GridCraft](https://github.com/storytold/gridcraft), [DeckCraft](https://github.com/storytold/deckcraft)).
+`sources/` is updated automatically at every release; [`sources/README.md`](sources/README.md) says which version
+and commit each comes from. The code of the web versions (khiankrub.app and the others) is not included.
+
+KrubOffice เป็นโอเพนซอร์ส (MIT หรือ Apache-2.0) ที่เก็บนี้มีโค้ดของตัวเปิดโปรแกรมและการสร้างตัวติดตั้ง และในโฟลเดอร์
+[`sources/`](sources/) มีซอร์สโค้ดของเขียนครับ คิดครับ และพูดครับ ตรงกับที่อยู่ใน KrubOffice แต่ละรุ่น
+ซึ่งพัฒนาต่อยอดจาก WordCraft, GridCraft และ DeckCraft ของทีม ArtCraft โฟลเดอร์นี้อัปเดตอัตโนมัติทุกครั้งที่ออกรุ่นใหม่
+ส่วนโค้ดของเวอร์ชันบนเว็บไม่ได้รวมไว้ที่นี่
+
 ## How it is put together
 
 - **This repository** holds the launcher (`src/`: Start Center, file-type dispatch), the packaging
@@ -62,7 +76,9 @@ with `https://github.com/chanonss/kruboffice-desktop/releases/download/` or the 
    `version` in `Cargo.toml`.
 3. Push the tag `vX.Y.Z`. `.github/workflows/release.yml` builds the Mac app (Apple silicon and Intel) and the
    Windows installer, checks both (the installer is installed and removed on the runner), publishes the release
-   with `SHA256SUMS`, and commits `latest.json`. It reads the private sources with the `SOURCES_TOKEN` secret.
+   with `SHA256SUMS`, and commits `latest.json`. It reads the private sources with the `SOURCES_TOKEN` secret, then
+   commits their desktop-only files to `sources/` (`packaging/export-sources.sh`, which also checks that nothing
+   web-only or secret is left).
 
 ## Building (macOS)
 

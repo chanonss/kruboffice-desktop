@@ -19,7 +19,8 @@
 #
 # The three programs come from private repositories at the commits in packaging/sources.json, read
 # with the SOURCES_TOKEN secret: a fine-grained token with read-only Contents access to
-# khiankrub-web-source, khitkrub-web-source and phutkrub-web-source.
+# khiankrub-web-source, khitkrub-web-source and phutkrub-web-source. After a release, their desktop-only files are
+# written to sources/ (packaging/export-sources.sh) and committed to main: the web-only parts stay private.
 name: Release
 
 on:
@@ -329,4 +330,32 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add latest.json
           git commit -m "latest.json: KrubOffice ${GITHUB_REF_NAME}"
+          git push origin HEAD:main
+      # Desktop source public, web-only source private (owner, 2026-11-14): sources/ gets the desktop-only files of the
+      # pinned commits (packaging/export-sources.sh), committed to main after the release is out.
+      - name: Read the pinned sources
+        id: src
+        run: |
+          for app in khiankrub khitkrub phutkrub; do
+            echo "${app}_repo=$(jq -r ".${app}.repo" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+            echo "${app}_ref=$(jq -r ".${app}.ref" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khiankrub_repo }}", ref: "${{ steps.src.outputs.khiankrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: _private/khiankrub, persist-credentials: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: _private/khitkrub, persist-credentials: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: _private/phutkrub, persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish the desktop source
+        env:
+          KHIANKRUB_SRC: ${{ github.workspace }}/_private/khiankrub
+          KHITKRUB_SRC: ${{ github.workspace }}/_private/khitkrub
+          PHUTKRUB_SRC: ${{ github.workspace }}/_private/phutkrub
+        run: |
+          packaging/export-sources.sh sources
+          rm -rf _private
+          git add -A -f sources
+          if git diff --cached --quiet; then echo "sources/ unchanged"; exit 0; fi
+          git commit -m "Sources for KrubOffice ${{ steps.v.outputs.version }}"
           git push origin HEAD:main
