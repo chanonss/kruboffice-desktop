@@ -230,7 +230,7 @@ jobs:
       - name: Install build libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libgtk-3-dev libasound2-dev
+          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libgtk-3-dev libasound2-dev desktop-file-utils
       - name: Build the .deb
         env:
           KHIANKRUB_SRC: ${{ github.workspace }}/src/khiankrub-web
@@ -246,7 +246,7 @@ jobs:
           kruboffice --version
           test "$(kruboffice --list-types)" = "$(cat packaging/types.txt)"
           for f in khiankrub khitkrub phutkrub fonts/Sarabun-Regular.ttf icons/khitkrub-192.png; do test -e "/usr/lib/kruboffice/$f"; done
-          desktop-file-validate /usr/share/applications/kruboffice.desktop || true
+          for d in /usr/share/applications/kruboffice*.desktop; do desktop-file-validate "$d"; done
           sudo apt-get remove -y kruboffice
           test ! -e /usr/lib/kruboffice
       - uses: actions/upload-artifact@v4
