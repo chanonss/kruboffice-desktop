@@ -73,6 +73,17 @@ packaging/macos/build-app.sh
 Builds the launcher and the three programs (sibling folders by default; `KHIANKRUB_SRC`,
 `KHITKRUB_SRC`, `PHUTKRUB_SRC` override) and writes `dist/KrubOffice.app`, ad-hoc signed.
 
+## Building (Debian, Ubuntu)
+
+```bash
+packaging/linux/build-deb.sh
+```
+
+Builds the launcher and the three programs (same sibling-folder defaults and overrides as macOS) and writes
+`dist/kruboffice_<version>_<arch>.deb`. Install with `sudo apt install ./dist/kruboffice_*.deb`. Everything goes in
+`/usr/lib/kruboffice` (plain Rust executables, no Python), with `/usr/bin/kruboffice` and a menu entry that
+registers the file types. The release workflow builds it for amd64 on Ubuntu 22.04.
+
 ## Licence
 
 MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). KhianKrub, KhitKrub and PhutKrub are adaptations, by Chanon
