@@ -238,6 +238,35 @@ impl StartCenter {
     }
 }
 
+/// The corners of a rounded rectangle (`x`, `y`, `w`, `h`, corner radius `r`, in the logo's
+/// 120-unit box), turned `deg` degrees about (60, 70), as the logo's SVG draws its cards.
+fn card(x: f32, y: f32, w: f32, h: f32, r: f32, deg: f32) -> Vec<egui::Pos2> {
+    const STEPS: usize = 8;
+    let corners = [(x + w - r, y + r, -90.0_f32), (x + w - r, y + h - r, 0.0), (x + r, y + h - r, 90.0), (x + r, y + r, 180.0)];
+    let (sin, cos) = deg.to_radians().sin_cos();
+    let mut points = Vec::with_capacity(4 * (STEPS + 1));
+    for (cx, cy, start) in corners {
+        for i in 0..=STEPS {
+            let a = (start + 90.0 * i as f32 / STEPS as f32).to_radians();
+            let (px, py) = (cx + r * a.cos() - 60.0, cy + r * a.sin() - 70.0);
+            points.push(egui::pos2(60.0 + px * cos - py * sin, 70.0 + px * sin + py * cos));
+        }
+    }
+    points
+}
+
+/// The KrubOffice logo in `rect`, drawn from the same shapes as kruboffice.app's and the app
+/// icon's: a coral card turned −14°, a teal one turned 10°, the navy card in front with the gold bar.
+fn logo(painter: &egui::Painter, rect: egui::Rect) {
+    let scale = rect.width().min(rect.height()) / 120.0;
+    let place = |points: Vec<egui::Pos2>| -> Vec<egui::Pos2> { points.into_iter().map(|p| rect.min + p.to_vec2() * scale).collect() };
+    painter.add(egui::Shape::convex_polygon(place(card(22.0, 26.0, 64.0, 64.0, 15.0, -14.0)), CORAL, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(place(card(36.0, 22.0, 64.0, 64.0, 15.0, 10.0)), TEAL, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(place(card(26.0, 38.0, 68.0, 68.0, 16.0, 0.0)), NAVY, Stroke::NONE));
+    let bar = egui::Rect::from_min_size(rect.min + vec2(44.0, 66.0) * scale, vec2(32.0, 12.0) * scale);
+    painter.rect_filled(bar, CornerRadius::same((6.0 * scale).round() as u8), GOLD);
+}
+
 fn app_tile(ui: &mut egui::Ui, app: App, p: &Palette, texture: Option<&egui::TextureHandle>) -> bool {
     let size = vec2(150.0, 170.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -358,17 +387,13 @@ impl StartCenter {
                 ui.vertical_centered(|ui| {
                     ui.add_space(36.0);
                     ui.horizontal(|ui| {
-                        let width = 220.0;
+                        // As on kruboffice.app: a 48-pt logo, 12 pt from the word.
+                        let word = ui.painter().layout_no_wrap("KrubOffice".into(), bold(26.0), p.text).size().x;
+                        let width = 48.0 + 12.0 + word;
                         ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                        let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-                        let painter = ui.painter_at(r.expand(4.0));
-                        let tile = |dx: f32, dy: f32, c: Color32| {
-                            painter.rect_filled(egui::Rect::from_min_size(r.min + vec2(dx, dy), vec2(26.0, 26.0)), CornerRadius::same(6), c)
-                        };
-                        tile(2.0, 9.0, CORAL);
-                        tile(12.0, 2.0, TEAL);
-                        tile(6.0, 12.0, NAVY);
-                        painter.rect_filled(egui::Rect::from_min_size(r.min + vec2(12.0, 23.0), vec2(14.0, 5.0)), CornerRadius::same(2), GOLD);
+                        let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+                        logo(&ui.painter_at(r), r);
+                        ui.add_space(12.0 - ui.spacing().item_spacing.x);
                         ui.label(RichText::new("Krub").font(bold(26.0)).color(p.text));
                         ui.add_space(-ui.spacing().item_spacing.x);
                         ui.label(RichText::new("Office").font(bold(26.0)).color(p.accent));
