@@ -1,6 +1,6 @@
 [package]
 name = "kruboffice"
-version = "0.4.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "KrubOffice for the desktop: one app that opens documents, spreadsheets and presentations in KhianKrub, KhitKrub or PhutKrub"
