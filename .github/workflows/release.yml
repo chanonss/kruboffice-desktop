@@ -26,6 +26,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Build one platform only (macos, windows or linux); empty builds all"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -36,6 +41,7 @@ concurrency:
 
 jobs:
   macos:
+    if: ${{ !inputs.only || inputs.only == 'macos' }}
     runs-on: macos-latest
     timeout-minutes: 150
     steps:
@@ -136,6 +142,7 @@ jobs:
         with: { name: macos, path: "dist/*.dmg", if-no-files-found: error }
 
   windows:
+    if: ${{ !inputs.only || inputs.only == 'windows' }}
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
@@ -195,10 +202,60 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: "dist/*.msi", if-no-files-found: error }
 
+  linux:
+    # Debian and Ubuntu package (amd64). Built on the oldest supported Ubuntu so it runs on newer releases,
+    # Debian 13 (Trixie) included.
+    if: ${{ !inputs.only || inputs.only == 'linux' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the pinned sources
+        id: src
+        run: |
+          for app in khiankrub khitkrub phutkrub craft_fonts; do
+            echo "${app}_repo=$(jq -r ".${app}.repo" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+            echo "${app}_ref=$(jq -r ".${app}.ref" packaging/sources.json)" >> "$GITHUB_OUTPUT"
+          done
+          echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khiankrub_repo }}", ref: "${{ steps.src.outputs.khiankrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khiankrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.khitkrub_repo }}", ref: "${{ steps.src.outputs.khitkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/khitkrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.phutkrub_repo }}", ref: "${{ steps.src.outputs.phutkrub_ref }}", token: "${{ secrets.SOURCES_TOKEN }}", path: src/phutkrub-web }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ steps.src.outputs.craft_fonts_repo }}", ref: "${{ steps.src.outputs.craft_fonts_ref }}", path: src/craft-fonts }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libgtk-3-dev
+      - name: Build the .deb
+        env:
+          KHIANKRUB_SRC: ${{ github.workspace }}/src/khiankrub-web
+          KHITKRUB_SRC: ${{ github.workspace }}/src/khitkrub-web
+          PHUTKRUB_SRC: ${{ github.workspace }}/src/phutkrub-web
+        run: packaging/linux/build-deb.sh
+      - name: Install, check, and remove on the runner
+        run: |
+          deb="dist/kruboffice_${{ steps.src.outputs.version }}_amd64.deb"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          sudo apt-get install -y "./$deb"
+          kruboffice --version
+          test "$(kruboffice --list-types)" = "$(cat packaging/types.txt)"
+          for f in khiankrub khitkrub phutkrub fonts/Sarabun-Regular.ttf icons/khitkrub-192.png; do test -e "/usr/lib/kruboffice/$f"; done
+          desktop-file-validate /usr/share/applications/kruboffice.desktop || true
+          sudo apt-get remove -y kruboffice
+          test ! -e /usr/lib/kruboffice
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: "dist/*.deb", if-no-files-found: error }
+
   release:
-    needs: [macos, windows]
-    # Both platforms must have succeeded: a tag releases Windows and the notarized Mac app together.
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result == 'success' }}
+    needs: [macos, windows, linux]
+    # All platforms must have succeeded: a tag releases Windows, Linux and the notarized Mac app together.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result == 'success' && needs.linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -220,7 +277,7 @@ jobs:
         run: |
           cd out
           shopt -s nullglob
-          files=(*.dmg *.msi)
+          files=(*.dmg *.msi *.deb)
           sha256sum "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
           gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --target main --title "KrubOffice ${GITHUB_REF_NAME}" \
@@ -236,7 +293,7 @@ jobs:
           base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
           src = json.load(open("packaging/sources.json"))
           files = {}
-          for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$")):
+          for key, pattern in (("macos", r".*-macos-universal\.dmg$"), ("windows", r".*-windows-x64\.msi$"), ("linux", r"^kruboffice_.*_amd64\.deb$")):
               name = next((n for n in os.listdir("out") if re.match(pattern, n)), None)
               if name is None:
                   continue  # this platform isn't in the release
