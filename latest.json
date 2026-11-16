@@ -1,32 +1,37 @@
 {
- "version": "0.4.0",
- "date": "2026-11-13",
- "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.4.0",
+ "version": "0.5.0",
+ "date": "2026-11-16",
+ "notes": "https://github.com/chanonss/kruboffice-desktop/releases/tag/v0.5.0",
  "includes": {
-  "KhianKrub": "0.16.0",
-  "KhitKrub": "0.5.0",
-  "PhutKrub": "0.7.0"
+  "KhianKrub": "0.17.0",
+  "KhitKrub": "0.6.0",
+  "PhutKrub": "0.8.0"
  },
  "files": {
   "macos": {
-   "name": "KrubOffice-0.4.0-macos-universal.dmg",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-macos-universal.dmg",
-   "size": 204862021
+   "name": "KrubOffice-0.5.0-macos-universal.dmg",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.5.0/KrubOffice-0.5.0-macos-universal.dmg",
+   "size": 208325261
   },
   "windows": {
-   "name": "KrubOffice-0.4.0-windows-x64.msi",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-windows-x64.msi",
-   "size": 85692416
+   "name": "KrubOffice-0.5.0-windows-x64.msi",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.5.0/KrubOffice-0.5.0-windows-x64.msi",
+   "size": 87035904
   },
   "linux": {
-   "name": "kruboffice_0.4.0_amd64.deb",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/kruboffice_0.4.0_amd64.deb",
-   "size": 85592320
+   "name": "kruboffice_0.5.0_amd64.deb",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.5.0/kruboffice_0.5.0_amd64.deb",
+   "size": 86835606
   },
   "linux_appimage": {
-   "name": "KrubOffice-0.4.0-x86_64.AppImage",
-   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.4.0/KrubOffice-0.4.0-x86_64.AppImage",
-   "size": 107629048
+   "name": "KrubOffice-0.5.0-x86_64.AppImage",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.5.0/KrubOffice-0.5.0-x86_64.AppImage",
+   "size": 109087224
+  },
+  "linux_rpm": {
+   "name": "kruboffice-0.5.0-1.x86_64.rpm",
+   "url": "https://github.com/chanonss/kruboffice-desktop/releases/download/v0.5.0/kruboffice-0.5.0-1.x86_64.rpm",
+   "size": 116892376
   }
  }
 }
