@@ -125,9 +125,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 cp "$LAUNCHER" "$APP/Contents/MacOS/kruboffice"
 make_icns "$KHIANKRUB_SRC/packaging/web/public/icons/krubOffice-maskable-512.png" "$APP/Contents/Resources/KrubOffice.icns"
 
-# The Start Center's app icons (the apps' own glass artwork) and its interface font, Sarabun
-# (SIL OFL 1.1), the same files the web apps use: from KhianKrub's web build when it has them,
-# else from their source, Google Fonts' OFL repository.
+# The Start Center's app icons (the apps' own glass artwork) and Sarabun (SIL OFL 1.1), its Thai
+# fallback when the system has no Thai font. The font files are the ones the web apps use: from
+# KhianKrub's web build when it has them, else from their source, Google Fonts' OFL repository.
 mkdir -p "$APP/Contents/Resources/icons" "$APP/Contents/Resources/fonts"
 cp "$KHIANKRUB_SRC/assets/app-icon/khiankrub-192.png" "$KHITKRUB_SRC/assets/app-icon/khitkrub-192.png" \
    "$PHUTKRUB_SRC/assets/app-icon/phutkrub-192.png" "$APP/Contents/Resources/icons/"

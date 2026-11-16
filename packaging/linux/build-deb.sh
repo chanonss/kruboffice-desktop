@@ -49,7 +49,7 @@ install -m 0755 "$PHUTKRUB_SRC/target/$TRIPLE/release/deckcraft" "$LIB/phutkrub"
 ln -s ../lib/kruboffice/kruboffice "$PKG/usr/bin/kruboffice"
 strip --strip-unneeded "$LIB"/kruboffice "$LIB"/khiankrub "$LIB"/khitkrub "$LIB"/phutkrub
 
-# The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons, next to the launcher.
+# Sarabun (SIL OFL 1.1), the Start Center's Thai fallback when the system has no Thai font, and the apps' icons, next to the launcher.
 for f in Sarabun-Regular.ttf Sarabun-SemiBold.ttf OFL.txt; do
     if [ -f "$KHIANKRUB_SRC/dist/web/fonts/$f" ]; then cp "$KHIANKRUB_SRC/dist/web/fonts/$f" "$LIB/fonts/$f"
     else curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/$f" -o "$LIB/fonts/$f"; fi

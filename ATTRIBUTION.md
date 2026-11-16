@@ -11,14 +11,17 @@ repository's `ATTRIBUTION.md`:
 | KhitKrub | `assets/app-icon/khitkrub-512.png` | khitkrub-web | MIT OR Apache-2.0 (Thai outline: Sarabun, SIL OFL 1.1) |
 | PhutKrub | `assets/app-icon/phutkrub-512.png` | phutkrub-web | MIT OR Apache-2.0 (Thai outline: Sarabun, SIL OFL 1.1) |
 
-The Start Center draws its logo and app tiles in code (`src/start.rs`) and uses the platform's
-Thai font (or Sarabun when the packaging places it in the app's `fonts` folder).
+The Start Center draws its logo and app tiles in code (`src/start.rs`) and uses the operating
+system's own interface font, read from the system at runtime and never shipped (SF and Thonburi on
+macOS, Segoe UI and Leelawadee UI on Windows, the desktop's font through fontconfig on Linux). It
+falls back to Sarabun, which the packaging places in the app's `fonts` folder, only when the system
+has no Thai font.
 
 Built apps also carry, in their resources:
 
 | File | Author | Source | Licence |
 |---|---|---|---|
-| `fonts/Sarabun-Regular.ttf`, `fonts/Sarabun-SemiBold.ttf`, `fonts/OFL.txt` | Cadson Demak | google/fonts `ofl/sarabun` (as used by the web apps) | SIL OFL 1.1 |
+| `fonts/Sarabun-Regular.ttf`, `fonts/Sarabun-SemiBold.ttf`, `fonts/OFL.txt` | Cadson Demak | google/fonts `ofl/sarabun` (as used by the web apps; the Start Center's Thai fallback) | SIL OFL 1.1 |
 | `icons/khiankrub-192.png`, `khitkrub-192.png`, `phutkrub-192.png` | Chanon Sarasuk | the apps' repositories (`assets/app-icon`) | MIT OR Apache-2.0 (Thai outline: Sarabun, SIL OFL 1.1) |
 
 Screenshots in this repository:

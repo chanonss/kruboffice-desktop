@@ -106,7 +106,7 @@ wxs = (f'''<?xml version="1.0" encoding="utf-8"?>
         <File Id="LicenseApache" Source="$(var.BinDir)\\LICENSE-APACHE.txt" />
         <File Id="NoticesTxt" Source="$(var.BinDir)\\THIRD-PARTY-NOTICES.txt" />
       </Component>
-      <!-- The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons. -->
+      <!-- Sarabun (SIL OFL 1.1), the Start Center's Thai fallback, and the apps' icons. -->
       <Component Id="KrubOfficeFonts" Directory="KrubOfficeFontsDir" Guid="58547059-F83A-4D64-8BAF-D8E5F81A2A9A">
         <File Id="SarabunRegular" Source="$(var.BinDir)\\fonts\\Sarabun-Regular.ttf" KeyPath="yes" />
         <File Id="SarabunSemiBold" Source="$(var.BinDir)\\fonts\\Sarabun-SemiBold.ttf" />

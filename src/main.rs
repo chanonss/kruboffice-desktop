@@ -26,8 +26,14 @@ fn resources_dir() -> Option<std::path::PathBuf> {
     if here.ends_with("Contents/MacOS") { here.parent().map(|c| c.join("Resources")) } else { Some(here.to_path_buf()) }
 }
 
-/// The KrubOffice logo (three tiles) for the window and taskbar; egui's own icon otherwise.
+/// The KrubOffice logo (three tiles) for the window and taskbar; egui's own icon otherwise. On
+/// macOS inside the .app the Dock keeps the bundle's own icon: setting another picture at run
+/// time made the icon change as the app opened (owner, 2026-11-16). An empty icon tells eframe to
+/// leave it alone.
 fn app_icon() -> egui::IconData {
+    if cfg!(target_os = "macos") && in_app_bundle() {
+        return egui::IconData::default();
+    }
     let png: &[u8] = include_bytes!("../packaging/windows/kruboffice-512.png");
     match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
         Ok(img) => {
@@ -39,6 +45,11 @@ fn app_icon() -> egui::IconData {
             egui::IconData::default()
         }
     }
+}
+
+/// Whether this program runs from inside a macOS .app bundle (`….app/Contents/MacOS/…`).
+fn in_app_bundle() -> bool {
+    std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
 }
 
 fn main() {

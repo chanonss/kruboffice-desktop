@@ -49,7 +49,7 @@ Copy-Item (Join-Path $KhianKrub 'target\x86_64-pc-windows-msvc\release\wordcraft
 Copy-Item (Join-Path $KhitKrub 'target\x86_64-pc-windows-msvc\release\gridcraft.exe') (Join-Path $Stage 'khitkrub.exe')
 Copy-Item (Join-Path $PhutKrub 'target\x86_64-pc-windows-msvc\release\deckcraft.exe') (Join-Path $Stage 'phutkrub.exe')
 
-# The Start Center's font (Sarabun, SIL OFL 1.1) and the apps' icons, next to kruboffice.exe.
+# Sarabun (SIL OFL 1.1), the Start Center's Thai fallback when the system has no Thai font, and the apps' icons, next to kruboffice.exe.
 New-Item -ItemType Directory -Force (Join-Path $Stage 'fonts'), (Join-Path $Stage 'icons') | Out-Null
 foreach ($f in 'Sarabun-Regular.ttf', 'Sarabun-SemiBold.ttf', 'OFL.txt') {
     Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/$f" -OutFile (Join-Path $Stage "fonts\$f")
