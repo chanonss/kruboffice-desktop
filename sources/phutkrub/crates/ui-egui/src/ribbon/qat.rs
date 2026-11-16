@@ -55,14 +55,16 @@ pub fn common() -> Vec<QatItem> {
     ]
 }
 
-/// The toolbar a new install starts with.
+/// The toolbar before the KrubOffice apps shared one layout: an untouched toolbar still saved
+/// this way moves to [`defaults`] (`UiState::sanitized`).
+pub const OLD_DEFAULTS: [&str; 6] = ["app.home", "file.save", "app.exportDialog", "edit.undo", "edit.redo", "show.fromStart"];
+
+/// The toolbar a new install starts with: the KrubOffice layout (`krub_icons::qat::DEFAULTS`,
+/// Save · Undo · Redo) and PhutKrub's own command, Start from Beginning. Home and Export are in
+/// the File menu, and the Customize menu adds them back.
 pub fn defaults() -> Vec<QatItem> {
-    // Home, Save, Export, Undo, Redo, Start from Beginning: the title bar's buttons before it was customizable.
     let all = common();
-    ["app.home", "file.save", "app.exportDialog", "edit.undo", "edit.redo", "show.fromStart"]
-        .iter()
-        .filter_map(|id| all.iter().find(|q| q.id == *id).cloned())
-        .collect()
+    krub_icons::qat::DEFAULTS.iter().chain(&["show.fromStart"]).filter_map(|id| all.iter().find(|q| q.id == *id).cloned()).collect()
 }
 
 /// `app.qat`: `{add: id, params?, label?, icon?} | {remove: id, params?} | {reset: true}` → the toolbar.
@@ -149,13 +151,19 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 ui.close();
             }
         });
+        if q.id == "edit.undo" {
+            undo_history(app, ui, en);
+        }
     }
-    let r = crate::widgets::icon_toggle(ui, Icon::ChevronDown, tl!("Customize Quick Access Toolbar"), true, false);
+    let t = crate::theme::Tokens::of(ui);
+    let r = krub_icons::qat::customize_button(ui, egui::Id::unique("qat_customize"), t.text, t.hover);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Customize Quick Access Toolbar")));
+    let r = r.on_hover_text(tl!("Customize Quick Access Toolbar"));
     egui::Popup::menu(&r).show(|ui| {
         ui.label(egui::RichText::new(tl!("Customize Quick Access Toolbar")).strong());
         for c in common() {
             let mut on = app.ui.qat.iter().any(|q| q.same(&c.id, &Value::Null));
-            if ui.checkbox(&mut on, &c.label).changed() {
+            if ui.checkbox(&mut on, tl!(&c.label)).changed() {
                 let key = if on { "add" } else { "remove" };
                 let _ = command(app, &json!({key: c.id}));
             }
@@ -165,7 +173,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             ui.separator();
             for q in extra {
                 let mut on = true;
-                if ui.checkbox(&mut on, &q.label).changed() {
+                if ui.checkbox(&mut on, tl!(&q.label)).changed() {
                     let _ = command(app, &json!({"remove": q.id, "params": q.params}));
                 }
             }
@@ -175,6 +183,31 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
         if ui.button(tl!("Reset to Defaults")).clicked() {
             let _ = command(app, &json!({"reset": true}));
             ui.close();
+        }
+    });
+}
+
+/// The ▾ beside Undo: the steps to undo, newest first; a click undoes that step and every newer one.
+fn undo_history(app: &mut SlideApp, ui: &mut Ui, enabled: bool) {
+    let t = crate::theme::Tokens::of(ui);
+    let r = krub_icons::qat::history_arrow(ui, egui::Id::unique("qat_undo_list"), enabled, t.text, t.text_faint, t.hover);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, tl!("Undo History")));
+    let r = r.on_hover_text(tl!("Undo History"));
+    egui::Popup::menu(&r).show(|ui| {
+        let labels: Vec<String> =
+            app.session.active().map(|d| d.history.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default();
+        if labels.is_empty() {
+            ui.label(tl!("Can't Undo"));
+        }
+        for (i, label) in labels.iter().enumerate() {
+            if ui.button(format!("{} {}", tl!("Undo"), tl!(label))).clicked() {
+                for _ in 0..=i {
+                    if app.run("edit.undo", json!({})).is_err() {
+                        break;
+                    }
+                }
+                ui.close();
+            }
         }
     });
 }

@@ -11,7 +11,7 @@ mod ribbon_layout;
 /// KhitKrub's own version number, shown on the Account page and in the About dialog and read by
 /// `packaging/web/publish.sh`. The GridCraft version this fork is based on is in the crates' own
 /// `Cargo.toml` (0.14.2 at the fork) and in `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.5.0";
+pub const APP_VERSION: &str = "0.6.0";
 
 /// GridCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
@@ -101,6 +101,9 @@ pub struct UiState {
     pub ribbon_tabs_centered: bool,
     /// Whether the Draw tab shows (off by default; its pen tools are rarely used on a sheet).
     pub show_draw_tab: bool,
+    /// Whether the Automate tab shows (off by default, owner 2026-11-14: macros and agent tools
+    /// are for few users; File › Options › General turns it on).
+    pub show_automate_tab: bool,
     pub formula_bar_expanded: bool,
     /// Lines the expanded formula bar shows: the height its bottom edge was last dragged to.
     /// Expanding it again (the chevron, Ctrl+Shift+U) returns to that height.
@@ -118,6 +121,8 @@ pub struct UiState {
     /// change. A preference like the rest of this struct — it stays on across restarts (#1901).
     pub autosave: bool,
     pub recent: Vec<String>,
+    /// Fonts pinned to the top of the font lists, in the order they were pinned ([`krub_icons::fonts`]).
+    pub pinned_fonts: Vec<String>,
     /// One-shot keytip request for a ribbon control: set when a keytip action resolves to
     /// [`keytips::Action::Control`], consumed (and cleared) by the control's render site.
     #[serde(skip)]
@@ -163,6 +168,7 @@ impl Default for UiState {
             show_ribbon_tab_numbers: true,
             ribbon_tabs_centered: true,
             show_draw_tab: false,
+            show_automate_tab: false,
             formula_bar_expanded: false,
             formula_bar_lines: formula_bar::MAX_LINES,
             status_bar: true,
@@ -171,6 +177,7 @@ impl Default for UiState {
             highlight_active_row: false,
             autosave: false,
             recent: vec![],
+            pinned_fonts: Vec::new(),
             keytip_invoke: None,
             keytip_invoke_next: None,
             language: i18n::Language::En,
@@ -185,6 +192,7 @@ impl UiState {
     /// (Table Design) cannot come back with nothing selected to justify it.
     pub fn at_startup(mut self) -> Self {
         self.ribbon_tab = "Home".into();
+        self.pinned_fonts = krub_icons::fonts::sanitized(std::mem::take(&mut self.pinned_fonts));
         self
     }
 

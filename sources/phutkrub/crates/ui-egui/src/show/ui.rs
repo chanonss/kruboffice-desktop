@@ -1,3 +1,4 @@
+use super::displays::{Staging, inside, presenter_frame};
 use super::keys::{handle_keys, keyboard};
 use super::media::{
     Pick, Under, gif_hit, media_bar_target, media_hit, on_screen, pointer_on_media_bar, run_media_cues, shapes_under_pointer, show_media,
@@ -70,7 +71,19 @@ pub fn ui(app: &mut SlideApp, ui: &mut Ui) {
         // the show clocks are advanced by logic, not by this draw, so it must not advance them a
         // second time. Keep drawing the last frame rather than returning a blank.
         paint_hidden(ui, &doc, &show);
-        app.show = Some(show);
+        // The presenter window is still drawn: a pass that leaves it out closes it, and egui
+        // opens it again where it first opened (on macOS the show window is hidden for a moment
+        // whenever it enters or leaves full screen, #433). The presenter can also end the show.
+        let mut keep = true;
+        if show.presenter && !show.reading && !show.remote_opened && app.services.presenter.is_none() {
+            presenter_window(&ctx, &mut show, &doc, now, &mut keep);
+        }
+        if keep {
+            app.show = Some(show);
+        } else {
+            app.media.stop_owned(crate::media::Owner::Show);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
         return;
     }
     show.observe_visible_frame(now, web_time::Instant::now());
@@ -221,10 +234,93 @@ fn begin_show(ctx: &egui::Context, show: &mut Show, doc: &Presentation, now: f64
         show.timer = PresenterTimer::start(now);
         show.last_move = now;
         if show_fills_screen(show.reading, &doc.show.show_type) && !(show.presenter && remote) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+            match show.displays {
+                // macOS: move to the audience display first; full screen follows (#433).
+                Some(p) if p.staged() => {
+                    if let Some(area) = p.audience_area {
+                        move_window(ctx, egui::ViewportId::ROOT, area);
+                    }
+                    let zoom = ctx.zoom_factor();
+                    show.presenter_frame = p.presenter_area.map(|a| {
+                        let (at, size) = presenter_frame(a);
+                        (at / zoom, size / zoom)
+                    });
+                    show.staging = Staging::Enter { since: now };
+                    show.on_display = Some(p.audience);
+                }
+                // Full screen on the audience display; Presenter View opens on the other (#433).
+                Some(p) => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::SetMonitor(p.audience));
+                    show.on_display = Some(p.audience);
+                }
+                None => ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true)),
+            }
         }
         show.after_enter(doc, now);
     }
+    follow_displays(ctx, show, now);
+}
+
+/// A staged step waits at least this long for AppKit to settle a window.
+const SETTLE_SECS: f64 = 0.3;
+/// ... and at most this long for the window to report the change.
+const STAGE_LIMIT_SECS: f64 = 3.0;
+
+/// Put a window's corner inside `area` (desktop points).
+fn move_window(ctx: &egui::Context, id: egui::ViewportId, area: [f32; 4]) {
+    let at = inside(area) / ctx.zoom_factor();
+    ctx.send_viewport_cmd_to(id, egui::ViewportCommand::OuterPosition(at));
+}
+
+/// After Swap Displays, move the full-screen show to its new display, and run staged moves.
+fn follow_displays(ctx: &egui::Context, show: &mut Show, now: f64) {
+    if let (Some(at), Some(p)) = (show.on_display, show.displays)
+        && at != p.audience
+    {
+        show.on_display = Some(p.audience);
+        if p.staged() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            show.staging = Staging::Leave { since: now };
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::SetMonitor(p.audience));
+        }
+    }
+    let Some(p) = show.displays else { return };
+    let (fullscreen, rect) = ctx.input(|i| (i.viewport().fullscreen, i.viewport().outer_rect));
+    let zoom = ctx.zoom_factor();
+    match show.staging {
+        Staging::Done => return,
+        Staging::Leave { since } => {
+            let left = fullscreen == Some(false) && now >= since + SETTLE_SECS;
+            if left || now >= since + STAGE_LIMIT_SECS {
+                // The presenter leaves first: a window of the app left on the display the slides
+                // go full screen on brings that display back from the full-screen Space.
+                if let Some(b) = p.presenter_area {
+                    let (at, size) = presenter_frame(b);
+                    show.presenter_cmds.push(egui::ViewportCommand::OuterPosition(at / zoom));
+                    show.presenter_cmds.push(egui::ViewportCommand::InnerSize(size / zoom));
+                }
+                if let Some(a) = p.audience_area {
+                    move_window(ctx, egui::ViewportId::ROOT, a);
+                }
+                show.staging = Staging::Enter { since: now };
+            }
+        }
+        Staging::Enter { since } => {
+            let on = |area: Option<[f32; 4]>, r: Option<egui::Rect>| {
+                area.zip(r).is_some_and(|(a, r)| {
+                    egui::Rect::from_min_size(egui::pos2(a[0], a[1]) / zoom, egui::vec2(a[2], a[3]) / zoom).contains(r.center())
+                })
+            };
+            let presenter_rect = ctx.input(|i| i.raw.viewports.get(&super::presenter::presenter_id()).and_then(|v| v.outer_rect));
+            let there = on(p.audience_area, rect) && (show.presenter_cmds.is_empty() && on(p.presenter_area, presenter_rect));
+            if (there && now >= since + SETTLE_SECS) || now >= since + STAGE_LIMIT_SECS {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                show.staging = Staging::Done;
+            }
+        }
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(50));
 }
 
 fn handle_clicks(app: &mut SlideApp, ui: &mut Ui, show: &mut Show, f: &Fr, out: &mut Out) -> bool {

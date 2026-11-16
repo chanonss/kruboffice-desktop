@@ -57,16 +57,15 @@ fn typing_a_chart_title_in_format_chart_area_sets_it() {
 }
 
 #[test]
-fn typing_a_table_name_on_the_table_design_tab_renames_the_table() {
+fn typing_a_table_name_in_the_table_pane_renames_the_table() {
     let mut session = session();
     session.execute("insert.table", json!({"range": "A1:B3", "header": true})).unwrap();
     session.execute("selection.set", json!({"range": "A2"})).unwrap();
     let mut h = harness(session);
-    h.state_mut().ui.ribbon_tab = "Table Design".into();
+    // A cell in the table opens the Table pane, which has the Table Name box.
     h.run_steps(2);
-    let label = h.get_by_label("Table Name:").rect();
-    let below_label = |r: &egui::Rect| r.top() >= label.bottom() - 2.0 && (r.left() - label.left()).abs() < 20.0;
-    let field = h.get_all_by_role(Role::TextInput).map(|n| n.rect()).find(below_label).unwrap();
+    // The box is named by its "Table Name:" label for screen readers.
+    let field = h.get_by_role_and_label(Role::TextInput, "Table Name:").rect();
     retype(&mut h, field, "Sales");
     let name = h.state().session.active().unwrap().wb.active().unwrap().tables[0].name.clone();
     assert_eq!(name, "Sales");

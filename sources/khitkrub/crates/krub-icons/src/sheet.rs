@@ -204,6 +204,16 @@ pub enum Icon {
     InsertIcons,
     /// Insert › Charts › Hierarchy & more: several kinds of chart (line set only).
     MoreCharts,
+    /// Automate › Agent Control: a robot (Tabler only).
+    Agent,
+    /// Automate › Action Journal: a clock with a back arrow (Tabler only).
+    Journal,
+    /// Check for Updates: circling arrows (Tabler only).
+    Updates,
+    /// View › Zoom › 100%: a magnifier with a reset arrow (Tabler only).
+    ZoomReset,
+    /// View › Zoom › Zoom to Selection: a magnifier over a dashed area (Tabler only).
+    ZoomSelection,
 }
 
 struct G<'a> {
@@ -329,6 +339,9 @@ pub fn paint_on_sheet(p: &Painter, rect: Rect, icon: Icon, c: Color32) {
 
 /// Draws `icon` into `rect` (square-ish), in colour `c`, with palette `pal`.
 fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette, flat: bool) {
+    if crate::tabler::paint(p, rect, icon.name(), c, false) {
+        return;
+    }
     // KhianKrub's line drawing for the same command, where there is one.
     if crate::line::sheet::paint(p, rect, icon, c, flat) {
         return;
@@ -938,8 +951,8 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette, fl
             g.line(&[(13.0, 3.0), (13.0, 9.0)], c, 1.1);
         }
         Icon::StopSquare => g.rect(3.0, 3.0, 10.0, 10.0, Some(pal.recording), None),
-        // Drawn only by the line set (`line::sheet::paint`).
-        Icon::InsertIcons | Icon::MoreCharts => {}
+        // Drawn only by the line set (`line::sheet::paint`) or Tabler (`tabler::paint`).
+        Icon::InsertIcons | Icon::MoreCharts | Icon::Agent | Icon::Journal | Icon::Updates | Icon::ZoomReset | Icon::ZoomSelection => {}
     }
 }
 
@@ -1167,6 +1180,11 @@ impl Icon {
         Self::StopSquare,
         Self::InsertIcons,
         Self::MoreCharts,
+        Self::Agent,
+        Self::Journal,
+        Self::Updates,
+        Self::ZoomReset,
+        Self::ZoomSelection,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -1315,6 +1333,11 @@ impl Icon {
             Self::StopSquare => "stop-square",
             Self::InsertIcons => "insert-icons",
             Self::MoreCharts => "more-charts",
+            Self::Agent => "agent",
+            Self::Journal => "action-journal",
+            Self::Updates => "check-updates",
+            Self::ZoomReset => "zoom-reset",
+            Self::ZoomSelection => "zoom-selection",
         }
     }
 }

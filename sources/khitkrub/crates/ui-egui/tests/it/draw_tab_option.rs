@@ -18,6 +18,25 @@ fn the_draw_tab_stays_hidden_until_it_is_turned_on() {
     assert_eq!(h.state().ui.ribbon_tab, "Draw", "with the option on the tab is kept");
 }
 
+/// The Automate tab is off by default too (owner, 2026-11-14), and About is not on it: it lives
+/// in File › About.
+#[test]
+fn the_automate_tab_stays_hidden_until_it_is_turned_on() {
+    let mut session = Session::new();
+    session.new_workbook();
+    let mut h = crate::support::harness(session, 4);
+    assert!(!h.state().ui.show_automate_tab, "Automate is off by default");
+    h.state_mut().ui.ribbon_tab = "Automate".into();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ribbon_tab, "Home");
+    h.state_mut().ui.show_automate_tab = true;
+    h.state_mut().ui.ribbon_tab = "Automate".into();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ribbon_tab, "Automate", "with the option on the tab is kept");
+    let automate = include_str!("../../src/ribbon/automate.rs");
+    assert!(!automate.contains(r#"open_dialog("about""#), "About is not on the Automate tab");
+}
+
 /// The Home groups have no launchers (owner, 2026-11-13: the two-size ribbon, as in KhianKrub);
 /// Format Cells still opens on each tab the launchers opened: Alignment at the end of the
 /// Orientation menu, Number at the end of the number format list, Font from its shortcut.

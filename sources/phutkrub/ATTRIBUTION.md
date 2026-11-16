@@ -8,7 +8,9 @@ PhutKrub contains **no Microsoft, Adobe, Avid or Autodesk iconography, images, f
 templates or other assets**. Its themes, colour schemes, layouts, preset-shape geometry, sample
 deck and UI icons are original work of the DeckCraft contributors (drawn or generated in code).
 Icons placed from Insert › Icons are Lucide paths (ISC; Feather-derived icons MIT), not Microsoft
-artwork. The ribbon and menu icons stay original drawings.
+artwork. Most ribbon and menu icons are now drawn from Tabler Icons (MIT; see below).
+
+**Tabler Icons.** Most ribbon, toolbar and menu icons are drawn from [Tabler Icons](https://tabler.io/icons) 3.50.0 by Paweł Kuna, under the MIT License; the full text is [`crates/krub-icons/LICENSE-tabler.txt`](crates/krub-icons/LICENSE-tabler.txt). Their outline SVG paths were converted into Rust geometry in `crates/krub-icons/src/tabler.rs` (no SVG files are bundled), and `crates/krub-icons/tools/tabler-map.tsv` lists which icon names use them. The apps credit Tabler Icons in Help › About and show the licence there. Icons not in that list (for example the Thai Distribution ท and Thai digits icons, the function library books and the preset diagrams) remain original KrubOffice drawings.
 
 ## In this repository
 
@@ -105,6 +107,7 @@ in craft-fonts, including the LXGW Reserved Font Names and original Klee notice.
 | Asset | Author | Source | Licence | Used for |
 |---|---|---|---|---|
 | `crates/krub-icons/src/lib.rs` | KrubOffice contributors | Original Quiet Glass Rust drawings, 24×24 grid, 2026-11-01 | MIT OR Apache-2.0 | Shared toolbar preview and glass letter treatment |
+| `crates/krub-icons/src/tabler.rs` | Paweł Kuna (Tabler Icons 3.50.0); converted by KrubOffice contributors | Tabler Icons outline SVG paths converted to Rust geometry, 2026-11-14; licence in `crates/krub-icons/LICENSE-tabler.txt` | MIT | Ribbon, toolbar and menu icons |
 | `assets/app-icon/phutkrub.svg` (Quiet Glass revision) | KrubOffice contributors; The Sarabun Project Authors | Original glass treatment of existing Sarabun Bold outline, 2026-11-01 | MIT OR Apache-2.0; letter outline SIL OFL 1.1 | Updated web icon master |
 
 ## Quiet Glass shared catalog (2026-11-01)

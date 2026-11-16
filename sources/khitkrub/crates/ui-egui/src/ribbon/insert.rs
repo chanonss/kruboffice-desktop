@@ -39,7 +39,7 @@ pub(super) fn insert(app: &mut SheetApp, ui: &mut Ui) {
             ("Arrow", "arrow"),
             ("Text Box", "textBox"),
         ] {
-            if ui.button(label).clicked() {
+            if ui.button(app.ui.language.tr(label)).clicked() {
                 act(app, "insert.shape", json!({"kind": kind}));
             }
         }

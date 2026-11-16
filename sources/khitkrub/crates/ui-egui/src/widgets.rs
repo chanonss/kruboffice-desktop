@@ -139,8 +139,54 @@ pub fn toggle_button(ui: &mut Ui, icon: Icon, on: bool, tip: &str) -> Response {
     resp.on_hover_text(tip_text(ui, tip))
 }
 
-/// Large ribbon button: [`BIG_ICON`] icon over a one- or two-line label, as tall as two rows.
+thread_local! {
+    /// Set while an object's commands are drawn in the right-hand pane ([`in_pane`]).
+    static PANE_MODE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Draw `add` (a former contextual tab's controls) in a side pane: large buttons become one-line
+/// buttons with their names, separators become headings ([`pane_mode`]).
+pub fn in_pane<R>(add: impl FnOnce() -> R) -> R {
+    let was = PANE_MODE.with(|m| m.replace(true));
+    let r = add();
+    PANE_MODE.with(|m| m.set(was));
+    r
+}
+
+/// Whether controls are being drawn in a side pane.
+pub fn pane_mode() -> bool {
+    PANE_MODE.with(std::cell::Cell::get)
+}
+
+/// A side pane's button: the icon, then the name on one line, and a chevron when it opens a menu
+/// (KhianKrub's and PhutKrub's pane buttons).
+fn pane_button(ui: &mut Ui, icon: Icon, label: &str, tip: &str, dropdown: bool) -> Response {
+    let t = Tokens::of(ui);
+    let name = tr(ui, label).replace('\n', " ");
+    let galley = ui.painter().layout_no_wrap(name.clone(), theme::ui_font(11.5), t.text);
+    let arrow = if dropdown { 12.0 } else { 0.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(SMALL_W + galley.size().x + 8.0 + arrow, SMALL_H), Sense::click());
+    if resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(rect, 4.0, t.pressed);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(rect, 4.0, t.hover);
+    }
+    paint_icon(ui, Rect::from_center_size(pos2(rect.left() + SMALL_W / 2.0, rect.center().y), vec2(SMALL_ICON, SMALL_ICON)), icon, t.text);
+    ui.painter().galley(pos2(rect.left() + SMALL_W, rect.center().y - galley.size().y / 2.0), galley, t.text);
+    if dropdown {
+        paint_icon(ui, Rect::from_center_size(pos2(rect.right() - 7.0, rect.center().y), vec2(9.0, 9.0)), Icon::Chevron, t.text_dim);
+    }
+    let enabled = ui.is_enabled();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
+    resp.on_hover_text(tip_text(ui, tip))
+}
+
+/// Large ribbon button: [`BIG_ICON`] icon over a one- or two-line label, as tall as two rows. In
+/// a side pane ([`in_pane`]) it is a one-line button with its name.
 pub fn big_button(ui: &mut Ui, icon: Icon, label: &str, tip: &str, dropdown: bool) -> Response {
+    if pane_mode() {
+        return pane_button(ui, icon, label, tip, dropdown);
+    }
     let t = Tokens::of(ui);
     let label = tr(ui, label);
     let (lines, w) = big_label(ui, label, dropdown);
@@ -160,36 +206,50 @@ pub fn big_button(ui: &mut Ui, icon: Icon, label: &str, tip: &str, dropdown: boo
     resp.on_hover_text(tip_text(ui, tip))
 }
 
-/// Large split button (Formulas › AutoSum): the icon runs the default action, the label and its
-/// arrow open the menu. Returns the (main, arrow) responses; their accessible names are the label
-/// and "<label> options".
+/// Width of the dropdown target at the right end of a large split button's label row. It is
+/// reserved beside the label, so no visible text opens the menu (the KrubOffice split button,
+/// shared with KhianKrub and PhutKrub).
+pub const SPLIT_ARROW_W: f32 = 18.0;
+
+/// Large split button (Formulas › AutoSum, Home › Paste): the icon and the label text run the
+/// default action; only the chevron strip at the end of the label row opens the menu. Returns the
+/// (main, arrow) responses; their accessible names are the label and "<label> options".
 pub fn big_split_button(ui: &mut Ui, icon: Icon, label: &str, tip: &str) -> (Response, Response) {
     let t = Tokens::of(ui);
     let label = tr(ui, label);
-    let (lines, w) = big_label(ui, label, true);
-    let (rect, _) = ui.allocate_exact_size(vec2(w, CONTENT_H), Sense::hover());
-    let split = rect.top() + BIG_LABEL_Y - 2.0;
-    let main_rect = Rect::from_min_max(rect.min, pos2(rect.right(), split));
-    let arrow_rect = Rect::from_min_max(pos2(rect.left(), split), rect.max);
-    let main = ui.interact(main_rect, ui.scope_id().with((label, "big-split-main")), Sense::click());
-    let arrow = ui.interact(arrow_rect, ui.scope_id().with((label, "big-split-arrow")), Sense::click());
+    let (lines, _) = big_label(ui, label, false);
+    let text_w = lines.iter().map(|l| l.size().x).fold(0.0, f32::max);
+    let w = (text_w + 12.0 + SPLIT_ARROW_W).max(crate::ribbon_layout::BIG_MIN_W);
+    let (rect, main) = ui.allocate_exact_size(vec2(w, CONTENT_H), Sense::click());
+    let arrow_rect = Rect::from_min_max(pos2(rect.right() - SPLIT_ARROW_W, rect.top() + BIG_LABEL_Y - 2.0), rect.max);
+    let label_rect = Rect::from_min_max(rect.min, pos2(arrow_rect.left(), rect.bottom()));
+    // Added after the main part, so it wins the pointer inside its strip.
+    let arrow = ui.interact(arrow_rect, main.id.with("big-split-arrow"), Sense::click());
     let hovered = (main.hovered() || arrow.hovered()) && ui.is_enabled();
     let pressed = main.is_pointer_button_down_on() || arrow.is_pointer_button_down_on();
-    if surface(ui, rect, hovered, pressed, false, &t) {
-        ui.painter().line_segment([pos2(rect.left() + 4.0, split), pos2(rect.right() - 4.0, split)], Stroke::new(1.0, t.separator));
-    } else {
-        if main.hovered() || arrow.hovered() {
+    if !surface(ui, rect, hovered, pressed, false, &t) {
+        if main.is_pointer_button_down_on() {
+            ui.painter().rect_filled(rect, 5.0, t.pressed);
+        } else if hovered {
             ui.painter().rect_filled(rect, 5.0, t.hover);
-            ui.painter().line_segment([pos2(rect.left() + 4.0, split), pos2(rect.right() - 4.0, split)], Stroke::new(1.0, t.separator));
-        }
-        for (part, r) in [(&main, main_rect), (&arrow, arrow_rect)] {
-            if part.is_pointer_button_down_on() {
-                ui.painter().rect_filled(r, 5.0, t.pressed);
-            }
         }
     }
+    // The strip lights on its own, so it reads as a separate target.
+    if arrow.is_pointer_button_down_on() {
+        ui.painter().rect_filled(arrow_rect, 4.0, t.pressed);
+    } else if arrow.hovered() && ui.is_enabled() {
+        ui.painter().rect_filled(arrow_rect, 4.0, t.hover);
+    }
     paint_icon(ui, Rect::from_center_size(pos2(rect.center().x, rect.top() + BIG_ICON_Y), vec2(BIG_ICON, BIG_ICON)), icon, t.text);
-    paint_big_label(ui, rect, &lines, true);
+    paint_big_label(ui, label_rect, &lines, false);
+    let last_y = rect.top() + BIG_LABEL_Y + lines.len().saturating_sub(1) as f32 * LABEL_PITCH;
+    let line_h = lines.last().map_or(12.0, |l| l.size().y);
+    paint_icon(
+        ui,
+        Rect::from_center_size(pos2(arrow_rect.center().x, last_y + line_h / 2.0 + 1.0), vec2(BIG_ARROW, BIG_ARROW)),
+        Icon::Chevron,
+        t.text_dim,
+    );
     let name = label.replace('\n', " ");
     let enabled = ui.is_enabled();
     main.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
@@ -394,10 +454,19 @@ pub fn small_split_button(ui: &mut Ui, icon: Icon, label: &str, tip: &str) -> (R
 /// A one-line text field for a value stored in the workbook, which callers reload every frame. The text being typed is
 /// kept in egui memory until the field loses focus, then returned to commit (`None` when Escape cancels the edit).
 pub fn committed_text(ui: &mut Ui, id: egui::Id, current: &str, width: Option<f32>) -> Option<String> {
+    committed_text_labelled(ui, id, current, width, None)
+}
+
+/// [`committed_text`] named for assistive technology by the label `label` (its response id).
+pub fn committed_text_labelled(ui: &mut Ui, id: egui::Id, current: &str, width: Option<f32>, label: Option<egui::Id>) -> Option<String> {
     let width = width.unwrap_or(ui.spacing().text_edit_width);
     let draft = id.with("draft");
     let mut text = ui.data_mut(|d| d.get_temp::<String>(draft)).unwrap_or_else(|| current.to_string());
     let r = ui.add(egui::TextEdit::singleline(&mut text).id(id).desired_width(width));
+    let r = match label {
+        Some(label) => r.labelled_by(label),
+        None => r,
+    };
     if r.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(draft));
         return (!ui.input(|i| i.key_pressed(egui::Key::Escape))).then_some(text);

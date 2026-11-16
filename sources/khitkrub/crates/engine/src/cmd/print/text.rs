@@ -11,8 +11,9 @@ const MAX_WRAP_LINES: usize = 2000;
 /// Widths are kept as running sums of glyph widths (the sum `text_width` makes), so each
 /// character is measured once: re-measuring the line for every word, or the rest of an
 /// over-long word for every piece cut from it, made a long paragraph or word quadratic.
-pub(super) fn wrap_lines(text: &str, font: Font, size: f32, width: f32) -> Vec<String> {
-    let units_of = |s: &str| -> u64 { s.chars().map(|c| u64::from(font.char_width(c))).sum() };
+pub(super) fn wrap_lines(text: &str, font: Font, family: Option<&str>, size: f32, width: f32) -> Vec<String> {
+    // Width in 1/1000 em, in the cell's own (embedded) family where the PDF writer has it.
+    let units_of = |s: &str| -> u64 { gridcraft_pdf::text_width_in(font, family, 1000.0, s).round() as u64 };
     let fits = |units: u64| units as f32 * size / 1000.0 <= width;
     let space = units_of(" ");
     let mut out = Vec::new();
@@ -39,7 +40,7 @@ pub(super) fn wrap_lines(text: &str, font: Font, size: f32, width: f32) -> Vec<S
                 let mut piece = String::new();
                 let mut units: u64 = 0;
                 for c in line.chars() {
-                    let w = u64::from(font.char_width(c));
+                    let w = units_of(c.encode_utf8(&mut [0; 4]));
                     if !piece.is_empty() && !fits(units + w) {
                         out.push(std::mem::take(&mut piece));
                         units = 0;
@@ -154,6 +155,9 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
     let st = &l.style;
     let mut size = st.font.size.clamp(1.0, 409.0) * b.scale;
     let font = font_for(st);
+    // The cell's own font, embedded when the host registered it (TH Sarabun New, Sarabun…).
+    let family = Some(st.font.name.as_str());
+    let width_of = |size: f32, s: &str| gridcraft_pdf::text_width_in(font, family, size, s);
     let pad = PAD_PX * b.k;
     let indent = st.align.indent as f32 * 9.0 * b.k;
     let avail = (w - 2.0 * pad - indent).max(0.0);
@@ -170,7 +174,7 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
     } else if code == "General"
         && let Value::Number(n) = v
     {
-        let digit = gridcraft_pdf::text_width(font, size, "0").max(0.1);
+        let digit = width_of(size, "0").max(0.1);
         let max_chars = (avail / digit).floor().max(1.0) as usize;
         gridcraft_numfmt::format_general_fit(n, max_chars.min(11)).unwrap_or_else(|| "#".repeat(max_chars.min(255)))
     } else {
@@ -183,23 +187,23 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
     if text.is_empty() {
         return;
     }
-    let mut tw = gridcraft_pdf::text_width(font, size, &text);
+    let mut tw = width_of(size, &text);
     if st.align.shrink && !wrap && tw > avail && tw > 0.0 {
         size = (size * avail / tw).max(1.0);
-        tw = gridcraft_pdf::text_width(font, size, &text);
+        tw = width_of(size, &text);
     }
     if is_num && !wrap && tw > avail + 0.01 && !sh.show_formulas {
-        let hash = gridcraft_pdf::text_width(font, size, "#").max(0.1);
+        let hash = width_of(size, "#").max(0.1);
         text = "#".repeat(((avail / hash).floor().max(1.0) as usize).min(255));
-        tw = gridcraft_pdf::text_width(font, size, &text);
+        tw = width_of(size, &text);
     }
     let h_align = text_align(st.align.h, &v);
     let rot = st.align.rotation;
     let rotated = rot != 0 && rot != 255;
     // Rotated text wraps along its own direction: upright (±90°) text to the row height.
     let lines: Vec<String> = match (wrap, rotated) {
-        (true, false) => wrap_lines(&text, font, size, avail.max(size)),
-        (true, true) if rot.abs() == 90 => wrap_lines(&text, font, size, (h - 2.0 * pad).max(size)),
+        (true, false) => wrap_lines(&text, font, family, size, avail.max(size)),
+        (true, true) if rot.abs() == 90 => wrap_lines(&text, font, family, size, (h - 2.0 * pad).max(size)),
         (true, true) => vec![text.lines().next().unwrap_or_default().to_string()],
         (false, _) => vec![text],
     };
@@ -237,7 +241,7 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
             } else {
                 (x + pad + (last - i) * line_h, y + pad + size * 0.8)
             };
-            pg.text_rotated(Point::new(ox, oy), size, font, color, t, angle);
+            pg.text_in_rotated(Point::new(ox, oy), size, gridcraft_pdf::Styled { font, family: &st.font.name }, color, t, angle);
         }
         pg.restore();
         return;
@@ -248,8 +252,8 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
         let mut yy = y + pad + size * 0.8;
         for ch in chars {
             let s = ch.to_string();
-            let cw = gridcraft_pdf::text_width(font, size, &s);
-            pg.text(x + (w - cw) / 2.0, yy, size, font, color, &s);
+            let cw = width_of(size, &s);
+            pg.text_in(x + (w - cw) / 2.0, yy, size, gridcraft_pdf::Styled { font, family: &st.font.name }, color, &s);
             yy += line_h;
             if yy > y + h + line_h {
                 break;
@@ -259,7 +263,7 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
         return;
     }
     for (i, line) in lines.iter().enumerate() {
-        let lw = gridcraft_pdf::text_width(font, size, line);
+        let lw = width_of(size, line);
         let lx = match h_align {
             HAlign::Right => x + w - pad - lw - indent,
             HAlign::Center => x + (w + across - lw) / 2.0,
@@ -269,7 +273,7 @@ pub(super) fn draw_text(pg: &mut Page, b: &Block, placement: TextPlacement<'_>) 
         if ly - size > y + h || ly < y - line_h {
             continue;
         }
-        pg.text(lx, ly, size, font, color, line);
+        pg.text_in(lx, ly, size, gridcraft_pdf::Styled { font, family: &st.font.name }, color, line);
         if st.font.underline != Underline::None {
             let uw = (size * 0.06).max(0.2);
             pg.stroke_line(lx, ly + size * 0.12, lx + lw, ly + size * 0.12, uw, color);

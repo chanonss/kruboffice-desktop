@@ -450,6 +450,8 @@ fn renders_every_ribbon_tab_without_panicking() {
     let mut s = Session::new();
     s.execute("file.new", json!({"sample": "sales"})).unwrap();
     let mut h = harness(s);
+    h.state_mut().ui.show_draw_tab = true;
+    h.state_mut().ui.show_automate_tab = true;
     for tab in ["Home", "Insert", "Draw", "Page Layout", "Formulas", "Data", "Review", "View", "Automate"] {
         h.state_mut().ui.ribbon_tab = tab.into();
         h.run_steps(2);

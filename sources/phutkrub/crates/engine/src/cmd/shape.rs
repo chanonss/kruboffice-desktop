@@ -112,7 +112,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shape Outline",
             ["Shape Format", "Shape Styles"],
             None,
-            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow, tail?, headSize?: sm|med|lg, tailSize?, reset?, ids?}; a group also formats its members",
+            "{color?, none?, width?: pt, transparency?: 0..1, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow, tail?, headSize?: sm|med|lg, tailSize?, reset?, ids?}; a group also formats its members",
             has_selection,
             line
         ),
@@ -307,6 +307,29 @@ fn inherited_fills(s: &Session, p: &Value) -> Result<HashMap<ShapeId, Option<Fil
         }
     }
     Ok(fills)
+}
+
+/// The effective outline colour of each targeted shape, for a transparency change on an inherited
+/// (style) outline.
+fn inherited_line_colors(s: &Session, p: &Value) -> Result<HashMap<ShapeId, Option<ColorRef>>> {
+    let st = s.doc()?;
+    let ctx = super::text::ctx_for(&st.doc, &st.selection);
+    let mut colors = HashMap::new();
+    for id in targets(s, p)? {
+        if let Some(sh) = st.shape(id) {
+            deckcraft_model::walk(std::slice::from_ref(sh), &mut |sh, _| {
+                let color = ctx.as_ref().and_then(|c| {
+                    let (l, ph) = deckcraft_model::resolve::line(c, sh);
+                    match l.fill {
+                        Some(Fill::Solid { color }) => Some(ColorRef::rgb(c.color(&color, ph))),
+                        _ => None,
+                    }
+                });
+                colors.insert(sh.id, color);
+            });
+        }
+    }
+    Ok(colors)
 }
 
 /// Applies a `shape.fill` request to one shape: the fill, then its picture options, then transparency.
@@ -504,6 +527,31 @@ mod tests {
             expected.mods.push(ColorTransform::Alpha(50000));
             assert_eq!(s.doc().unwrap().shape(*id).unwrap().fill, Some(Fill::solid(expected)));
         }
+    }
+
+    /// The shared object pane's Line › Transparency: the outline colour's alpha, taken from the
+    /// shape's style when the outline is inherited; 0 removes it again; undo restores it.
+    #[test]
+    fn line_transparency_sets_the_outline_alpha() {
+        let mut s = Session::with_new();
+        s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+        let id = ShapeId(s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 200, 100]})).unwrap()["id"].as_u64().unwrap() as u32);
+        let alpha = |s: &Session| match s.doc().unwrap().shape(id).unwrap().line.as_ref().and_then(|l| l.fill.clone()) {
+            Some(Fill::Solid { color }) => Some(color.alpha()),
+            _ => None,
+        };
+        s.execute("shape.line", &json!({"transparency": 0.4})).unwrap();
+        assert!((alpha(&s).unwrap() - 0.6).abs() < 1e-6, "the inherited outline got its own colour at 60% opacity");
+        s.execute("shape.line", &json!({"color": "#ff0000"})).unwrap();
+        s.execute("shape.line", &json!({"transparency": 0.25})).unwrap();
+        assert!((alpha(&s).unwrap() - 0.75).abs() < 1e-6);
+        s.execute("shape.line", &json!({"transparency": 0})).unwrap();
+        assert_eq!(alpha(&s), Some(1.0));
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!((alpha(&s).unwrap() - 0.75).abs() < 1e-6);
+        s.execute("shape.line", &json!({"none": true})).unwrap();
+        s.execute("shape.line", &json!({"transparency": 0.5})).unwrap();
+        assert_eq!(s.doc().unwrap().shape(id).unwrap().line.as_ref().and_then(|l| l.fill.clone()), Some(Fill::None), "no outline stays none");
     }
 
     #[test]

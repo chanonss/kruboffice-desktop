@@ -19,6 +19,7 @@ fn harness_with(services: Services) -> Harness {
     let mut session = Session::new();
     session.new_workbook();
     let mut app = SheetApp::new(session, services);
+    app.ui.show_automate_tab = true;
     app.ui.ribbon_tab = "Automate".into();
     let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
         |ui, app: &mut SheetApp| {

@@ -185,6 +185,13 @@ impl SlideApp {
                 // The browser build has one viewport: presenter view is drawn inside the page.
                 return Ok(json!({"on": self.ui.presenter_view, "window": !cfg!(target_arch = "wasm32")}));
             }
+            "show.swapDisplays" => {
+                let placed = self.show.as_mut().and_then(|s| s.swap_displays());
+                return Ok(match placed {
+                    Some(p) => json!({"swapped": true, "audience": p.audience, "presenter": p.presenter}),
+                    None => json!({"swapped": false}),
+                });
+            }
             "show.keepCursor" => {
                 self.ui.show_keep_cursor = self.flag(p, self.ui.show_keep_cursor);
                 if let Some(s) = self.show.as_mut() {
@@ -245,7 +252,14 @@ impl SlideApp {
                 return Err("updates are handled by the browser: reload the page".into());
             }
             "app.palette" => self.palette = Some((String::new(), 0)),
-            "app.preferences" => self.dialog = Some(dialogs::Dialog::new("preferences")),
+            "app.preferences" => {
+                // `{"pane": "advanced"}` opens on an Options category (`krub_icons::options`).
+                let mut d = dialogs::Dialog::new("preferences");
+                if let Some(pane) = p.get("pane").and_then(Value::as_str) {
+                    d.fields.insert("pane".into(), pane.trim().to_string());
+                }
+                self.dialog = Some(d);
+            }
             "app.openDialog" => self.pick_and_open(),
             "app.insertPictureDialog" => self.pick_and_insert("picture", "insert.picture"),
             "app.smartArtPictureDialog" => {

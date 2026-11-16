@@ -154,6 +154,26 @@ fn display_count(window: &winit::window::Window) -> Option<usize> {
     (n > 0).then_some(n)
 }
 
+/// The displays winit lists for `window`, by their index in `available_monitors()` (the order
+/// `ViewportCommand::SetMonitor` uses), each distinct display once.
+fn display_list(window: &winit::window::Window) -> deckcraft_ui_egui::DisplayList {
+    let all: Vec<_> = window.available_monitors().collect();
+    let index = |m: Option<winit::monitor::MonitorHandle>| m.and_then(|m| all.iter().position(|a| *a == m));
+    let displays = (0..all.len()).filter(|&i| all.iter().position(|a| *a == all[i]) == Some(i)).collect();
+    let areas = all
+        .iter()
+        .map(|m| {
+            let s = m.scale_factor();
+            let p = m.position().to_logical::<f32>(s);
+            let z = m.size().to_logical::<f32>(s);
+            [p.x, p.y, z.width, z.height]
+        })
+        .collect();
+    let list = deckcraft_ui_egui::DisplayList { displays, here: index(window.current_monitor()), primary: index(window.primary_monitor()), areas };
+    log::info!("slide show displays: {list:?}");
+    list
+}
+
 const APP_ID: &str = "ai.storyteller.deckcraft";
 
 const USAGE: &str = "\
@@ -305,6 +325,10 @@ fn main() -> eframe::Result {
             #[cfg(all(unix, not(target_os = "macos")))]
             if let Some(window) = cc.winit_window().cloned() {
                 app.services.displays = Some(Box::new(move || display_count(&window)));
+            }
+            // With two displays the show fills one and Presenter View the other (#433).
+            if let Some(window) = cc.winit_window().cloned() {
+                app.services.monitors = Some(Box::new(move || Some(display_list(&window))));
             }
             load_prefs(&mut app);
             // No automatic update check: it would offer upstream DeckCraft releases. KrubOffice will

@@ -201,6 +201,8 @@ impl SheetApp {
             return;
         }
         let t0 = now_ms();
+        // Fonts pinned or unpinned in a font list last frame, and the list for this frame's.
+        krub_icons::fonts::sync(&ctx, &mut self.ui.pinned_fonts);
         // A script may have switched windows since the last frame.
         self.follow_active_window();
         // This window's key tip request that waited for this frame (its tab or ribbon was just

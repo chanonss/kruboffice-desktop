@@ -14,7 +14,6 @@ use wordcraft_doc::para::{Float, InlineObject};
 use wordcraft_doc::props::Rgb;
 use wordcraft_doc::smart_art::{MAX_ITEMS, MAX_LEVEL, SmartArtColors, SmartArtItem, SmartArtLayout, SmartArtSpec, clean_text};
 
-use super::delete_selection;
 use super::objects::selected;
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
@@ -262,7 +261,7 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let graphic = smart_art_graphic(spec, &s.doc.settings.theme_colors, w, h);
     let out = json!({"smartArt": graphic.smart_art.as_deref(), "width": w, "height": h});
     let props = s.typing_props();
-    let at = delete_selection(s)?;
+    let at = super::insert_point(s)?;
     let obj = InlineObject::Graphic { w, h, alt: String::new(), float: Float::default(), graphic: Arc::new(graphic) };
     let end = s.doc.insert_object(&at, obj, &props)?;
     s.sel = Selection { anchor: at, focus: end };

@@ -7,7 +7,9 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, _accent: Color32) {
     if hf::paint(p, r, name, c, c == Color32::WHITE) {
         return;
     }
-    krub_icons::paint_named(p, r, name, c, c == Color32::WHITE, false);
+    // Arabic Digits' red cross goes grey with the rest of a disabled icon.
+    let flat = c == Color32::WHITE || (name == "arabicDigits" && c == crate::theme::Tokens::get(p.ctx()).text_disabled);
+    krub_icons::paint_named(p, r, name, c, flat, false);
 }
 
 /// Original Home ribbon artwork on a 24-unit grid, drawn at the requested display size.

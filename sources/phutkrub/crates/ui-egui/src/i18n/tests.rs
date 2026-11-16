@@ -69,6 +69,29 @@ fn missing_on_tabs_and_file() -> Vec<String> {
         h.state_mut().open_backstage(page);
         h.run_steps(3);
     }
+    h.state_mut().close_backstage();
+    // Every Options category.
+    for pane in krub_icons::options::CATEGORIES {
+        h.state_mut().run("app.preferences", serde_json::json!({"pane": pane})).unwrap();
+        h.run_steps(3);
+    }
+    h.state_mut().dialog = None;
+    // The side panes, with the status bar and title bar drawn around them.
+    // Format Shape's tabs need a shape to format.
+    let id = h.state_mut().run("shape.insert", serde_json::json!({"preset": "rect", "rect": [80.0, 80.0, 200.0, 120.0]})).unwrap();
+    if let Some(id) = id.get("id").and_then(serde_json::Value::as_u64) {
+        h.state_mut().run("edit.select", serde_json::json!({"ids": [id]})).unwrap();
+    }
+    h.state_mut().ui.pane = Some("format".into());
+    for tab in ["fill", "effects", "size", "text"] {
+        h.state_mut().ui.format_tab = tab.into();
+        h.run_steps(3);
+    }
+    for pane in ["background", "format", "animation", "selection", "comments", "designer", "smartart", "thesaurus", "revisions"] {
+        h.state_mut().ui.pane = Some(pane.into());
+        h.run_steps(3);
+    }
+    h.state_mut().ui.pane = None;
     let seen = record::stop();
     set_current(Lang::EN);
     let th = thai();
@@ -106,6 +129,27 @@ fn choosing_thai_shows_the_ribbon_in_thai() {
     assert!(h.query_all_by_label("Transitions").next().is_none(), "no English tab name");
     assert_eq!(serde_json::to_value(&h.state().session.active().unwrap().doc).unwrap(), before);
     assert!(h.state_mut().run("ui.language", serde_json::json!({"value": "klingon"})).is_err());
+    h.state_mut().run("ui.language", serde_json::json!({"value": "en"})).unwrap();
+    h.run_steps(2);
+    set_current(Lang::EN);
+}
+
+/// In Thai, the Format Background pane, the status bar's slide counter and its language name are
+/// Thai: they were English though the ribbon was not.
+#[test]
+fn the_background_pane_and_status_bar_are_in_thai() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = window();
+    h.state_mut().run("ui.language", serde_json::json!({"value": "th"})).unwrap();
+    h.state_mut().ui.pane = Some("background".into());
+    h.run_steps(4);
+    for english in ["Format Background", "Solid fill", "Gradient fill", "Follow the layout", "English (United States)"] {
+        assert!(h.query_all_by_label(english).next().is_none(), "{english} is still English");
+    }
+    for thai in ["จัดรูปแบบพื้นหลัง", "สีทึบ", "ตามเค้าโครง"] {
+        assert!(h.query_all_by_label(thai).next().is_some(), "{thai} is shown");
+    }
+    assert!(h.query_all_by_label_contains("สไลด์ 1 จาก").next().is_some(), "the slide counter is in Thai");
     h.state_mut().run("ui.language", serde_json::json!({"value": "en"})).unwrap();
     h.run_steps(2);
     set_current(Lang::EN);

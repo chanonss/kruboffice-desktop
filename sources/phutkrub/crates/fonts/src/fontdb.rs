@@ -812,6 +812,13 @@ pub(crate) fn last_resort_face() -> Arc<FontFace> {
     .clone()
 }
 
+/// A face of `bytes` (the first in the file) outside any database, for tests.
+#[cfg(test)]
+pub(crate) fn face_for_tests(bytes: Vec<u8>) -> Option<Arc<FontFace>> {
+    let (index, family, style, coords) = enumerate_faces(&bytes).into_iter().next()?;
+    make_face(FontBytes::Owned(Arc::new(bytes)), index, family, style, coords).map(Arc::new)
+}
+
 /// The share of a line above the baseline (`FontFace::line_split`): OS/2 `usWinAscent` over
 /// `usWinAscent + usWinDescent`, else the ascent over ascent plus descent. Fonts whose Windows
 /// extent is huge (Gabriola, Cambria Math: over 1.5 em) get 0.81, where PowerPoint puts their

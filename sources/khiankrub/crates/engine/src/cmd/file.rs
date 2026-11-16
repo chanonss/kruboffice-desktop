@@ -144,6 +144,32 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("file.privacy", "Privacy Settings", "File › Options › Save", |s, _| Ok(privacy(s)))
             .params(r#"{} → {"removePersonalInfo": bool, "removeDateTime": bool} (file.privacyOptions changes them)"#)
             .pure(),
+        // Options › Save › Preserve fidelity when sharing this document: the document's
+        // `w:embedTrueTypeFonts`, `w:saveSubsetFonts` and `w:embedSystemFonts`, honoured when it
+        // is saved as .docx (`crate::embed_fonts`). A document change, like the privacy options.
+        CommandSpec::new("file.embedFonts", "Embed Fonts in the File", "File › Options › Save", |s, v| {
+            let embed = p::bool(v, "embed");
+            let subset = p::bool(v, "subset");
+            let system = p::bool(v, "systemFonts");
+            if embed.is_none() && subset.is_none() && system.is_none() {
+                return Err(CmdError::Params("give embed, subset or systemFonts (file.fontEmbedding reads them)".into()));
+            }
+            let st = &mut s.doc.settings;
+            if let Some(on) = embed {
+                st.embed_fonts = on;
+            }
+            if let Some(on) = subset {
+                st.embed_subset = on;
+            }
+            if let Some(on) = system {
+                st.embed_system_fonts = on;
+            }
+            Ok(font_embedding(s))
+        })
+        .params(r#"{"embed"?: bool (save the fonts the text is drawn in inside the .docx), "subset"?: bool (only the characters used), "systemFonts"?: bool (common system fonts too)} — at least one"#),
+        CommandSpec::new("file.fontEmbedding", "Font Embedding Settings", "File › Options › Save", |s, _| Ok(font_embedding(s)))
+            .params(r#"{} → {"embed": bool, "subset": bool, "systemFonts": bool} (file.embedFonts changes them)"#)
+            .pure(),
         CommandSpec::new("document.inspect", "Inspect Document", "Agents", inspect).params(r#"{"text"?: bool}"#).pure(),
         CommandSpec::new("document.text", "Document Text", "Agents", |s, v| {
             let story = super::story_param(s, v);
@@ -170,6 +196,12 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"text": string}"#),
     ]
+}
+
+/// The document's font embedding settings, as `file.fontEmbedding` and `file.embedFonts` return them.
+fn font_embedding(s: &Session) -> Value {
+    let st = &s.doc.settings;
+    json!({"embed": st.embed_fonts, "subset": st.embed_subset, "systemFonts": st.embed_system_fonts})
 }
 
 /// The document's privacy settings, as `file.privacy` and `file.privacyOptions` return them.
@@ -304,12 +336,17 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     // A header/footer just made and left empty isn't saved (#960).
     let copy = super::insert::saved_copy(s);
     crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
+    // Fonts File › Options › Save asked to embed that couldn't be (their licence, say).
+    let not_embedded = crate::embed_fonts::take_report();
+    if let Some(note) = &not_embedded {
+        s.status = note.clone();
+    }
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
     }
-    Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
+    Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted, "notEmbedded": not_embedded}))
 }
 
 /// Does `path` hold a Word 2003 XML Document already (so a plain save keeps that format)?

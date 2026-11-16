@@ -131,7 +131,7 @@ pub fn shapes_gallery(ui: &mut Ui) -> Option<&'static str> {
     ui.set_max_width(330.0);
     egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
         for cat in deckcraft_geom::preset::Category::ALL {
-            ui.label(egui::RichText::new(cat.label()).font(theme::bold(12.0)));
+            ui.label(egui::RichText::new(crate::i18n::tc("shapes", cat.label())).font(theme::bold(12.0)));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
                 for p in deckcraft_geom::preset::CATALOG.iter().filter(|p| p.category == cat) {

@@ -66,4 +66,5 @@ PhutKrub is one of three apps in [KrubOffice](https://kruboffice.app/) (KhianKru
 PhutKrub is built on [DeckCraft](https://github.com/storytold/deckcraft), an open-source, clean-room presentation app
 written in Rust by the ArtCraft team and contributors. See [FORK-CHANGES.md](FORK-CHANGES.md) for what differs,
 [ATTRIBUTION.md](ATTRIBUTION.md) for every asset, and `LICENSE-MIT` / `LICENSE-APACHE` for the licences.
+Most ribbon and menu icons come from [Tabler Icons](https://tabler.io/icons) by Paweł Kuna (MIT, [licence](crates/krub-icons/LICENSE-tabler.txt)); the app credits them in Help › About.
 The original project's own README and roadmap are in [ROADMAP.md](ROADMAP.md) and `docs/`.

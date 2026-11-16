@@ -390,6 +390,35 @@ fn sample() -> Workbook {
             align: Some(ShapeTextAlign::Right),
             anchor: Some(ShapeTextAnchor::Bottom),
             rtl: true,
+            ..Default::default()
+        },
+    });
+    // The Shape pane's fill, outline, arrows, rotation and flips (2026-11-16).
+    s.shapes.push(Shape {
+        math: Default::default(),
+        id: 14,
+        // A line with a head at either end reads back as an arrow, as Excel's file has it.
+        kind: ShapeKind::Arrow,
+        anchor: Anchor { cell: at("H16"), dx: 0.0, dy: 0.0, width: 80.0, height: 30.0, ..Default::default() },
+        fill: Color::Rgb(0x00FF00),
+        line: Color::Rgb(0x0000FF),
+        text: String::new(),
+        format: ShapeFormat {
+            fill_transparency: 40.0,
+            line_width: Some(3.0),
+            line_dash: gridcraft_model::LineDash::Dash,
+            line_transparency: 25.0,
+            arrow_start: true,
+            arrow_end: true,
+            rotation: 30.0,
+            flip_h: true,
+            flip_v: true,
+            shadow: Some(gridcraft_model::ShapeShadow { dist: 4.0, dir: 90.0, blur: 5.0, transparency: 50.0 }),
+            glow_radius: 6.0,
+            glow_color: Color::Rgb(0xFF0000),
+            glow_transparency: 30.0,
+            soft_edge: 2.5,
+            ..Default::default()
         },
     });
     let base_chart = Chart {
@@ -589,7 +618,7 @@ fn assert_drawing_and_chart_roundtrip(a: &Sheet, b: &Sheet) {
     assert_eq!(ib.mode, AnchorMode::MoveOnly, "image anchor mode");
     assert_eq!(b.shapes[0].anchor.mode, AnchorMode::Absolute, "shape anchor mode");
     assert_eq!(b.shapes[1].anchor.mode, AnchorMode::MoveAndSize, "default anchor mode");
-    assert_eq!(b.shapes.len(), 3);
+    assert_eq!(b.shapes.len(), a.shapes.len());
     for (x, y) in a.shapes.iter().zip(&b.shapes) {
         assert_eq!((x.kind, &x.text, x.fill, x.line, &x.format), (y.kind, &y.text, y.fill, y.line, &y.format));
     }

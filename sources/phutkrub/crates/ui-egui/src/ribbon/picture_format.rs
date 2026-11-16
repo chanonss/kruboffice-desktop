@@ -1,14 +1,14 @@
 use super::arrange::{arrange_group, size_group};
 use super::galleries::{cref_param, shapes_gallery};
 use super::{
-    Color32, CornerRadius, Icon, Rect, SlideApp, Stroke, Ui, Value, big, big_button, enabled, group, json, pos2, rows, run, scheme, small,
-    small_button_ex, theme, vec2, widgets,
+    Color32, CornerRadius, Icon, Rect, SlideApp, Stroke, Ui, Value, big, big_button, enabled, json, pos2, rows, run, scheme, small, small_button_ex,
+    theme, vec2, widgets,
 };
 
 /// Render the Picture Format tab's corrections, colour, artistic effects, transparency, styles,
 /// border, and picture actions.
 pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Adjust", |ui| {
         let r = big_button(ui, Icon::RemoveBackground, tl!("Remove\nBackground"), enabled(app, "picture.removeBackground"));
         egui::Popup::menu(&r).show(|ui| {
             for (label, tol) in [("Remove Background", 20.0), ("Remove More (looser)", 35.0), ("Remove Less (tighter)", 10.0)] {
@@ -103,7 +103,7 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Picture Styles", |ui| {
         use deckcraft_engine::cmd::picture_style::{STYLES, look};
         let names: Vec<String> = STYLES.iter().map(|(_, l)| l.to_string()).collect();
         let tiles = |ui: &mut Ui, n: usize| {
@@ -134,7 +134,7 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
             run(app, "picture.style", json!({"style": id}));
         }
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Border and Style", |ui| {
         let sc = scheme(app);
         rows(ui, |ui| {
             let (m, a) = small_button_ex(ui, Icon::QuickStyles, tl!("Picture Border"), true, false, true);
@@ -178,7 +178,7 @@ pub(super) fn picture_format(app: &mut SlideApp, ui: &mut Ui) {
         big(app, ui, Icon::AltText, tl!("Alt\nText"), "app.dialog", json!({"id": "altText"}));
     });
     arrange_group(app, ui);
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Crop Picture", |ui| {
         let r = big_button(ui, Icon::Crop, tl!("Crop"), true);
         egui::Popup::menu(&r).show(|ui| {
             ui.label(tl!("Crop to Shape"));

@@ -24,7 +24,7 @@ pub fn open(ext: &str, bytes: &[u8], page: &wordcraft_doc::SectionProps) -> Opti
 pub fn save(ext: &str, doc: &Document, opts: &crate::io::ExportOptions) -> Option<Result<Vec<u8>, String>> {
     // .docx/.docm/.dotx/.dotm: the extension picks the package flavour Word expects.
     if let Some(flavor) = wordcraft_docx::Flavor::from_ext(ext) {
-        return Some(wordcraft_docx::write_as(doc, flavor).map_err(|e| e.to_string()));
+        return Some(crate::embed_fonts::write(doc, flavor));
     }
     match ext {
         "xml" if opts.word2003 => Some(wordcraft_docx::write_wordml2003(doc).map_err(|e| e.to_string())),

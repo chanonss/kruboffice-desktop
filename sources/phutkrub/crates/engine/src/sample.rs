@@ -13,6 +13,9 @@ fn last_id(v: &Value) -> u64 {
     v.get("id").and_then(Value::as_u64).unwrap_or(0)
 }
 
+/// How many slides the sample deck has (shown on its gallery card; a test keeps it honest).
+pub const SLIDE_COUNT: usize = 8;
+
 /// Open the sample presentation in a new document.
 pub fn open_sample(s: &mut Session) -> Result<()> {
     run(s, "file.new", json!({"theme": "DeckCraft"}))?;
@@ -135,4 +138,16 @@ pub fn open_sample(s: &mut Session) -> Result<()> {
         st.title = "Northern Lights".into();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slide_count_matches_the_built_deck() {
+        let mut s = Session::new();
+        open_sample(&mut s).unwrap();
+        assert_eq!(s.active().unwrap().doc.slides.len(), SLIDE_COUNT);
+    }
 }

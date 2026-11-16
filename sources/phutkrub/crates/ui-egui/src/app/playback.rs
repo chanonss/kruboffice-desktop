@@ -38,6 +38,9 @@ impl SlideApp {
             let mut show = show::Show::new(&d.doc, from, reading, presenter);
             show.instance = self.show_instance;
             show.keep_cursor = self.ui.show_keep_cursor;
+            if presenter {
+                show.displays = self.services.monitors.as_mut().and_then(|f| f()).and_then(|l| show::Placement::choose(&l));
+            }
             self.show = Some(show);
         }
     }
@@ -45,9 +48,20 @@ impl SlideApp {
     /// Whether a second display can take Presenter View. Like PowerPoint, one display shows only
     /// the slides: the presenter window would open on the same screen, and whichever of the two
     /// windows ends up behind the other stalls the show (the compositor stops pacing a hidden
-    /// window). Hosts that can't count displays keep Presenter View.
+    /// window; on macOS the hidden show window's texture uploads fall behind the presenter's and
+    /// egui-wgpu aborts). Hosts that can't count displays keep Presenter View.
     fn second_display(&mut self) -> bool {
-        self.services.displays.as_mut().and_then(|f| f()).is_none_or(|n| n >= 2)
+        let listed = |l: crate::DisplayList| {
+            let mut d = l.displays;
+            d.sort_unstable();
+            d.dedup();
+            (!d.is_empty()).then_some(d.len())
+        };
+        let n = match self.services.displays.as_mut() {
+            Some(count) => count(),
+            None => self.services.monitors.as_mut().and_then(|f| f()).and_then(listed),
+        };
+        n.is_none_or(|n| n >= 2)
     }
 
     /// Play custom show `name` from its first slide. Set Up Slide Show is left as it was.

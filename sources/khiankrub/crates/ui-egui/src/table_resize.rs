@@ -313,6 +313,8 @@ pub(crate) mod tests {
             },
             a,
         );
+        // These tests are about the page: the Table pane stays out of the way.
+        crate::table_pane::close(&h.ctx);
         for _ in 0..6 {
             h.step();
         }

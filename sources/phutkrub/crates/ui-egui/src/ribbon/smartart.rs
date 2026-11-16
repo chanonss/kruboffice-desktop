@@ -1,6 +1,6 @@
 use super::arrange::arrange_group;
 use super::galleries::smartart_gallery;
-use super::{Icon, SlideApp, Ui, Value, big_button, group, json, rows, run, small_button, small_button_ex, widgets};
+use super::{Icon, SlideApp, Ui, Value, big_button, json, rows, run, small_button, small_button_ex, widgets};
 
 /// SmartArt Design: Create Graphic (Text Pane, Add Shape, Promote, Demote, Remove) and Layouts.
 pub(super) fn smartart_design(app: &mut SlideApp, ui: &mut Ui) {
@@ -11,7 +11,7 @@ pub(super) fn smartart_design(app: &mut SlideApp, ui: &mut Ui) {
         None => (None, 0, String::new(), String::new(), String::new()),
     };
     let at = row.min(n.saturating_sub(1));
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Create Graphic", |ui| {
         if big_button(ui, Icon::SmartArt, tl!("Text\nPane"), gid.is_some()).on_hover_text(tl!("Type and organise the diagram's text")).clicked() {
             run(app, "view.pane", json!({"pane": "smartart", "toggle": true}));
         }
@@ -55,7 +55,7 @@ pub(super) fn smartart_design(app: &mut SlideApp, ui: &mut Ui) {
             }
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Change Layout", |ui| {
         rows(ui, |ui| {
             let (main, arrow) = small_button_ex(ui, Icon::Layout, tl!("Layouts"), gid.is_some(), false, true);
             let outline = sel.as_ref().map(|(_, d)| d.nodes.clone());
@@ -77,7 +77,7 @@ pub(super) fn smartart_design(app: &mut SlideApp, ui: &mut Ui) {
             }
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "SmartArt Styles", |ui| {
         rows(ui, |ui| {
             let (main, arrow) = small_button_ex(ui, Icon::ChangeChartType, tl!("Change Colors"), gid.is_some(), false, true);
             if let Some(arrow) = arrow {

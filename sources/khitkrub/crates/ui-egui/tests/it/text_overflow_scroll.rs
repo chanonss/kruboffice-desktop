@@ -285,7 +285,8 @@ fn wrapped_text_clipping_survives_partial_vertical_scroll() {
         and the viewport during vertical scrolling. "
         .repeat(40);
 
-    let mut h = harness_with_size(egui::vec2(1200.0, 520.0), |s| {
+    // 14 points shorter than before the 100-point KrubOffice ribbon, so the sheet keeps its size.
+    let mut h = harness_with_size(egui::vec2(1200.0, 506.0), |s| {
         s.execute("home.columnWidth", json!({"cols": "B:B", "chars": 12})).unwrap();
         s.execute("cell.set", json!({"cell": "B3", "input": text})).unwrap();
         s.execute("home.wrapText", json!({"range": "B3", "on": true})).unwrap();

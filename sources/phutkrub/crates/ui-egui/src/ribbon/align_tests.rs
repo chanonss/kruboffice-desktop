@@ -1,5 +1,6 @@
-//! Arrange ▸ Align: Align to Slide and Align Selected Objects, as in PowerPoint. One object aligns
-//! to the slide and several to each other, until the other choice is picked for that selection.
+//! The Shape pane's Align: Align to Slide and Align Selected Objects, as in PowerPoint. One object
+//! aligns to the slide and several to each other, until the other choice is picked for that
+//! selection.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use deckcraft_engine::Session;
@@ -24,8 +25,7 @@ fn harness(select: &[usize]) -> (Harness<'static, SlideApp>, Vec<ShapeId>) {
         .collect();
     let picked: Vec<u32> = select.iter().map(|&i| ids[i].0).collect();
     s.execute("selection.select", &json!({"ids": picked})).unwrap();
-    let mut app = SlideApp::new(s, Services::default());
-    app.ui.tab = "Shape Format".into();
+    let app = SlideApp::new(s, Services::default());
     let mut h = Harness::builder().with_size(egui::vec2(1800.0, 900.0)).build_ui_state(
         |ui, app: &mut SlideApp| {
             app.logic(ui.ctx());
@@ -37,24 +37,21 @@ fn harness(select: &[usize]) -> (Harness<'static, SlideApp>, Vec<ShapeId>) {
     (h, ids)
 }
 
+/// Clicks a control of the Shape pane's Align part, scrolled into view first (it sits low in the
+/// pane).
 fn pick(h: &mut Harness<'_, SlideApp>, item: &str) {
-    h.get_by_label("Align").click();
-    h.run_steps(2);
+    h.get_by_label(item).scroll_to_me();
+    // The pane's scroll glides there over a few frames.
+    h.run_steps(12);
     h.get_by_label(item).click();
     h.run_steps(2);
 }
 
 fn marked(h: &mut Harness<'_, SlideApp>) -> (bool, bool) {
-    h.get_by_label("Align").click();
-    h.run_steps(2);
-    let m = (
+    (
         h.get_by_label("Align to Slide").accesskit_node().toggled() == Some(Toggled::True),
         h.get_by_label("Align Selected Objects").accesskit_node().toggled() == Some(Toggled::True),
-    );
-    // Esc would also clear the selection: a second click on Align closes the menu.
-    h.get_by_label("Align").click();
-    h.run_steps(2);
-    m
+    )
 }
 
 fn pos(h: &Harness<'_, SlideApp>, id: ShapeId) -> (f64, f64) {
@@ -66,7 +63,7 @@ fn pos(h: &Harness<'_, SlideApp>, id: ShapeId) -> (f64, f64) {
 fn align_to_slide_moves_align_left_to_the_slide_edge() {
     let (mut h, ids) = harness(&[0, 1]);
     pick(&mut h, "Align to Slide");
-    pick(&mut h, "Align Left");
+    pick(&mut h, "Align Objects Left");
     assert_eq!(pos(&h, ids[0]).0, 0.0);
     assert_eq!(pos(&h, ids[1]).0, 0.0);
 }
@@ -75,12 +72,12 @@ fn align_to_slide_moves_align_left_to_the_slide_edge() {
 fn one_object_aligns_to_the_slide_and_two_to_each_other() {
     let (mut h, ids) = harness(&[1]);
     assert_eq!(marked(&mut h), (true, false));
-    pick(&mut h, "Align Left");
+    pick(&mut h, "Align Objects Left");
     assert_eq!(pos(&h, ids[1]).0, 0.0);
 
     let (mut h, ids) = harness(&[0, 1]);
     assert_eq!(marked(&mut h), (false, true));
-    pick(&mut h, "Align Left");
+    pick(&mut h, "Align Objects Left");
     assert_eq!(pos(&h, ids[1]).0, 100.0, "the left edge of the selection");
 }
 
@@ -88,8 +85,8 @@ fn one_object_aligns_to_the_slide_and_two_to_each_other() {
 fn the_choice_stays_until_the_selection_changes() {
     let (mut h, ids) = harness(&[0, 1]);
     pick(&mut h, "Align to Slide");
-    pick(&mut h, "Align Left");
-    pick(&mut h, "Align Top");
+    pick(&mut h, "Align Objects Left");
+    pick(&mut h, "Align Objects Top");
     assert_eq!(pos(&h, ids[0]), (0.0, 0.0));
     assert_eq!(pos(&h, ids[1]), (0.0, 0.0));
     assert_eq!(marked(&mut h), (true, false));
@@ -98,6 +95,6 @@ fn the_choice_stays_until_the_selection_changes() {
     h.state_mut().run("selection.select", json!({"ids": [ids[1].0, ids[2].0]})).unwrap();
     h.run_steps(2);
     assert_eq!(marked(&mut h), (false, true));
-    pick(&mut h, "Align Bottom");
+    pick(&mut h, "Align Objects Bottom");
     assert_eq!(pos(&h, ids[1]).1, 250.0, "the bottom of the selection, not of the slide");
 }

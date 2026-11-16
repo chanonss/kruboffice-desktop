@@ -42,7 +42,7 @@ pub fn big_button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> Respon
 
 /// Width of the dropdown target at the right of a large split button. It is reserved outside the
 /// whole label area, so no visible line of a one- or two-line label can open the menu.
-const SPLIT_ARROW_W: f32 = 14.0;
+const SPLIT_ARROW_W: f32 = 18.0;
 
 /// Return the chevron-only sub-rectangle at the right edge of a split button.
 fn split_arrow_rect(rect: Rect) -> Rect {
@@ -58,6 +58,11 @@ fn big_button_width(text_w: f32, split: bool) -> f32 {
 /// response). Like Office's split buttons, the icon and the label text run the main command; only
 /// the chevron at the end of the label row opens the menu.
 pub fn big_button_ex(ui: &mut Ui, icon: Icon, label: &str, enabled: bool, split: bool, selected: bool) -> (Response, Option<Response>) {
+    // In a side pane a large button is a one-line button: its icon, then its name.
+    if pane_mode() {
+        let one_line = crate::i18n::t(label).replace('\n', " ");
+        return small_button_named(ui, icon, &one_line, &one_line, enabled, selected, split);
+    }
     let label = crate::i18n::t(label);
     let t = Tokens::of(ui);
     let font = theme::font(11.5);
@@ -103,7 +108,7 @@ pub fn big_button_ex(ui: &mut Ui, icon: Icon, label: &str, enabled: bool, split:
     if split {
         // The chevron sits in the reserved strip beside the label's last line, never on its text.
         let chevron_y = rect.min.y + BIG_LABEL_Y + LABEL_PITCH * lines.len().saturating_sub(1) as f32 + 7.0;
-        chevron(&painter, pos2(rect.max.x - 7.0, chevron_y), 3.0, col);
+        chevron(&painter, pos2(rect.max.x - SPLIT_ARROW_W / 2.0, chevron_y), 3.0, col);
     }
     (if split { main_resp } else { resp }, arrow_resp)
 }
@@ -191,7 +196,10 @@ pub fn small_button_named(
     let (label, name) = (crate::i18n::t(label), crate::i18n::t(name));
     let t = Tokens::of(ui);
     let arrow_w = if split { 12.0 } else { 0.0 };
-    let w = SMALL_W + arrow_w;
+    // In a side pane ([`in_pane`]) the name follows the icon, as on KhianKrub's panes.
+    let text = (pane_mode() && !label.is_empty()).then(|| ui.fonts_mut(|f| f.layout_no_wrap(label.replace('\n', " "), theme::font(11.5), t.text)));
+    let text_w = text.as_ref().map_or(0.0, |g| g.size().x + 6.0);
+    let w = SMALL_W + text_w + arrow_w;
     // As in `big_button_ex`, a split row is two targets and must not add a third named node.
     let (rect, resp) = ui.allocate_exact_size(vec2(w, SMALL_H), if enabled && !split { Sense::click() } else { Sense::hover() });
     if !name.is_empty() && !split {
@@ -235,6 +243,10 @@ pub fn small_button_named(
         !enabled,
         t.flat_icons,
     );
+    if let Some(g) = text {
+        let col = if enabled { t.text } else { t.text_faint };
+        painter.galley_with_override_text_color(pos2(rect.min.x + SMALL_W, rect.center().y - g.size().y / 2.0), g, col);
+    }
     if split {
         chevron(&painter, pos2(rect.max.x - 6.0, rect.center().y), 2.8, t.text_dim);
     }
@@ -379,8 +391,58 @@ thread_local! {
     pub(crate) static TALL_GROUPS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// A ribbon group: contents, then a thin vertical separator.
+thread_local! {
+    /// Set while a contextual tab's groups are drawn in the right-hand pane ([`in_pane`]).
+    static PANE_MODE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Draw `add` (a contextual tab's groups) in a side pane: each [`group`] wraps to the pane's width
+/// and a line follows it, instead of the ribbon's row of groups with vertical separators.
+pub fn in_pane<R>(add: impl FnOnce() -> R) -> R {
+    let was = PANE_MODE.with(|m| m.replace(true));
+    let r = add();
+    PANE_MODE.with(|m| m.set(was));
+    r
+}
+
+/// Whether groups are being drawn in a side pane.
+pub fn pane_mode() -> bool {
+    PANE_MODE.with(std::cell::Cell::get)
+}
+
+/// A ribbon group with a name: in the ribbon, a [`group`] (the two-size ribbon shows no group
+/// names); in a side pane ([`in_pane`]), a section with that name as a heading that folds.
+pub fn group_named<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) -> Option<R> {
+    if !pane_mode() {
+        return Some(group(ui, add));
+    }
+    let r = egui::CollapsingHeader::new(egui::RichText::new(crate::i18n::t(title)).font(theme::bold(12.5)))
+        .id_salt(("pane_section", title))
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                add(ui)
+            })
+            .inner
+        });
+    ui.add_space(2.0);
+    r.body_returned
+}
+
+/// A ribbon group: contents, then a thin vertical separator. In a side pane ([`in_pane`]) the
+/// contents wrap to the pane's width and a horizontal line follows.
 pub fn group<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if pane_mode() {
+        let r = ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(2.0, 4.0);
+            add(ui)
+        });
+        ui.add_space(2.0);
+        ui.separator();
+        ui.add_space(2.0);
+        return r.inner;
+    }
     let r = ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
         add(ui)
@@ -394,6 +456,9 @@ pub fn group<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 }
 
 pub fn separator(ui: &mut Ui) {
+    if pane_mode() {
+        return;
+    }
     let t = Tokens::of(ui);
     let (rect, _) = ui.allocate_exact_size(vec2(13.0, RIBBON_H - 6.0), Sense::hover());
     ui.painter().line_segment([pos2(rect.center().x, rect.min.y + 6.0), pos2(rect.center().x, rect.max.y - 4.0)], Stroke::new(1.0, t.separator));
@@ -421,6 +486,20 @@ pub fn rows<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 /// A text dropdown field (font name, size): shows `current`, opens a popup with `add_items`.
 pub fn dropdown(ui: &mut Ui, id: &str, current: &str, width: f32, enabled: bool, add_items: impl FnOnce(&mut Ui)) -> Response {
+    dropdown_closing(ui, id, current, width, enabled, egui::PopupCloseBehavior::CloseOnClick, add_items)
+}
+
+/// [`dropdown`] whose list closes on `close` (a font list stays open while fonts are pinned in
+/// it; its items close it themselves).
+pub fn dropdown_closing(
+    ui: &mut Ui,
+    id: &str,
+    current: &str,
+    width: f32,
+    enabled: bool,
+    close: egui::PopupCloseBehavior,
+    add_items: impl FnOnce(&mut Ui),
+) -> Response {
     let t = Tokens::of(ui);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 22.0), if enabled { Sense::click() } else { Sense::hover() });
     let painter = ui.painter_at(rect);
@@ -442,10 +521,29 @@ pub fn dropdown(ui: &mut Ui, id: &str, current: &str, width: f32, enabled: bool,
     chevron(&painter, pos2(rect.max.x - 9.0, rect.center().y), 3.0, t.text_dim);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, enabled, if current.is_empty() { id } else { current }));
     let _ = id;
-    egui::Popup::menu(&resp).width(width.max(140.0)).show(|ui| {
+    egui::Popup::menu(&resp).width(width.max(140.0)).close_behavior(close).show(|ui| {
         egui::ScrollArea::vertical().max_height(360.0).show(ui, add_items);
     });
     resp
+}
+
+/// The look of the pins in a font list ([`krub_icons::fonts`]).
+pub fn pin_style(ui: &Ui) -> krub_icons::fonts::PinStyle {
+    let t = Tokens::of(ui);
+    krub_icons::fonts::PinStyle {
+        ink: t.text_dim,
+        hover: t.hover,
+        pin: tl!("Pin to Top").to_string(),
+        unpin: tl!("Unpin").to_string(),
+        announce: |resp, label| resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label)),
+    }
+}
+
+/// A heading in a font list (Pinned Fonts, All Fonts), translated.
+pub fn font_heading(ui: &mut Ui, english: &str) {
+    let t = Tokens::of(ui);
+    let w = ui.available_width();
+    krub_icons::fonts::heading(ui, w, 20.0, crate::i18n::t(english), t.text_dim, theme::font(11.0));
 }
 
 /// The drop-down for a `color_grid`: a menu that stays open when its hex field is clicked

@@ -112,4 +112,21 @@ pub struct Services {
     pub audio_out: Option<Box<dyn deckcraft_media::AudioOut>>,
     /// How many displays are connected, when the host can tell: Presenter View needs a second.
     pub displays: Option<Box<dyn FnMut() -> Option<usize>>>,
+    /// The displays the show can be placed on, when the host can tell. With two or more, the show
+    /// fills one and Presenter View the other (#433).
+    pub monitors: Option<Box<dyn FnMut() -> Option<DisplayList>>>,
+}
+
+/// The displays a desktop host lists, by their index in winit's `available_monitors()`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DisplayList {
+    /// One index per distinct display, in the host's order (Wayland can list an output twice).
+    pub displays: Vec<usize>,
+    /// The display the editor window is on, when the host can tell.
+    pub here: Option<usize>,
+    /// The system's main display, when the host can tell.
+    pub primary: Option<usize>,
+    /// Each display's area `[x, y, width, height]` in desktop points, by the same index (empty when
+    /// the host can't tell). macOS uses it to move a window before full screen (#433).
+    pub areas: Vec<[f32; 4]>,
 }

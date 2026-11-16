@@ -146,6 +146,24 @@ pub fn specs() -> Vec<CommandSpec> {
             &with(p, "kind", json!("textBox"))
         )),
         cmd!("shape.setText", "Edit Text Box", [], None, "{id: textBox id, text: string}", has_doc, shape_set_text),
+        cmd!(
+            "shape.format",
+            "Format Shape",
+            [],
+            None,
+            "{id: shape id, fill?: color|null (null: no fill), fillTransparency?: 0..100, line?: color|null (null: no outline), lineWidth?: pt 0.25..72, lineDash?: solid|sysDot|dash|lgDash|dashDot, lineTransparency?: 0..100, arrowStart?: bool, arrowEnd?: bool, rotation?: deg, flipH?: bool, flipV?: bool, shadow?: null|{dist?: pt 0..200, dir?: deg, blur?: pt 0..100, transparency?: 0..100}, glowRadius?: pt 0..150 (0: no glow), glowColor?: color, glowTransparency?: 0..100, softEdge?: pt 0..100}",
+            has_doc,
+            shape_format
+        ),
+        cmd!(
+            "object.order",
+            "Arrange Order",
+            [],
+            None,
+            "{kind: shape, id, op: bringToFront|bringForward|sendBackward|sendToBack} (among the sheet's shapes)",
+            has_doc,
+            object_order
+        ),
         cmd!("object.delete", "Delete Object", [], None, "{kind: chart|image|shape|slicer|equation|control, id}", has_doc, delete_object),
         cmd!(
             "object.move",
@@ -1211,6 +1229,180 @@ fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
 /// A text box holds at most as many characters as a cell.
 const SHAPE_TEXT_MAX_CHARS: usize = 32_767;
 
+/// The shape `id` on the active sheet for command `cmd`, refusing a protected sheet.
+fn editable_shape(s: &Session, cmd: &str, p: &Json) -> Result<(usize, u32)> {
+    let id = p.get("id").and_then(Json::as_u64).and_then(|id| u32::try_from(id).ok()).ok_or_else(|| bad(cmd, "`id` must be a shape id"))?;
+    let d = s.doc()?;
+    let sheet = d.wb.active_sheet();
+    let sh = d.wb.active().ok_or_else(|| bad(cmd, "no such shape"))?;
+    if !sh.shapes.iter().any(|shape| shape.id == id) {
+        return Err(bad(cmd, "no such shape"));
+    }
+    // Sheet protection locks drawing objects (there is no "edit objects" allowance yet).
+    if sh.is_protected() {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
+    Ok((sheet, id))
+}
+
+/// A finite number in `range` from `p[key]`, or an error naming it.
+fn ranged(cmd: &str, p: &Json, key: &str, range: std::ops::RangeInclusive<f64>) -> Result<Option<f32>> {
+    match p.get(key) {
+        None => Ok(None),
+        Some(v) => match v.as_f64() {
+            Some(x) if x.is_finite() && range.contains(&x) => Ok(Some(x as f32)),
+            _ => Err(bad(cmd, format!("`{key}` must be a number from {} to {}", range.start(), range.end()))),
+        },
+    }
+}
+
+/// Shape pane: the fill, outline, arrows, rotation and flips of a shape, in one undo step.
+fn shape_format(s: &mut Session, p: &Json) -> Result<Json> {
+    use gridcraft_model::LineDash;
+    const C: &str = "shape.format";
+    let (sheet, id) = editable_shape(s, C, p)?;
+    // Read and check every parameter before changing anything.
+    let fill = match p.get("fill") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v) => Some(Some(super::format::color_param(Some(v)).ok_or_else(|| bad(C, "`fill` must be a colour or null"))?)),
+    };
+    let line = match p.get("line") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v) => Some(Some(super::format::color_param(Some(v)).ok_or_else(|| bad(C, "`line` must be a colour or null"))?)),
+    };
+    let fill_t = ranged(C, p, "fillTransparency", 0.0..=100.0)?;
+    let line_t = ranged(C, p, "lineTransparency", 0.0..=100.0)?;
+    let width = ranged(C, p, "lineWidth", 0.25..=72.0)?;
+    let rotation = ranged(C, p, "rotation", -3600.0..=3600.0)?;
+    let dash = match p.get("lineDash").map(|v| v.as_str()) {
+        None => None,
+        Some(Some("solid")) => Some(LineDash::Solid),
+        Some(Some("sysDot" | "dot")) => Some(LineDash::SysDot),
+        Some(Some("dash")) => Some(LineDash::Dash),
+        Some(Some("lgDash")) => Some(LineDash::LgDash),
+        Some(Some("dashDot")) => Some(LineDash::DashDot),
+        _ => return Err(bad(C, "`lineDash` must be solid, sysDot, dash, lgDash or dashDot")),
+    };
+    let flag = |key: &str| -> Result<Option<bool>> {
+        match p.get(key) {
+            None => Ok(None),
+            Some(v) => v.as_bool().map(Some).ok_or_else(|| bad(C, format!("`{key}` must be true or false"))),
+        }
+    };
+    let (arrow_start, arrow_end, flip_h, flip_v) = (flag("arrowStart")?, flag("arrowEnd")?, flag("flipH")?, flag("flipV")?);
+    let shadow = match p.get("shadow") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v @ Json::Object(_)) => {
+            let d = gridcraft_model::ShapeShadow::default();
+            Some(Some(gridcraft_model::ShapeShadow {
+                dist: ranged(C, v, "dist", 0.0..=200.0)?.unwrap_or(d.dist),
+                dir: ranged(C, v, "dir", -3600.0..=3600.0)?.map_or(d.dir, |a| a.rem_euclid(360.0)),
+                blur: ranged(C, v, "blur", 0.0..=100.0)?.unwrap_or(d.blur),
+                transparency: ranged(C, v, "transparency", 0.0..=100.0)?.unwrap_or(d.transparency),
+            }))
+        }
+        Some(_) => return Err(bad(C, "`shadow` must be null or {dist, dir, blur, transparency}")),
+    };
+    let glow_radius = ranged(C, p, "glowRadius", 0.0..=150.0)?;
+    let glow_t = ranged(C, p, "glowTransparency", 0.0..=100.0)?;
+    let soft_edge = ranged(C, p, "softEdge", 0.0..=100.0)?;
+    let glow_color = match p.get("glowColor") {
+        None => None,
+        Some(v) => Some(super::format::color_param(Some(v)).ok_or_else(|| bad(C, "`glowColor` must be a colour"))?),
+    };
+    edit(s, |cx| {
+        let shape = cx.sheet_mut(sheet)?.shapes.iter_mut().find(|shape| shape.id == id).ok_or_else(|| bad(C, "no such shape"))?;
+        let f = &mut shape.format;
+        match fill {
+            Some(Some(c)) => {
+                shape.fill = c;
+                f.no_fill = false;
+            }
+            Some(None) => f.no_fill = true,
+            None => {}
+        }
+        match line {
+            Some(Some(c)) => {
+                shape.line = c;
+                f.no_line = false;
+            }
+            Some(None) => f.no_line = true,
+            None => {}
+        }
+        if let Some(t) = fill_t {
+            f.fill_transparency = t;
+        }
+        if let Some(t) = line_t {
+            f.line_transparency = t;
+        }
+        if let Some(w) = width {
+            f.line_width = Some(w);
+        }
+        if let Some(d) = dash {
+            f.line_dash = d;
+            // Choosing a dash shows the outline again.
+            f.no_line = false;
+        }
+        if let Some(r) = rotation {
+            f.rotation = r.rem_euclid(360.0);
+        }
+        f.arrow_start = arrow_start.unwrap_or(f.arrow_start);
+        f.arrow_end = arrow_end.unwrap_or(f.arrow_end);
+        f.flip_h = flip_h.unwrap_or(f.flip_h);
+        f.flip_v = flip_v.unwrap_or(f.flip_v);
+        if let Some(sh) = shadow {
+            f.shadow = sh;
+        }
+        if let Some(c) = glow_color {
+            f.glow_color = c;
+            // Choosing a colour for no glow turns on a small one.
+            if f.glow_radius <= 0.0 && glow_radius.is_none() {
+                f.glow_radius = 5.0;
+            }
+        }
+        if let Some(r) = glow_radius {
+            f.glow_radius = r;
+        }
+        if let Some(t) = glow_t {
+            f.glow_transparency = t;
+        }
+        if let Some(r) = soft_edge {
+            f.soft_edge = r;
+        }
+        Ok(Json::Null)
+    })
+}
+
+/// Shape pane › Arrange: move a shape up or down the sheet's stacking order of shapes.
+fn object_order(s: &mut Session, p: &Json) -> Result<Json> {
+    const C: &str = "object.order";
+    if p.get("kind").and_then(Json::as_str).is_some_and(|k| k != "shape") {
+        return Err(bad(C, "only shapes can be reordered"));
+    }
+    let (sheet, id) = editable_shape(s, C, p)?;
+    let op = p.get("op").and_then(Json::as_str).unwrap_or("");
+    if !matches!(op, "bringToFront" | "bringForward" | "sendBackward" | "sendToBack") {
+        return Err(bad(C, "`op` must be bringToFront, bringForward, sendBackward or sendToBack"));
+    }
+    edit(s, |cx| {
+        let shapes = &mut cx.sheet_mut(sheet)?.shapes;
+        let i = shapes.iter().position(|shape| shape.id == id).ok_or_else(|| bad(C, "no such shape"))?;
+        let last = shapes.len().saturating_sub(1);
+        let to = match op {
+            "bringToFront" => last,
+            "bringForward" => (i + 1).min(last),
+            "sendBackward" => i.saturating_sub(1),
+            _ => 0,
+        };
+        let shape = shapes.remove(i);
+        shapes.insert(to.min(shapes.len()), shape);
+        Ok(Json::Null)
+    })
+}
+
 fn shape_set_text(s: &mut Session, p: &Json) -> Result<Json> {
     let id =
         p.get("id").and_then(Json::as_u64).and_then(|id| u32::try_from(id).ok()).ok_or_else(|| bad("shape.setText", "`id` must be a text box id"))?;
@@ -1846,6 +2038,62 @@ fn insert_icon(s: &mut Session, p: &Json) -> Result<Json> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shape pane: `shape.format` stores fill, outline, arrows, rotation and flips in one undo
+    /// step, refuses bad values without changing anything, and `object.order` restacks shapes.
+    #[test]
+    fn shape_format_and_order_store_and_undo() {
+        let mut s = Session::new();
+        s.new_workbook();
+        let a = s.execute("insert.shape", json!({"kind": "rectangle", "at": "B2"})).unwrap()["shape"].as_u64().unwrap();
+        let b = s.execute("insert.shape", json!({"kind": "line", "at": "D4"})).unwrap()["shape"].as_u64().unwrap();
+        let get = |s: &Session, id: u64| s.active().unwrap().wb.active().unwrap().shapes.iter().find(|x| u64::from(x.id) == id).unwrap().clone();
+        let before = get(&s, a);
+        s.execute(
+            "shape.format",
+            json!({"id": a, "fill": "#FF0000", "fillTransparency": 40, "lineWidth": 3, "lineDash": "dash", "lineTransparency": 25, "rotation": 30, "flipH": true}),
+        )
+        .unwrap();
+        let f = get(&s, a);
+        assert_eq!(f.fill, gridcraft_model::Color::rgb(255, 0, 0));
+        assert_eq!(
+            (f.format.fill_transparency, f.format.line_width, f.format.line_dash, f.format.line_transparency, f.format.rotation, f.format.flip_h),
+            (40.0, Some(3.0), gridcraft_model::LineDash::Dash, 25.0, 30.0, true)
+        );
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(get(&s, a), before, "one undo step");
+        s.execute("shape.format", json!({"id": a, "fill": null, "line": null})).unwrap();
+        assert!(get(&s, a).format.no_fill && get(&s, a).format.no_line);
+        s.execute("shape.format", json!({"id": b, "arrowStart": true, "arrowEnd": true})).unwrap();
+        assert!(get(&s, b).format.arrow_start && get(&s, b).format.arrow_end);
+        // Effects: a shadow, a glow (a colour alone turns a small one on), soft edges.
+        s.execute("shape.format", json!({"id": a, "shadow": {"dir": 90}, "glowColor": "#00FF00", "glowTransparency": 30, "softEdge": 4})).unwrap();
+        let f = get(&s, a).format;
+        assert_eq!(f.shadow, Some(gridcraft_model::ShapeShadow { dir: 90.0, ..Default::default() }));
+        assert_eq!((f.glow_radius, f.glow_color, f.glow_transparency, f.soft_edge), (5.0, gridcraft_model::Color::rgb(0, 255, 0), 30.0, 4.0));
+        s.execute("shape.format", json!({"id": a, "shadow": null, "glowRadius": 0})).unwrap();
+        assert!(get(&s, a).format.shadow.is_none() && get(&s, a).format.glow_radius == 0.0);
+        for bad in [
+            json!({"id": a, "fillTransparency": 120}),
+            json!({"id": a, "lineDash": "wavy"}),
+            json!({"id": 999}),
+            json!({"id": a, "flipV": 1}),
+            json!({"id": a, "shadow": "big"}),
+            json!({"id": a, "shadow": {"blur": -1}}),
+            json!({"id": a, "glowRadius": 500}),
+        ] {
+            let was = get(&s, a);
+            assert!(s.execute("shape.format", bad.clone()).is_err(), "{bad}");
+            assert_eq!(get(&s, a), was, "{bad} changed nothing");
+        }
+        let order = |s: &Session| s.active().unwrap().wb.active().unwrap().shapes.iter().map(|x| u64::from(x.id)).collect::<Vec<_>>();
+        assert_eq!(order(&s), [a, b]);
+        s.execute("object.order", json!({"kind": "shape", "id": a, "op": "bringToFront"})).unwrap();
+        assert_eq!(order(&s), [b, a]);
+        s.execute("object.order", json!({"kind": "shape", "id": a, "op": "sendBackward"})).unwrap();
+        assert_eq!(order(&s), [a, b]);
+        assert!(s.execute("object.order", json!({"kind": "shape", "id": a, "op": "sideways"})).is_err());
+    }
 
     #[test]
     fn chart_from_whole_columns_uses_the_rows_in_use() {

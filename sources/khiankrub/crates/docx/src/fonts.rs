@@ -58,7 +58,7 @@ pub fn embedded_fonts(doc: &Document) -> Vec<Vec<u8>> {
 }
 
 /// The obfuscation key of a `w:fontKey` GUID (`{XXXXXXXX-XXXX-…}`): its 16 bytes, reversed.
-fn font_key(guid: &str) -> Option<[u8; 16]> {
+pub(crate) fn font_key(guid: &str) -> Option<[u8; 16]> {
     let digits: Vec<u8> = guid.bytes().filter(|c| !matches!(c, b'{' | b'}' | b'-')).collect();
     if digits.len() != 32 {
         return None;

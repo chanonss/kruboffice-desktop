@@ -5,7 +5,7 @@ use egui::{Ui, vec2};
 
 /// Two rows of small buttons, or one large button as tall as both (owner's two-size ribbon,
 /// 2026-11-13, as in KhianKrub).
-pub const CONTENT_H: f32 = 60.0;
+pub const CONTENT_H: f32 = krub_icons::chrome::CONTENT_H;
 pub const CONTENT_MARGIN: f32 = 8.0;
 pub const BIG_MIN_W: f32 = 44.0;
 /// Small buttons: icon only in the ribbon (the name is the tooltip), 28 × 28.
@@ -35,7 +35,8 @@ thread_local! {
 /// discards the pass so a stale offset is never presented as the final frame.
 pub fn column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let id = ui.next_auto_id().with("ribbon_column_height");
-    let center = ui.layout().is_horizontal() && ui.available_height() >= CONTENT_H - 0.5;
+    // Centred in the ribbon's row only; in a side pane the columns just wrap.
+    let center = !crate::widgets::pane_mode() && ui.layout().is_horizontal() && ui.available_height() >= CONTENT_H - 0.5;
     let last: Option<f32> = ui.data(|data| data.get_temp(id));
     let pad = if center { last.map_or(0.0, |height| ((CONTENT_H - height) / 2.0).max(0.0).floor()) } else { 0.0 };
     let inner = ui.vertical(|ui| {

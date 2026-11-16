@@ -11,82 +11,183 @@ use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
     // SmartArt Design › Text Pane, while a SmartArt graphic WordCraft can edit is selected.
     if app.session.view.smart_art_pane && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some() {
-        egui::Panel::left("smart_art_pane")
-            .default_size(250.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| {
-                if header(ui, "Text Pane") {
-                    let _ = app.run("smartArt.textPane", json!({"value": false}));
-                    return;
-                }
-                crate::dialogs_smart_art::text_pane(app, ui);
-            });
+        side_pane(ui, "smart_art_pane", false, |ui| {
+            if header(ui, "Text Pane") {
+                let _ = app.run("smartArt.textPane", json!({"value": false}));
+                return;
+            }
+            crate::dialogs_smart_art::text_pane(app, ui);
+        });
     }
     if app.session.view.nav_pane {
-        egui::Panel::left("nav_pane")
-            .default_size(260.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| nav(app, ui));
+        side_pane(ui, "nav_pane", false, |ui| nav(app, ui));
     }
     if app.session.view.clipboard_pane {
-        egui::Panel::left("clipboard_pane")
-            .default_size(250.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| clipboard(app, ui));
+        side_pane(ui, "clipboard_pane", false, |ui| clipboard(app, ui));
     }
-    if app.session.view.styles_pane {
-        egui::Panel::right("styles_pane")
-            .default_size(250.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| styles(app, ui));
+    right_dock(app, ui);
+}
+
+/// The right-hand panes, in the strip's order: id, icon, name.
+const RIGHT: [(&str, &str, &str); 11] = [
+    ("table", "table", "Table"),
+    ("picture", "picture", "Picture"),
+    ("smartArt", "smartArt", "SmartArt"),
+    ("shape", "shapes", "Shape"),
+    ("chart", "chart", "Chart"),
+    ("styles", "stylesPane", "Styles"),
+    ("inspector", "styles", "Style Inspector"),
+    ("accessibility", "accessibility", "Accessibility"),
+    ("altText", "altText", "Alt Text"),
+    ("restrict", "restrict", "Restrict Editing"),
+    ("comments", "comment", "Comments"),
+];
+
+/// The width of the strip of pane buttons beside the right-hand pane.
+pub const STRIP_W: f32 = 36.0;
+
+/// The right-hand panes open now, in [`RIGHT`]'s order. Every object pane's `wanted` runs each
+/// frame (they remember whether they were showing).
+fn right_open(app: &WordApp, ctx: &egui::Context) -> Vec<&'static str> {
+    let v = &app.session.view;
+    let on = [
+        crate::table_pane::wanted(app, ctx),
+        crate::object_pane::picture_wanted(app, ctx),
+        crate::object_pane::smart_art_wanted(app, ctx),
+        crate::object_pane::shape_wanted(app, ctx),
+        crate::object_pane::chart_wanted(app, ctx),
+        v.styles_pane,
+        v.style_inspector,
+        v.accessibility_pane,
+        v.alt_text_pane,
+        app.restrict.open,
+        v.comments_pane,
+    ];
+    RIGHT.iter().zip(on).filter(|(_, on)| *on).map(|((id, _, _), _)| *id).collect()
+}
+
+/// The pane the right-hand dock shows: the most recently opened or chosen of those open.
+pub fn right_active(ctx: &egui::Context) -> Option<&'static str> {
+    ctx.data(|d| d.get_temp::<Option<&'static str>>(egui::Id::new("right_dock_active"))).flatten()
+}
+
+/// The right-hand dock (owner, 2026-11-15): one pane at a time at the shared width, with a strip
+/// of buttons on its outer edge for every pane that is open. A pane that opens (a table, picture,
+/// shape, chart or SmartArt selected; Styles, Comments… turned on) comes to the front; a strip
+/// button brings its pane back; closing the front pane shows the one used before it.
+fn right_dock(app: &mut WordApp, ui: &mut Ui) {
+    let ctx = ui.ctx().clone();
+    let (order_id, prev_id) = (egui::Id::new("right_dock_order"), egui::Id::new("right_dock_prev"));
+    let open = right_open(app, &ctx);
+    let prev: Vec<&'static str> = ctx.data(|d| d.get_temp(prev_id)).unwrap_or_default();
+    let mut order: Vec<&'static str> = ctx.data(|d| d.get_temp(order_id)).unwrap_or_default();
+    let front = |order: &mut Vec<&'static str>, id: &'static str| {
+        order.retain(|o| *o != id);
+        order.insert(0, id);
+    };
+    for id in open.iter().filter(|id| !prev.contains(id)) {
+        front(&mut order, id);
     }
-    if app.session.view.style_inspector {
-        egui::Panel::right("style_inspector")
-            .default_size(240.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| inspector(app, ui));
+    ctx.data_mut(|d| d.insert_temp(prev_id, open.clone()));
+    if open.is_empty() {
+        ctx.data_mut(|d| {
+            d.insert_temp(order_id, order);
+            d.insert_temp::<Option<&'static str>>(egui::Id::new("right_dock_active"), None);
+        });
+        return;
     }
-    if app.session.view.accessibility_pane {
-        egui::Panel::right("accessibility_pane")
-            .default_size(280.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| crate::a11y_pane::accessibility(app, ui));
-    }
-    if app.session.view.alt_text_pane {
-        egui::Panel::right("alt_text_pane")
-            .default_size(260.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| crate::a11y_pane::alt_text(app, ui));
-    }
-    if app.restrict.open {
-        egui::Panel::right("restrict_pane")
-            .default_size(270.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| {
-                if header(ui, "Restrict Editing") {
-                    app.restrict.open = false;
-                    return;
+    let t = Tokens::get(&ctx);
+    let mut active = order.iter().copied().find(|id| open.contains(id)).or_else(|| open.first().copied());
+    egui::Panel::right("right_dock_strip")
+        .exact_size(STRIP_W)
+        .resizable(false)
+        .frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(3, 8)).stroke(Stroke::new(1.0, t.border)))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            for (id, icon, name) in RIGHT.iter().filter(|(id, _, _)| open.contains(id)) {
+                let on = active == Some(*id);
+                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), egui::Sense::click());
+                let fill = if on {
+                    t.checked
+                } else if resp.hovered() {
+                    t.hover
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
+                ui.painter().rect_filled(r, 5.0, fill);
+                if on {
+                    ui.painter().rect_stroke(r, 5.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
                 }
-                crate::dialogs_review::restrict_pane(app, ui);
-            });
+                crate::icons::paint(ui.painter(), egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), icon, t.icon, t.accent);
+                let label = tl!(name);
+                let resp = resp.on_hover_text(label);
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+                if resp.clicked() {
+                    active = Some(*id);
+                }
+            }
+        });
+    if let Some(id) = active {
+        front(&mut order, id);
     }
-    if app.session.view.comments_pane {
-        egui::Panel::right("comments_pane")
-            .default_size(290.0)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| comments(app, ui));
+    ctx.data_mut(|d| {
+        d.insert_temp(order_id, order);
+        d.insert_temp(egui::Id::new("right_dock_active"), active);
+    });
+    let Some(id) = active else { return };
+    side_pane(ui, "right_dock", true, |ui| match id {
+        "table" => crate::table_pane::show(app, ui),
+        "picture" => crate::object_pane::show_picture(app, ui),
+        "smartArt" => crate::object_pane::show_smart_art(app, ui),
+        "shape" => crate::object_pane::show_shape(app, ui),
+        "chart" => crate::object_pane::show_chart(app, ui),
+        "styles" => styles(app, ui),
+        "inspector" => inspector(app, ui),
+        "accessibility" => crate::a11y_pane::accessibility(app, ui),
+        "altText" => crate::a11y_pane::alt_text(app, ui),
+        "restrict" => {
+            if header(ui, "Restrict Editing") {
+                app.restrict.open = false;
+                return;
+            }
+            crate::dialogs_review::restrict_pane(app, ui);
+        }
+        _ => comments(app, ui),
+    });
+}
+
+/// Every side pane's width (owner, 2026-11-15): one width for all of them, so switching panes
+/// never changes it. Dragging any pane's inner edge sets it for all.
+pub const PANE_W: f32 = 280.0;
+const PANE_W_RANGE: std::ops::RangeInclusive<f32> = 220.0..=520.0;
+
+/// The shared pane width (remembered in egui's memory, like the panes' old sizes).
+pub fn pane_width(ctx: &egui::Context) -> f32 {
+    let w = ctx.data_mut(|d| *d.get_persisted_mut_or(egui::Id::new("krub_side_pane_w"), PANE_W));
+    w.clamp(*PANE_W_RANGE.start(), *PANE_W_RANGE.end())
+}
+
+/// A side pane `id` on the left or `right`, at the shared width ([`PANE_W`]), with a drag handle
+/// on its inner edge.
+pub(crate) fn side_pane(ui: &mut Ui, id: &'static str, right: bool, add: impl FnOnce(&mut Ui)) {
+    let t = Tokens::get(ui.ctx());
+    let w = pane_width(ui.ctx());
+    let panel = if right { egui::Panel::right(id) } else { egui::Panel::left(id) };
+    let shown =
+        panel.exact_size(w).resizable(false).frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border))).show(ui, add);
+    let r = shown.response.rect;
+    let edge = if right { r.min.x } else { r.max.x };
+    let handle = egui::Rect::from_x_y_ranges(edge - 3.0..=edge + 3.0, r.y_range());
+    let resp = ui.interact(handle, egui::Id::new((id, "resize")), egui::Sense::drag());
+    if resp.hovered() || resp.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if resp.dragged() {
+        let dx = resp.drag_delta().x;
+        let nw = (if right { w - dx } else { w + dx }).clamp(*PANE_W_RANGE.start(), *PANE_W_RANGE.end());
+        ui.ctx().data_mut(|d| d.insert_persisted(egui::Id::new("krub_side_pane_w"), nw));
     }
 }
 

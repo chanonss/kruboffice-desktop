@@ -47,7 +47,7 @@ const _: () = assert!(TITLE_CONTROL_H < TITLE_BAR_H, "title-bar controls keep a 
 
 /// Height of the teal tab strip, which runs on from the title bar. The active tab reaches the
 /// ribbon at its bottom edge.
-const TAB_STRIP_H: f32 = 32.0;
+const TAB_STRIP_H: f32 = krub_icons::chrome::TAB_STRIP_H;
 
 /// The active tab: a tab with rounded top corners whose bottom corners curve outward into the ribbon
 /// below, so the tab and the ribbon read as one shape. `bottom` is the strip's lower edge.
@@ -70,7 +70,8 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let b = t.on_band();
     let collapsed = app.ui.ribbon_collapsed;
-    let h = if collapsed { 34.0 } else { 34.0 + 80.0 };
+    // The KrubOffice heights (`krub_icons::chrome`): the tab strip, and the ribbon under it.
+    let h = if collapsed { TAB_STRIP_H } else { krub_icons::chrome::TABS_AND_RIBBON_H };
     // A contextual tab exists only while its object is selected (Excel hides Table Design once the
     // cell leaves the table); a remembered one that is gone would draw an empty ribbon.
     if CONTEXTUAL_TABS.contains(&app.ui.ribbon_tab.as_str()) && !contextual_tabs(app).contains(&app.ui.ribbon_tab.as_str()) {
@@ -80,13 +81,17 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     if app.ui.ribbon_tab == "Draw" && !app.ui.show_draw_tab {
         app.ui.ribbon_tab = "Home".to_string();
     }
+    // The same for the Automate tab, also off by default.
+    if app.ui.ribbon_tab == "Automate" && !app.ui.show_automate_tab {
+        app.ui.ribbon_tab = "Home".to_string();
+    }
     egui::Panel::top("ribbon")
         .exact_size(h)
         .frame(egui::Frame::NONE.fill(if collapsed { t.band } else { t.ribbon }).inner_margin(egui::Margin {
             left: 10,
             right: 10,
             top: 0,
-            bottom: 6,
+            bottom: 0,
         }))
         .show_separator_line(false)
         .show(ui, |ui| {
@@ -114,7 +119,12 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                 tabs_rect.left()
             };
             let ctx_tabs = contextual_tabs(app);
-            let tabs: Vec<_> = TABS.iter().copied().filter(|t| *t != "Draw" || app.ui.show_draw_tab).chain(ctx_tabs.iter().copied()).collect();
+            let tabs: Vec<_> = TABS
+                .iter()
+                .copied()
+                .filter(|t| (*t != "Draw" || app.ui.show_draw_tab) && (*t != "Automate" || app.ui.show_automate_tab))
+                .chain(ctx_tabs.iter().copied())
+                .collect();
             let lang = app.ui.language;
             let show_numbers = app.ui.show_ribbon_tab_numbers;
             let font = theme::ui_font(13.5);
@@ -126,7 +136,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     (width + if show_numbers { crate::ribbon_layout::TAB_BADGE_SPACE } else { 0.0 }, priority)
                 })
                 .collect();
-            let tab_row = Rect::from_min_size(pos2(tabs_rect.left(), strip.top() + 1.0), vec2(tabs_rect.width(), 30.0));
+            let tab_row = Rect::from_min_size(pos2(tabs_rect.left(), strip.top() + 1.0), vec2(tabs_rect.width(), TAB_STRIP_H - 1.0));
             let (slots, overflow) = crate::ribbon_layout::tab_slots(tab_row, file_end, action_left - 4.0, &metrics, app.ui.ribbon_tabs_centered);
             for (index, (&tab, slot)) in tabs.iter().zip(&slots).enumerate() {
                 let Some(r) = *slot else { continue };
@@ -194,9 +204,9 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
             let margin = crate::ribbon_layout::CONTENT_MARGIN;
             let card = Rect::from_min_size(
                 pos2(screen.left() + margin, strip.bottom()),
-                vec2((screen.width() - 2.0 * margin).max(0.0), crate::widgets::CONTENT_H + 16.0),
+                vec2((screen.width() - 2.0 * margin).max(0.0), krub_icons::chrome::RIBBON_H),
             );
-            let inner = card.shrink2(vec2(0.0, 8.0));
+            let inner = card.shrink2(vec2(0.0, krub_icons::chrome::RIBBON_PAD));
             ui.scope_builder(
                 egui::UiBuilder::new().max_rect(inner).ui_stack_info(egui::UiStackInfo::default().with_tag(crate::ribbon_layout::RIBBON_COMMANDS)),
                 |ui| {
@@ -228,9 +238,6 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                                 "Review" => review(app, ui),
                                 "View" => view(app, ui),
                                 "Automate" => automate(app, ui),
-                                "Table Design" => table_design(app, ui),
-                                "Chart Design" => chart_design(app, ui),
-                                "Picture Format" | "Shape Format" => contextual::object_format(app, ui),
                                 crate::paper_view::TAB => crate::paper_view::ribbon_tab(app, ui),
                                 _ => home(app, ui),
                             }
@@ -405,25 +412,54 @@ fn theme_choices(app: &mut SheetApp, ui: &mut Ui) {
 
 const CONTEXTUAL_TABS: [&str; 5] = ["Table Design", "Chart Design", "Picture Format", "Shape Format", crate::paper_view::TAB];
 
-fn contextual_tabs(app: &SheetApp) -> Vec<&'static str> {
+/// The object panes the selection asks for, in the dock strip's order: what used to be the Table
+/// Design, Chart Design, Picture Format and Shape Format tabs (owner, 2026-11-16).
+pub fn object_panes(app: &SheetApp) -> Vec<&'static str> {
     let mut v = Vec::new();
     if let Some(d) = app.session.active()
         && let Some(sh) = d.wb.active()
     {
         if sh.table_at(d.selection.active).is_some() {
-            v.push("Table Design");
+            v.push("table");
         }
         if app.selected_chart().is_some_and(|id| sh.charts.iter().any(|c| c.id == id)) {
-            v.push("Chart Design");
+            v.push("chart");
         }
         match app.selected_object.filter(|o| sh.object_anchor(*o).is_some()).map(|o| o.kind) {
-            Some(gridcraft_engine::model::ObjKind::Image) => v.push("Picture Format"),
-            Some(gridcraft_engine::model::ObjKind::Shape) => v.push("Shape Format"),
+            Some(gridcraft_engine::model::ObjKind::Image) => v.push("picture"),
+            Some(gridcraft_engine::model::ObjKind::Shape) => v.push("shape"),
             _ => {}
         }
-        if app.grid.hf_edit.is_some() {
-            v.push(crate::paper_view::TAB);
-        }
+    }
+    v
+}
+
+/// An object pane's commands: the former contextual tab's controls, wrapped to the pane's width,
+/// with a heading for each group.
+pub fn object_pane(app: &mut SheetApp, ui: &mut Ui, id: &str) {
+    // A picture's and a shape's pane: the layout shared by the three apps.
+    if matches!(id, "picture" | "shape") {
+        crate::widgets::in_pane(|| contextual::object_pane(app, ui));
+        return;
+    }
+    crate::widgets::in_pane(|| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+            match id {
+                "table" => table_design(app, ui),
+                "chart" => chart_design(app, ui),
+                _ => contextual::object_format(app, ui),
+            }
+        });
+    });
+}
+
+fn contextual_tabs(app: &SheetApp) -> Vec<&'static str> {
+    // A table's, chart's, picture's and shape's commands are in the right-hand pane
+    // ([`object_panes`]), not in contextual tabs.
+    let mut v = Vec::new();
+    if app.session.active().is_some_and(|d| d.wb.active().is_some()) && app.grid.hf_edit.is_some() {
+        v.push(crate::paper_view::TAB);
     }
     v
 }

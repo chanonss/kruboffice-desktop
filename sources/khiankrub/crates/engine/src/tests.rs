@@ -8464,6 +8464,42 @@ fn thai_digits_replace_where_the_font_has_them_and_switch_back() {
     assert!(s.run("format.thaiDigits", &json!({"scope": "page"})).is_err());
 }
 
+/// Arabic Digits: after Thai Digits changed the whole text, a selection goes back to 0–9 and
+/// the rest stays Thai; it never makes Thai digits, it is one undo step, and the right-click
+/// menu's check sees Thai digits only in a selection.
+#[test]
+fn arabic_digits_put_a_selection_back_and_leave_the_rest_thai() {
+    use crate::cmd::format::selection_has_thai_digits;
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Order 123 and 45 of 6"));
+    s.run("select.all", &json!({})).unwrap();
+    s.run("format.font", &json!({"name": "Sarabun"})).unwrap();
+    s.run("caret.docStart", &json!({})).unwrap();
+    assert!(!selection_has_thai_digits(&s));
+    s.run("format.thaiDigits", &json!({})).unwrap();
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order ๑๒๓ and ๔๕ of ๖");
+    // The part that must stay Arabic.
+    s.run("select.text", &json!({"text": "๔๕"})).unwrap();
+    assert!(selection_has_thai_digits(&s));
+    let r = s.run("format.arabicDigits", &json!({})).unwrap();
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order ๑๒๓ and 45 of ๖");
+    assert_eq!((r["mode"].as_str(), r["changed"].as_u64()), (Some("arabic"), Some(2)));
+    assert!(!selection_has_thai_digits(&s));
+    // It isn't a toggle: a selection without Thai digits is refused and stays as it is.
+    assert!(s.run("format.arabicDigits", &json!({})).is_err());
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order ๑๒๓ and 45 of ๖");
+    // One step undoes it.
+    s.run("select.text", &json!({"text": "๑๒๓"})).unwrap();
+    s.run("format.arabicDigits", &json!({})).unwrap();
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order 123 and 45 of ๖");
+    assert!(s.undo());
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order ๑๒๓ and 45 of ๖");
+    // Nothing selected: the whole text.
+    s.run("caret.docStart", &json!({})).unwrap();
+    s.run("format.arabicDigits", &json!({})).unwrap();
+    assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order 123 and 45 of 6");
+    assert!(s.run("format.arabicDigits", &json!({"scope": "page"})).is_err());
+}
+
 /// A font that has no Thai digits keeps its Arabic ones.
 #[test]
 fn thai_digits_skip_a_font_without_thai_digits() {

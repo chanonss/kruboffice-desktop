@@ -59,6 +59,7 @@ KhitKrub has no Drive: the page around it owns the files.
 
 KhitKrub keeps GridCraft's licences: [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright (c) 2026 ArtCraft Team and the
 GridCraft contributors. Required notices are in [NOTICE](NOTICE); every bundled asset is listed in [ATTRIBUTION.md](ATTRIBUTION.md).
+Most ribbon and menu icons come from [Tabler Icons](https://tabler.io/icons) by Paweł Kuna (MIT, [licence](crates/krub-icons/LICENSE-tabler.txt)); the app credits them in Help › About.
 What this fork changes is in [FORK-CHANGES.md](FORK-CHANGES.md). The ArtCraft name and logos are not part of this version.
 
 ### Desktop recovery

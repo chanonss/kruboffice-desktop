@@ -47,7 +47,7 @@ echo "==> assembling $APP from $BIN (commit $SHA)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/KhianKrub"
-cp "$ROOT/assets/app-icon/wordcraft.icns" "$APP/Contents/Resources/KhianKrub.icns"
+"$ROOT/packaging/macos/khiankrub-icns.sh" "$APP/Contents/Resources/KhianKrub.icns"
 # The licences that must travel with the app: the project's (MIT and Apache-2.0), the NOTICE with its
 # third-party credits and the ATTRIBUTION list it points to, and the licences of the embedded fonts (OFL).
 cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/NOTICE" "$ROOT/ATTRIBUTION.md" "$APP/Contents/Resources/"

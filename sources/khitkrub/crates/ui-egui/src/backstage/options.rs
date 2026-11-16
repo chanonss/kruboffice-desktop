@@ -1,16 +1,83 @@
 use super::{Key, Language, Modifiers, SheetApp, Ui, dim, i18n, json, section, vec2};
 
-/// Excel's File › Options page: General (display theme, interface language and Show formula bar),
-/// Editing (AutoComplete) and Save (the autosave checkbox toggling `app.ui.autosave`), plus Formulas
-/// (calculation mode and iterative calculation) and the display options for this workbook (sheet
-/// tabs and scroll bars) when a document is active. Theme, language, formula
-/// bar, AutoComplete and calculation changes run their commands through `run_or_alert`; calculation
-/// settings are saved with the workbook.
-pub(super) fn options(app: &mut SheetApp, ui: &mut Ui) {
+/// File › Options in the shared KrubOffice layout (`krub_icons::options`): categories on the
+/// left, the chosen one's settings on the right. General (interface), Display (formula bar,
+/// active row, and this workbook's scroll bars and sheet tabs), Formulas (calculation, saved
+/// with the workbook), Save (autosave), Language and Advanced (AutoComplete). Display options
+/// for the workbook and Formulas need an open workbook. Every change runs its command through
+/// `run_or_alert`.
+pub(super) fn options(app: &mut SheetApp, ui: &mut Ui, pane: &mut String) {
     let lang = app.ui.language;
-    section(ui, lang, "Options|General");
-    general_options(app, ui, lang);
-    ui.add_space(6.0);
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let style = krub_icons::options::Style {
+        text: t.text,
+        icon: t.text,
+        selected: t.selected,
+        hover: t.hover,
+        border: t.separator,
+        regular: crate::theme::ui_font(14.0),
+        semibold: crate::theme::ui_bold(14.0),
+        announce: |resp, active, label| resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, active, label)),
+    };
+    let has_workbook = app.session.active().is_some();
+    let mut shown = vec!["general", "display", "save", "language", "advanced"];
+    if has_workbook {
+        shown.push("formulas");
+    }
+    krub_icons::options::page(
+        ui,
+        &style,
+        &shown,
+        |name| category_name(lang, name).to_string(),
+        pane,
+        |ui, id| match id {
+            "display" => display(app, ui, lang),
+            "formulas" => formulas(app, ui, lang),
+            "save" => {
+                section(ui, lang, "Options|Save workbooks");
+                let mut autosave = app.ui.autosave;
+                if ui.checkbox(&mut autosave, lang.tr("Save .xlsx workbooks automatically after every change")).changed() {
+                    app.toggle_autosave();
+                }
+            }
+            "language" => {
+                section(ui, lang, "Interface language");
+                language_picker(app, ui, lang);
+                ui.add_space(4.0);
+                dim(ui, lang.tr("Menus and commands change; your workbooks don't."));
+            }
+            "advanced" => {
+                section(ui, lang, "Options|Editing");
+                let mut autocomplete = app.ui.autocomplete;
+                if ui.checkbox(&mut autocomplete, lang.tr("Enable AutoComplete for cell values")).changed() {
+                    app.run_or_alert("options.autoComplete", json!({"on": autocomplete}));
+                }
+            }
+            _ => {
+                section(ui, lang, "Options|Interface");
+                general_options(app, ui, lang);
+            }
+        },
+    );
+}
+
+/// A category's name in the interface language.
+fn category_name(lang: Language, english: &str) -> &str {
+    lang.tr(match english {
+        "Display" => "Options|Display",
+        "Formulas" => "Options|Formulas",
+        "Save" => "Options|Save",
+        "Language" => "Options|Language",
+        "Advanced" => "Options|Advanced",
+        "Proofing" => "Options|Proofing",
+        "Accessibility" => "Options|Accessibility",
+        _ => "Options|General",
+    })
+}
+
+/// Display: the formula bar and active row, and this workbook's scroll bars and sheet tabs.
+fn display(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
+    section(ui, lang, "Options|Show");
     let mut formula_bar = app.session.prefs.formula_bar;
     if ui.checkbox(&mut formula_bar, lang.tr("Show formula bar")).changed() {
         app.run_or_alert("view.formulaBar", json!({"on": formula_bar}));
@@ -19,20 +86,8 @@ pub(super) fn options(app: &mut SheetApp, ui: &mut Ui) {
     if ui.checkbox(&mut highlight_row, lang.tr("Highlight the active cell's row")).changed() {
         app.run_or_alert("options.highlightActiveRow", json!({"on": highlight_row}));
     }
-    ui.add_space(18.0);
-    section(ui, lang, "Options|Editing");
-    let mut autocomplete = app.ui.autocomplete;
-    if ui.checkbox(&mut autocomplete, lang.tr("Enable AutoComplete for cell values")).changed() {
-        app.run_or_alert("options.autoComplete", json!({"on": autocomplete}));
-    }
-    ui.add_space(18.0);
-    section(ui, lang, "Options|Save");
-    let mut autosave = app.ui.autosave;
-    if ui.checkbox(&mut autosave, lang.tr("Save .xlsx workbooks automatically after every change")).changed() {
-        app.toggle_autosave();
-    }
-    let Some((calc, view)) = app.session.active().map(|d| (d.wb.calc.clone(), d.wb.view)) else { return };
-    ui.add_space(18.0);
+    let Some(view) = app.session.active().map(|d| d.wb.view) else { return };
+    ui.add_space(12.0);
     // Excel's Advanced › Display options for this workbook: saved with the workbook (#3101).
     section(ui, lang, "Display options for this workbook");
     for (on, label, id) in [
@@ -45,19 +100,23 @@ pub(super) fn options(app: &mut SheetApp, ui: &mut Ui) {
             app.run_or_alert(id, json!({"on": on}));
         }
     }
-    ui.add_space(18.0);
-    section(ui, lang, "Formulas");
-    ui.label(lang.tr("Workbook calculation"));
+}
+
+/// Formulas: the active workbook's calculation settings.
+fn formulas(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
+    let Some(calc) = app.session.active().map(|d| d.wb.calc.clone()) else { return };
+    section(ui, lang, "Workbook calculation");
     calc_options(app, ui, lang, &calc);
     ui.add_space(6.0);
     dim(ui, lang.tr("Calculation settings are saved with the workbook."));
 }
 
-/// The display theme and interface language controls of the General section.
+/// General › Interface: ribbon, Draw and Automate tabs, interface fonts and the display theme.
 fn general_options(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
     ui.checkbox(&mut app.ui.show_ribbon_tab_numbers, lang.tr("Show numbers on ribbon tabs"));
     ui.checkbox(&mut app.ui.ribbon_tabs_centered, lang.tr("Center the ribbon tabs (off: start at the left)"));
     ui.checkbox(&mut app.ui.show_draw_tab, lang.tr("Show the Draw tab"));
+    ui.checkbox(&mut app.ui.show_automate_tab, lang.tr("Show the Automate tab"));
     if let Some(load) = &app.services.load_system_ui_fonts {
         if ui.button(lang.tr("Use system interface fonts")).clicked() {
             load();
@@ -87,6 +146,12 @@ fn general_options(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
             .response
             .labelled_by(label.id);
         ui.end_row();
+    });
+}
+
+/// The interface language picker.
+fn language_picker(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
+    ui.horizontal(|ui| {
         let label = ui.label(lang.tr("Interface language"));
         craft_ui::ComboBox::from_id_salt("backstage_language")
             .width(160.0)
@@ -100,7 +165,6 @@ fn general_options(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
             })
             .response
             .labelled_by(label.id);
-        ui.end_row();
     });
 }
 

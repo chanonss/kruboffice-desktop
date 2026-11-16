@@ -357,9 +357,13 @@ fn on_a_right_to_left_sheet_the_mirrored_handles_resize() {
         let geo = Geo::new(sh, app.grid.rect.unwrap(), app.view().scroll);
         geo.mirror_rect(chartview::object_rect(&geo, sh, o.image).unwrap())
     };
-    let before = screen(&h);
-    click(&mut h, before.center());
+    let first = screen(&h);
+    click(&mut h, first.center());
     assert_eq!(h.state().selected_object, Some(o.image), "the picture is hit where it is drawn");
+    // Choosing it opened the Picture pane, which narrows the sheet; on a right-to-left sheet the
+    // picture moves with the sheet's right edge, so find it again.
+    h.run_steps(2);
+    let before = screen(&h);
     // The logical bottom-right handle is drawn at the bottom-left; dragging it leftwards widens the picture.
     let grab = before.left_bottom();
     h.input_mut().events.push(Event::PointerMoved(grab));

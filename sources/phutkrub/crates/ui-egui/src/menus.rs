@@ -8,11 +8,28 @@ use crate::SlideApp;
 use crate::theme::{self, Tokens};
 
 /// Shortcuts the UI handles itself (views, show, zoom, palette, file dialogs). True when consumed.
+/// Whether Cmd+D is for the slides: the slide list has focus, or a slide is open with no shape
+/// or text selected on it.
+fn duplicates_slides(app: &SlideApp) -> bool {
+    let Some(d) = app.session.active() else { return false };
+    if d.doc.slides.is_empty() {
+        return false;
+    }
+    app.slides_list_focused() || (d.selection.shapes.is_empty() && d.selection.text.is_none())
+}
+
 pub fn ui_shortcut(app: &mut SlideApp, key: egui::Key, m: Mods) -> bool {
     use egui::Key::*;
     if key == A && m.cmd && !m.shift && !m.alt && app.slides_list_focused() {
         // The engine can't see which pane has focus, so the UI says so through the scope param.
         let _ = app.run("edit.selectAll", json!({"scope": "slides"}));
+        return true;
+    }
+    if key == D && m.cmd && !m.shift && !m.alt && duplicates_slides(app) {
+        // Cmd+D (Ctrl+D on Windows and Linux) duplicates the selected slides when the slide list
+        // has focus or nothing on the slide is selected; selected shapes duplicate themselves
+        // (`edit.duplicate`), as in PowerPoint.
+        let _ = app.run("slide.duplicate", json!({}));
         return true;
     }
     let id = match (key, m.cmd, m.shift, m.alt) {

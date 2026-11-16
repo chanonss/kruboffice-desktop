@@ -545,6 +545,17 @@ pub struct Settings {
     /// comments and tracked changes are saved without `w:date`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remove_date_time: bool,
+    /// File › Options › Save › Embed fonts in the file (`w:embedTrueTypeFonts`, §17.15.1.42):
+    /// the fonts the text is drawn in are saved inside the document.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub embed_fonts: bool,
+    /// Embed only the characters used in the document (`w:saveSubsetFonts`, §17.15.1.76).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub embed_subset: bool,
+    /// Embed common system fonts too (`w:embedSystemFonts`, §17.15.1.41). Off is Word's
+    /// "Do not embed common system fonts", checked by default.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub embed_system_fonts: bool,
 }
 
 /// A saved zoom: a percentage, or a fit mode (the percentage it last came to).
@@ -665,6 +676,9 @@ impl Default for Settings {
             zoom: None,
             remove_personal_info: false,
             remove_date_time: false,
+            embed_fonts: false,
+            embed_subset: false,
+            embed_system_fonts: false,
         }
     }
 }
@@ -754,6 +768,25 @@ impl Document {
         self.styles.default_para.space_before_auto = Some(false);
         self.styles.default_para.space_after_auto = Some(false);
         self.styles.default_para.line_spacing = Some(props::LineSpacing::Multiple(1.0));
+        // Captions (ภาพที่, ตารางที่): TH Sarabun New 16 pt bold, Thai distributed, single
+        // spacing, nothing before or after.
+        if let Some(c) = self.styles.get_mut("Caption") {
+            c.chr.font = Some(styles::THAI_FONT.into());
+            c.chr.font_cs = Some(styles::THAI_FONT.into());
+            c.chr.size = Some(16.0);
+            c.chr.size_cs = Some(16.0);
+            c.chr.bold = Some(true);
+            c.chr.bold_cs = Some(true);
+            c.chr.italic = Some(false);
+            c.chr.italic_cs = Some(false);
+            c.chr.color = Some(props::TextColor::Auto);
+            c.para.align = Some(Align::ThaiDistribute);
+            c.para.line_spacing = Some(props::LineSpacing::Multiple(1.0));
+            c.para.space_before = Some(0.0);
+            c.para.space_after = Some(0.0);
+            c.para.space_before_auto = Some(false);
+            c.para.space_after_auto = Some(false);
+        }
         self.last_section.page_w = 595.28;
         self.last_section.page_h = 841.89;
         self.last_section.margin_top = 72.0;

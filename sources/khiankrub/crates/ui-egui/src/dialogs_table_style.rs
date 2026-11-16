@@ -749,6 +749,8 @@ mod tests {
             },
             app,
         );
+        // The Table pane has its own Header Row box: keep it closed for this dialog test.
+        crate::table_pane::close(&h.ctx);
         steps(&mut h);
         h.get_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().as_deref() == Some("Whole Table")).click();
         steps(&mut h);

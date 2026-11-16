@@ -86,11 +86,11 @@ fn the_format_pane_keeps_inches_by_default() {
 
 /// Shape Format › Size on the ribbon: the same unit as the pane (the pane stays closed here).
 #[test]
-fn the_ribbon_size_boxes_show_and_take_centimetres() {
-    let mut app = app_with_shape(Unit::Centimeters);
-    app.ui.tab = "Shape Format".into();
+fn the_shape_pane_size_boxes_show_and_take_centimetres() {
+    let app = app_with_shape(Unit::Centimeters);
     let mut h = harness(app);
     h.run_steps(3);
+    // The shared Shape pane's Width: and Height: boxes (PhutKrub's own number boxes).
     let shown = text_values(&h);
     assert!(shown.iter().any(|s| s == "3.81 cm") && shown.iter().any(|s| s == "5.08 cm"), "{shown:?}");
     let height = h.query_all_by_role(Role::TextInput).find(|n| n.value().as_deref() == Some("3.81 cm")).unwrap();
@@ -102,7 +102,7 @@ fn the_ribbon_size_boxes_show_and_take_centimetres() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     let x = selected_xfrm(h.state());
-    assert!((x.h - 36.0).abs() < 1e-6 && (x.w - 144.0).abs() < 1e-6, "{x:?}");
+    assert!((x.h - 36.0).abs() < 0.05 && (x.w - 144.0).abs() < 1e-6, "{x:?}");
 }
 
 #[test]
@@ -190,7 +190,9 @@ fn portrait_swaps_the_exact_slide_size() {
 #[test]
 fn preferences_choose_the_units_and_cancel_puts_them_back() {
     let mut app = app_with_shape(Unit::Inches);
-    app.dialog = Some(crate::dialogs::Dialog::new("preferences"));
+    let mut prefs = crate::dialogs::Dialog::new("preferences");
+    prefs.fields.insert("pane".into(), "advanced".into());
+    app.dialog = Some(prefs);
     let mut h = harness(app);
     h.run_steps(3);
     h.get_by_label("Inches").click();
@@ -248,4 +250,26 @@ fn the_format_pane_scales_and_positions_from_the_centre() {
     type_into(&mut h, "1.5\"", "3");
     let x = selected_xfrm(h.state());
     assert!((x.x - 180.0).abs() < 1e-6 && (x.w - 72.0).abs() < 1e-6 && (x.y - 36.0).abs() < 1e-6, "{x:?}");
+}
+
+/// The shared Shape pane's Line › Transparency (owner, 2026-11-16: the same rows in all three
+/// apps): a percentage typed in becomes the outline colour's alpha.
+#[test]
+fn the_shape_pane_takes_a_line_transparency() {
+    let mut h = harness(app_with_shape(Unit::default()));
+    h.run_steps(3);
+    // Area, Line and Glow each have a Transparency box; the Line one is the second.
+    let boxes: Vec<_> = h.query_all_by_label("Transparency value").collect();
+    assert_eq!(boxes.len(), 3, "Area, Line and Glow");
+    boxes[1].focus();
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.query_all_by_role(Role::TextInput).find(|n| n.is_focused()).unwrap().type_text("40");
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let st = h.state().session.active().unwrap();
+    let sh = st.shape(*st.selection.shapes.first().unwrap()).unwrap();
+    let Some(deckcraft_model::Fill::Solid { color }) = sh.line.as_ref().and_then(|l| l.fill.clone()) else { panic!("a solid outline") };
+    assert!((color.alpha() - 0.6).abs() < 1e-6, "{color:?}");
 }

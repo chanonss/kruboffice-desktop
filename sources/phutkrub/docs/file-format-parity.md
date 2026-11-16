@@ -2,7 +2,7 @@
 
 > **2026-11-01 · ICON.6:** Thai Distribution now retains its own paragraph alignment on PPTX import/export (`a:pPr/@algn="thaiDist"`); previously read as ordinary Justify. Alignment type: [Open XML SDK reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.textalignmenttypevalues).
 
-> **Last reviewed:** 2026-11-02 · **Last updated:** 2026-11-03 · **Change:** minor (cell anchorCtr, vertOverflow/horzOverflow, compatLnSpc, normalizeH, thaiDist, table rtl, run altLang and reflection transforms round-trip; Reuse Slides brings referenced custom table styles; previous: minor (native chart payloads stored in bounded ZIP members; previous: major, community PR wave 2026-10-14: seven owned PPTX corpus files, embedded fonts, EMF/WMF clip regions, threaded comments (#70), chart trendlines and workbooks (#335), SmartArt written as a diagram, tags and custom XML kept, picture export DPI; duplicated rows and headers folded; previous: trivial, lines in scaled groups, #233)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-11-02 · **Last updated:** 2026-11-15 · **Change:** minor (Embed fonts in the file on save: the fonts the slides are drawn in, as Embedded OpenType, the characters used or all; previous: minor (cell anchorCtr, vertOverflow/horzOverflow, compatLnSpc, normalizeH, thaiDist, table rtl, run altLang and reflection transforms round-trip; Reuse Slides brings referenced custom table styles; previous: minor (native chart payloads stored in bounded ZIP members; previous: major, community PR wave 2026-10-14: seven owned PPTX corpus files, embedded fonts, EMF/WMF clip regions, threaded comments (#70), chart trendlines and workbooks (#335), SmartArt written as a diagram, tags and custom XML kept, picture export DPI; duplicated rows and headers folded; previous: trivial, lines in scaled groups, #233))) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every format PowerPoint reads or writes, DeckCraft's support, fidelity and how it is tested.
 Gaps are itemized in [gaps.md](gaps.md#file-formats). Dimension score: **~58% ready**
@@ -65,7 +65,7 @@ intermediate build that required inline `bytes` cannot read the new referenced r
 | WMV | yes (Windows) | embedded, not playable | |
 | Online video (YouTube embeds) | yes | no | Cloud feature |
 | Embedded OLE objects | yes | kept on round trip (opaque), not insertable or editable | `ShapeKind::Opaque` |
-| Embedded fonts | yes | yes | `p:embeddedFontLst` read and written. TrueType, OpenType and Embedded OpenType faces are used to draw; MicroType Express subsets are kept and written back, not drawn |
+| Embedded fonts | yes | yes | `p:embeddedFontLst` read and written. TrueType, OpenType and Embedded OpenType faces are used to draw; MicroType Express subsets are kept and written back, not drawn. File › Options › Save › Embed fonts in the file (`file.embedFonts`, `embedTrueTypeFonts`/`saveSubsetFonts`) embeds the faces the slides are drawn in on save, as uncompressed Embedded OpenType, only the glyphs used or all characters, obeying each font's licence flags; TrueType outlines only, no variable fonts. PowerPoint for Mac uses an embedded Latin face; an embedded Thai face was not used for Thai text in any variant tried (2026-11-15, see HANDOFF) |
 | 3-D models (`.glb`) | yes | kept | The model part round-trips (`p:contentPart`, including an `mc:AlternateContent` choice and its fallback picture). Not drawn as a mesh and not inserted from the ribbon |
 
 ## PPTX coverage (PresentationML / DrawingML)
@@ -101,7 +101,7 @@ the round trip even though DeckCraft doesn't model it.
 | Comments: legacy | yes | yes | |
 | Comments: modern threaded (`p188`) | yes | yes | Written next to the flattened legacy part; replies and resolved state round-trip (`threads_and_resolved_round_trip`) |
 | Unknown slide-level elements (`graphicFrame` OLE, extensions, `mc:AlternateContent`) | kept | kept | Rendered as a labelled placeholder with the preview picture when present |
-| Embedded fonts | yes | yes | MicroType Express subsets kept, not drawn |
+| Embedded fonts | yes | yes | MicroType Express subsets kept, not drawn; embedding on save is an option (File › Options › Save) |
 | Tags (`p:custDataLst`) on the presentation, slides and shapes | yes | yes | Add-ins such as think-cell keep their identity; `tags_survive_round_trip` |
 | Custom XML data, sensitivity label (`docMetadata/LabelInfo.xml`), custom document properties | kept verbatim | yes | SharePoint metadata and the label survive a save; `custom_xml_label_and_custom_properties_survive_save` |
 | VBA | no | no | |
@@ -133,6 +133,7 @@ the round trip even though DeckCraft doesn't model it.
 | 2026-10-23 | minor | Chart text colour (`c:txPr` on the axes, legend, data labels and chart; the title's run defaults) is written as well as read, so an imported chart's colours survive an edit and a save; `chart.options {textColor}`, Font Color on a chart (#1015) |
 | 2026-10-16 | trivial | A `.ppsx` opened from the command line or the file association starts the slide show (#862) |
 | 2026-10-15 | minor | `.thmx` row: Browse for Themes reads a theme's colours, fonts and effects; a `.pptx`/`.potx` brings its slide master and layouts (#807) |
+| 2026-11-15 | minor | Embed fonts in the file (File › Options › Save, `file.embedFonts`, `file.fontEmbedding`): on a PowerPoint save the faces the slides are drawn in are embedded as uncompressed Embedded OpenType, the characters used (default) or all characters, obeying licence flags; turning it off drops the embedded fonts |
 | 2026-10-14 | minor | Community PR wave folded: one row each for `.pptx` (seven owned corpus files), outline, 3-D models, embedded fonts, text, effects, 3-D (extrusion sides draw now), SmartArt (written as a diagram) and VBA (tags and custom XML are kept) |
 | 2026-10-12 | minor | SmartArt import lays each shape's text out on its `dsp:txXfrm` text rectangle instead of the shape box |
 | 2026-10-13 | minor | EMF/WMF rectangle clip regions limit later drawing; EMF+ records remain |

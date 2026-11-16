@@ -32,9 +32,9 @@ const COMBO_SIZE_W: f32 = 52.0;
 /// Gap between the size box and the grow/shrink buttons.
 const GAP: f32 = 3.0;
 /// Row 2, like Word's: B I U S | highlight, font colour | the four alignments, then Thai
-/// Distribution. Fifteen allocations, so fourteen gaps; the two inside the split buttons are
-/// counted in `SPLIT_W`.
-const ROW2_W: f32 = 9.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 12.0 * SPACING;
+/// Distribution and Change to Arabic Digits. Sixteen allocations, so fifteen gaps; the two
+/// inside the split buttons are counted in `SPLIT_W`.
+const ROW2_W: f32 = 10.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 13.0 * SPACING;
 /// Row 1: font, size, grow, shrink. The font box takes what row 2 leaves, so both rows end
 /// together and the box starts at the bar's left edge.
 const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 2.0 * BTN_W + 3.0 * SPACING);
@@ -266,6 +266,9 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
         widgets::small(ui, app, "alignRight", None, "Align Right", "para.alignRight", json!({}), align == A::Right);
         widgets::small(ui, app, "justify", None, "Justify", "para.justify", json!({}), align == A::Justify);
         widgets::small(ui, app, "thaiDistribute", None, "Thai Distribution", "para.thaiDistribute", json!({}), align == A::ThaiDistribute);
+        // After Thai Digits, the selected text that must stay Arabic goes back to 0–9 (greyed
+        // when the selection has no Thai digits).
+        widgets::small(ui, app, "arabicDigits", None, "Change to Arabic Digits", "format.arabicDigits", json!({}), false);
     });
 }
 
@@ -655,5 +658,35 @@ mod tests {
         let s = &h.state().session;
         let align = s.doc.para_at(&s.sel.focus).map(|p| s.doc.styles.resolve_para(&p.props).align);
         assert_eq!(align, Some(wordcraft_doc::Align::ThaiDistribute));
+    }
+
+    /// After Thai Digits, the bar's Change to Arabic Digits (after Thai Distribution) puts only
+    /// the selected digits back to 0–9; it is greyed over a selection without Thai digits.
+    #[test]
+    fn the_bar_puts_selected_thai_digits_back_to_arabic() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Order 123 and 45 of 6"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("format.font", json!({"name": "Sarabun"})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        a.run("format.thaiDigits", json!({})).unwrap();
+        a.run("select.text", json!({"text": "๔๕"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(Vec2::new(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h);
+        assert!(bar_layer(&h).is_some(), "the bar is up");
+        assert!(widgets::enabled(h.state_mut(), "format.arabicDigits"), "the selection has Thai digits");
+        let button = h.get_by_label("Change to Arabic Digits").rect().center();
+        click_at(&mut h, button);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Order ๑๒๓ and 45 of ๖");
+        // The selection is Arabic now: nothing left for the button to do.
+        assert!(!widgets::enabled(h.state_mut(), "format.arabicDigits"));
     }
 }

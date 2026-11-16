@@ -22,8 +22,10 @@ mod substituted;
 mod table;
 mod textbox;
 mod thai;
+mod used;
 mod vertical;
 pub mod wordart;
+pub use used::{MAX_USED_FACES, UsedFace};
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};

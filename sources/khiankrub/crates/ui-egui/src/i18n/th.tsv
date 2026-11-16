@@ -553,6 +553,7 @@
 	Update Index	อัปเดตดัชนี
 	Update Table	อัปเดตตาราง
 	Update Table of Figures	อัปเดตสารบัญภาพ
+	Update Table of Tables	อัปเดตสารบัญตาราง
 	Vertical	แนวตั้ง
 	View	มุมมอง
 	View Alt Text…	ดูข้อความแสดงแทน…
@@ -1134,6 +1135,10 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Word template (*.dotx)	แม่แบบ Word (*.dotx)
 	Load System Installed Fonts…	ใช้ฟอนต์ที่ติดตั้งในเครื่อง…
 	Add Font…	เพิ่มฟอนต์…
+	Pinned Fonts	ฟอนต์ที่ปักหมุด
+	All Fonts	ฟอนต์ทั้งหมด
+	Pin to Top	ปักหมุดไว้ด้านบน
+	Unpin	เลิกปักหมุด
 	Not Now	ไว้ทีหลัง
 	This document uses {font}, which isn't loaded, so another font is shown in its place.	เอกสารนี้ใช้ฟอนต์ {font} ซึ่งยังไม่ได้โหลด จึงแสดงด้วยฟอนต์อื่นแทน
 	This document uses {font}. This browser can't use the fonts on your computer, so another font is shown in its place. Add Font… loads a {font} file you have.	เอกสารนี้ใช้ฟอนต์ {font} เบราว์เซอร์นี้ใช้ฟอนต์ที่ติดตั้งในเครื่องไม่ได้ จึงแสดงด้วยฟอนต์อื่นแทน กด เพิ่มฟอนต์… เพื่อโหลดไฟล์ฟอนต์ {font} ที่คุณมี
@@ -1427,7 +1432,7 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Reset	คืนค่า
 	East Asian font:	ฟอนต์ภาษาเอเชียตะวันออก:
 	Highlighting	การเน้นข้อความ
-	Area	พื้นหลัง
+	Area	พื้นที่
 	Reset to Parent	คืนค่าตามสไตล์ต้นแบบ
 	Background	พื้นหลัง
 	Mixed	หลายค่า
@@ -1440,6 +1445,8 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Inside:	ด้านใน:
 	Outside:	ด้านนอก:
 	Thai Digits	ตัวเลขไทย
+	Arabic Digits	ตัวเลขอารบิก
+	Change to Arabic Digits	เปลี่ยนเป็นตัวเลขอารบิก
 	Type Thai digits (๑ ๒ ๓) when the font has them	พิมพ์เลข 0–9 เป็นเลขไทย (๑ ๒ ๓) เมื่อฟอนต์มีเลขไทย
 	Couldn't export {path}: {error}	ส่งออก {path} ไม่สำเร็จ: {error}
 	Center the ribbon tabs (off: start at the left, as in Word)	จัดแท็บริบบิ้นไว้กึ่งกลาง (ปิด: ชิดซ้าย เหมือนใน Word)
@@ -1510,3 +1517,94 @@ crop side	L	ซ
 crop side	T	บ
 crop side	R	ข
 crop side	B	ล
+	Icons from Tabler Icons by Paweł Kuna (MIT License)	ไอคอนจาก Tabler Icons โดย Paweł Kuna (สัญญาอนุญาต MIT)
+	Tabler Icons license	สัญญาอนุญาตของ Tabler Icons
+	Preserve fidelity when sharing this document	รักษาความถูกต้องเมื่อแชร์เอกสารนี้
+	Embed fonts in the file	ฝังฟอนต์ไว้ในไฟล์
+	Embed only the characters used in the document (best for reducing file size)	ฝังเฉพาะตัวอักษรที่ใช้ในเอกสาร (ช่วยให้ไฟล์เล็กลง)
+	Do not embed common system fonts	ไม่ฝังฟอนต์ระบบทั่วไป
+	People who open the document see its text in the fonts you used, even without them installed. A font whose licence doesn't allow embedding is left out.	ผู้ที่เปิดเอกสารจะเห็นข้อความในฟอนต์ที่คุณใช้ แม้ไม่ได้ติดตั้งฟอนต์นั้นไว้ ฟอนต์ที่สัญญาอนุญาตไม่ให้ฝังจะไม่ถูกฝัง
+	In the browser, only the fonts that come with KhianKrub and fonts embedded in documents you opened can be embedded.	ในเบราว์เซอร์ ฝังได้เฉพาะฟอนต์ที่มากับเขียนครับและฟอนต์ที่ฝังมาในเอกสารที่คุณเปิด
+	Insert Above	แทรกด้านบน
+	Border Painter	ตัวระบายเส้นขอบ
+	Merge and Split	ผสานและแยก
+	Select Cell	เลือกเซลล์
+	Select Column	เลือกคอลัมน์
+	Select Row	เลือกแถว
+	Select Table	เลือกตาราง
+	Cell Margins	ระยะขอบเซลล์
+	Shape	รูปร่าง
+	Data and Type	ข้อมูลและชนิด
+	Edit Data	แก้ไขข้อมูล
+	Change Chart Type	เปลี่ยนชนิดแผนภูมิ
+	Add Shape	เพิ่มรูปร่าง
+	Picture	รูปภาพ
+	Reset Graphic	รีเซ็ตกราฟิก
+	Restrict Editing	จำกัดการแก้ไข
+	AaBbCc ภาษาไทย	AaBbCc ภาษาไทย
+	Back to the formatting the text had when this opened	กลับไปใช้การจัดรูปแบบที่ข้อความมีตอนเปิดหน้าต่างนี้
+	Bold Italic	ตัวหนาตัวเอียง
+	Character…	อักขระ…
+	Copy the Western font, size and typeface to Thai text	คัดลอกฟอนต์ ขนาด และลักษณะของข้อความตะวันตกไปใช้กับข้อความไทย
+	Language:	ภาษา:
+	Line	เส้น
+	Line Arrangement	การจัดเรียงเส้น
+	Regular	ปกติ
+	Scale and Spacing	ขนาดและระยะห่าง
+	Shading behind the selected characters (not the highlight color).	แรเงาหลังตัวอักษรที่เลือก (ไม่ใช่สีไฮไลต์)
+	Strikethrough:	ขีดทับ:
+	Text Decoration	การตกแต่งข้อความ
+	Thai	ไทย
+	Thai text like Western text	ข้อความไทยเหมือนข้อความตะวันตก
+	Typeface:	ลักษณะ:
+	Underlining:	ขีดเส้นใต้:
+	Western text	ข้อความตะวันตก
+	Word files keep one border all round the characters, so there are no separate sides.	ไฟล์ Word เก็บเส้นขอบรอบตัวอักษรได้เพียงกรอบเดียวทั้งสี่ด้าน จึงไม่มีการเลือกแยกแต่ละด้าน
+	Effect	เอฟเฟกต์
+	Position and Size	ตำแหน่งและขนาด
+	Text Wrap and Anchor	การตัดข้อความและจุดยึด
+	Transparency:	ความโปร่งใส:
+	Line style:	ลักษณะเส้น:
+	Thickness:	ความหนา:
+	Arrow styles:	หัวลูกศร:
+	Start	ต้นเส้น
+	End	ปลายเส้น
+	Solid	เส้นทึบ
+	Long dash	เส้นประยาว
+	Dash dot	เส้นประจุด
+	Radius:	รัศมี:
+	Keep ratio	คงสัดส่วน
+	Flip:	พลิก:
+	Vertically	แนวตั้ง
+	Horizontally	แนวนอน
+	Align:	จัดแนว:
+	Align Objects Bottom	จัดวัตถุชิดด้านล่าง
+	Align Objects Center	จัดวัตถุกึ่งกลางแนวนอน
+	Align Objects Left	จัดวัตถุชิดซ้าย
+	Align Objects Middle	จัดวัตถุกึ่งกลางแนวตั้ง
+	Align Objects Right	จัดวัตถุชิดขวา
+	Align Objects Top	จัดวัตถุชิดด้านบน
+	Arrange:	จัดลำดับ:
+	Bring to Front	นำมาไว้ด้านหน้าสุด
+	Height	ความสูง
+	Line end	ปลายเส้น
+	Line start	ต้นเส้น
+	Radius	รัศมี
+	Rotation	การหมุน
+	Send to Back	ส่งไปไว้ด้านหลังสุด
+	Width	ความกว้าง
+	Rectangle	สี่เหลี่ยมผืนผ้า
+	Rounded Rectangle	สี่เหลี่ยมผืนผ้ามุมมน
+	Oval	วงรี
+	Triangle	สามเหลี่ยม
+	Diamond	สี่เหลี่ยมขนมเปียกปูน
+	Arrow	ลูกศร
+	Star	ดาว
+	Heart	หัวใจ
+	New Drawing Canvas	พื้นที่วาดภาพใหม่
+	Straight Connector	เส้นเชื่อมตรง
+	Straight Arrow Connector	เส้นเชื่อมตรงมีลูกศร
+	Elbow Connector	เส้นเชื่อมหักมุม
+	Elbow Arrow Connector	เส้นเชื่อมหักมุมมีลูกศร
+	Curved Connector	เส้นเชื่อมโค้ง
+	Curved Arrow Connector	เส้นเชื่อมโค้งมีลูกศร

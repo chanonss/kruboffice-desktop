@@ -15,7 +15,7 @@ use wordcraft_doc::para::{Float, InlineObject};
 use wordcraft_doc::props::Rgb;
 
 use super::objects::selected;
-use super::{delete_selection, sel_result};
+use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
 /// A new chart's size: 15 × 7.5 cm, points.
@@ -171,7 +171,7 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let graphic = chart_graphic(spec, &s.doc.settings.theme_colors, w, h);
     let out = json!({"chart": graphic.chart.as_deref(), "width": w, "height": h});
     let props = s.typing_props();
-    let at = delete_selection(s)?;
+    let at = super::insert_point(s)?;
     let obj = InlineObject::Graphic { w, h, alt: String::new(), float: Float::default(), graphic: Arc::new(graphic) };
     let end = s.doc.insert_object(&at, obj, &props)?;
     s.sel = Selection { anchor: at, focus: end };

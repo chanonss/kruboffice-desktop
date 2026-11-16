@@ -2,21 +2,24 @@
 //!
 //! - The 14 standard fonts (no embedding) with WinAnsiEncoding, plus approximate width tables
 //!   ([`text_width`]) so callers can measure, align and wrap text. Characters outside
-//!   WinAnsiEncoding (CJK and other scripts) are set in a predefined, non-embedded Adobe-GB1 CID
-//!   font with the `UniGB-UTF16-H` CMap instead of being replaced by `?`. Symbol uses its own
+//!   WinAnsiEncoding are set in an embedded TrueType face the host registered
+//!   ([`set_fallback_faces`]: Thai and whatever else it covers), else in a predefined,
+//!   non-embedded Adobe-GB1 CID font with the `UniGB-UTF16-H` CMap instead of being replaced by `?`. Symbol uses its own
 //!   built-in encoding ([`symbol_code`]), for Greek letters and mathematical operators.
 //! - Vector drawing: rectangles, lines (solid or dashed), polygons, circles (Bézier), clipping.
 //! - RGBA images as RGB image XObjects with a soft mask for alpha (run-length encoded).
 //! - Coordinates are points with a **top-left origin** (y grows down); text `y` is the baseline.
 //!
-//! Streams are written uncompressed (images use the trivial RunLengthDecode filter) so the crate
-//! needs no dependencies.
+//! Streams are written uncompressed (images use the trivial RunLengthDecode filter); the only
+//! dependency is `skrifa`, to read the embedded faces.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+mod embed;
 mod metrics;
 mod symbol;
 
+pub use embed::{has_fallback_faces, has_font_family, set_fallback_faces, set_font_family};
 pub use symbol::{symbol_code, symbol_width};
 
 use std::fmt::Write as _;
@@ -157,6 +160,27 @@ impl Font {
         }
     }
 
+    /// Whether this is one of the bold faces.
+    pub fn is_bold(self) -> bool {
+        matches!(
+            self,
+            Font::HelveticaBold | Font::HelveticaBoldOblique | Font::TimesBold | Font::TimesBoldItalic | Font::CourierBold | Font::CourierBoldOblique
+        )
+    }
+
+    /// Whether this is one of the italic (oblique) faces.
+    pub fn is_italic(self) -> bool {
+        matches!(
+            self,
+            Font::HelveticaOblique
+                | Font::HelveticaBoldOblique
+                | Font::TimesItalic
+                | Font::TimesBoldItalic
+                | Font::CourierOblique
+                | Font::CourierBoldOblique
+        )
+    }
+
     /// Whether this font can show `c` by itself (in its own encoding; for the text faces,
     /// without the CID fallback).
     pub fn can_encode(self, c: char) -> bool {
@@ -179,7 +203,8 @@ impl Font {
             _ => None,
         };
         if needs_cid(c) {
-            return CID_WIDTH;
+            let faces = embed::current();
+            return faces.fallback(self.is_bold()).and_then(|i| faces.face(i)).and_then(|f| f.glyph(c)).map_or(CID_WIDTH, |(_, w)| w);
         }
         let Some(table) = table else { return 600 };
         let ascii = |c: char| -> Option<u16> {
@@ -201,8 +226,22 @@ impl Font {
 
 /// Width of `text` in points when set in `font` at `size` points.
 pub fn text_width(font: Font, size: f32, text: &str) -> f32 {
+    text_width_in(font, None, size, text)
+}
+
+/// Width of `text` in points as [`Page::text_in`] sets it: in the registered `family`
+/// ([`set_font_family`]) where that has the character, else in `font`.
+pub fn text_width_in(font: Font, family: Option<&str>, size: f32, text: &str) -> f32 {
+    let faces = embed::current();
+    let face = family.and_then(|name| faces.family(name, font.is_bold(), font.is_italic())).and_then(|i| faces.face(i));
     // u64: a u32 sum overflows for ~8 million characters.
-    let units: u64 = text.chars().map(|c| u64::from(font.char_width(c))).sum();
+    let units: u64 = text
+        .chars()
+        .map(|c| match face.and_then(|f| f.glyph(c)) {
+            Some((_, w)) => u64::from(w),
+            None => u64::from(font.char_width(c)),
+        })
+        .sum();
     units as f32 * size / 1000.0
 }
 
@@ -247,8 +286,23 @@ pub fn win_ansi(c: char) -> u8 {
 
 /// Index of the CID font in a page's font flags (after the [`Font::ALL`] faces).
 const CID_FONT: usize = Font::ALL.len();
-/// Number of font resources a page can use.
+/// Number of standard font resources a page can use (embedded faces are named `/E1`, `/E2`, …).
 const FONT_SLOTS: usize = CID_FONT + 1;
+
+/// A standard font plus the name of the family the text asks for ([`Page::text_in`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Styled<'a> {
+    pub font: Font,
+    pub family: &'a str,
+}
+
+/// The font a run of text is set in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Standard(usize),
+    Cid,
+    Embedded(usize),
+}
 /// Base font of the CID font used for characters WinAnsiEncoding lacks.
 const CID_BASE_FONT: &str = "STSong-Light";
 /// Default glyph width of the CID font (full-width), in 1/1000 em.
@@ -257,6 +311,55 @@ const CID_WIDTH: u16 = 1000;
 /// True when `c` has no WinAnsiEncoding byte and is drawn with the CID font.
 fn needs_cid(c: char) -> bool {
     !c.is_control() && c != '?' && win_ansi(c) == b'?'
+}
+
+/// The text operators for `run` set in the embedded `face` at `size` points, shaped with the
+/// font's rules: glyph offsets become `TJ` adjustments (across) and text rise (up), so the pen
+/// still ends at the run's shaped width. Records the glyphs in `used`.
+fn shaped_run(face: &embed::EmbeddedFace, used: &mut std::collections::BTreeMap<u16, (String, u16)>, run: &str, size: f32) -> String {
+    let glyphs = face.shape(run).unwrap_or_else(|| {
+        run.chars()
+            .filter_map(|c| {
+                face.glyph(c).map(|(gid, w)| embed::ShapedGlyph { gid, text: c.to_string(), x_advance: i32::from(w), x_offset: 0, y_offset: 0 })
+            })
+            .collect()
+    });
+    let mut out = String::new();
+    let mut array = String::new();
+    let mut rise = 0i32;
+    let flush = |out: &mut String, array: &mut String| {
+        if !array.is_empty() {
+            let _ = writeln!(out, "[{}] TJ", std::mem::take(array).trim());
+        }
+    };
+    for g in glyphs {
+        if g.y_offset != rise {
+            flush(&mut out, &mut array);
+            rise = g.y_offset;
+            let _ = writeln!(out, "{} Ts", n(rise as f32 * size / 1000.0));
+        }
+        // A TJ number moves the pen back by n/1000 em: -x_offset moves the glyph right.
+        if g.x_offset != 0 {
+            let _ = write!(array, " {} ", -g.x_offset);
+        }
+        let w = face.advance(g.gid);
+        let _ = write!(array, "<{:04X}>", g.gid);
+        let back = g.x_offset + i32::from(w) - g.x_advance;
+        if back != 0 {
+            let _ = write!(array, " {back} ");
+        }
+        // Keep the shortest text a glyph stood for: a single character beats a whole cluster.
+        let entry = used.entry(g.gid).or_insert_with(|| (String::new(), w));
+        if !g.text.is_empty() && (entry.0.is_empty() || g.text.chars().count() < entry.0.chars().count()) {
+            entry.0 = g.text;
+        }
+    }
+    flush(&mut out, &mut array);
+    if rise != 0 {
+        out.push_str("0 Ts\n");
+    }
+    let out = out.trim_end().to_string();
+    if out.is_empty() { "<> Tj".to_string() } else { out }
 }
 
 /// A PDF hex string `< … >` of `text` in UTF-16BE (the `UniGB-UTF16-H` encoding).
@@ -377,6 +480,10 @@ pub struct Page {
     height: f32,
     content: String,
     fonts: [bool; FONT_SLOTS],
+    /// Embedded faces this page draws with (a snapshot of the registered ones).
+    faces: std::sync::Arc<embed::FaceSet>,
+    /// Glyphs used per embedded face (indexed like `faces`): glyph id → (character, advance).
+    glyphs: Vec<std::collections::BTreeMap<u16, (String, u16)>>,
     images: Vec<ImageData>,
     links: Vec<LinkAnnotation>,
     depth: u32,
@@ -607,11 +714,29 @@ impl Page {
     /// Text rotated by `angle` radians (clockwise on the page, like the y-down coordinate
     /// system) about its baseline origin.
     pub fn text_rotated(&mut self, origin: Point, size: f32, font: Font, color: Rgb, text: &str, angle: f32) {
+        self.text_styled(origin, size, font, None, color, text, angle);
+    }
+
+    /// Text set in the registered font family `face.family` ([`set_font_family`]) in
+    /// `face.font`'s weight and slant; characters the family lacks (or all, when it is not
+    /// registered) are set as [`Page::text`] sets them in `face.font`.
+    pub fn text_in(&mut self, x: f32, y: f32, size: f32, face: Styled<'_>, color: Rgb, text: &str) {
+        self.text_styled(Point::new(x, y), size, face.font, Some(face.family), color, text, 0.0);
+    }
+
+    /// [`Page::text_in`], rotated like [`Page::text_rotated`].
+    pub fn text_in_rotated(&mut self, origin: Point, size: f32, face: Styled<'_>, color: Rgb, text: &str, angle: f32) {
+        self.text_styled(origin, size, face.font, Some(face.family), color, text, angle);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn text_styled(&mut self, origin: Point, size: f32, font: Font, family: Option<&str>, color: Rgb, text: &str, angle: f32) {
         if text.is_empty() || !extent(size) || !finite(&[origin.x, origin.y]) {
             return;
         }
         let fi = font.index();
-        let size = n(size.min(10_000.0));
+        let points = size.min(10_000.0);
+        let size = n(points);
         let (sn, cs) = if angle.is_finite() { angle.sin_cos() } else { (0.0, 1.0) };
         // Clockwise in y-down = counter-clockwise negated in PDF's y-up space.
         let mut s = format!("BT\n{}\n{} {} {} {} {} {} Tm\n", rgb_op(color, false), n(cs), n(-sn), n(sn), n(cs), n(origin.x), n(self.y(origin.y)));
@@ -625,18 +750,52 @@ impl Page {
             self.op(&s);
             return;
         }
-        // Runs of WinAnsi text use `font`; runs it cannot encode use the CID font. Each `Tj`
-        // advances the text position, so the runs follow each other on the baseline.
+        // Characters the named family has are set in it; the rest: WinAnsi text in `font`, other
+        // characters in the fallback face that has them, else the CID font. Each `Tj` advances
+        // the text position, so the runs follow each other on the baseline.
+        let faces = std::sync::Arc::clone(&self.faces);
+        let own = family.and_then(|name| faces.family(name, font.is_bold(), font.is_italic()));
+        let fallback = faces.fallback(font.is_bold());
+        let has = |i: Option<usize>, c: char| i.and_then(|i| faces.face(i)).is_some_and(|f| f.glyph(c).is_some());
+        let slot_of = |c: char| -> Slot {
+            match (own, fallback) {
+                (Some(i), _) if !c.is_control() && has(Some(i), c) => Slot::Embedded(i),
+                _ if !needs_cid(c) => Slot::Standard(fi),
+                (_, Some(i)) if has(Some(i), c) => Slot::Embedded(i),
+                _ => Slot::Cid,
+            }
+        };
         let mut rest = text;
         while let Some(first) = rest.chars().next() {
-            let cid = needs_cid(first);
-            let end = rest.char_indices().find(|(_, c)| needs_cid(*c) != cid).map_or(rest.len(), |(i, _)| i);
+            let slot = slot_of(first);
+            let end = rest.char_indices().find(|(_, c)| slot_of(*c) != slot).map_or(rest.len(), |(i, _)| i);
             let (run, tail) = rest.split_at(end);
-            let (slot, string) = if cid { (CID_FONT, pdf_utf16_string(run)) } else { (fi, pdf_string(run)) };
-            if let Some(f) = self.fonts.get_mut(slot) {
-                *f = true;
+            let (name, string) = match slot {
+                Slot::Standard(i) => {
+                    if let Some(f) = self.fonts.get_mut(i) {
+                        *f = true;
+                    }
+                    (format!("F{}", i + 1), pdf_string(run))
+                }
+                Slot::Cid => {
+                    if let Some(f) = self.fonts.get_mut(CID_FONT) {
+                        *f = true;
+                    }
+                    (format!("F{}", CID_FONT + 1), pdf_utf16_string(run))
+                }
+                Slot::Embedded(i) => {
+                    let body = match (faces.face(i), self.glyphs.get_mut(i)) {
+                        (Some(face), Some(used)) => shaped_run(face, used, run, points),
+                        _ => "<> Tj".to_string(),
+                    };
+                    (format!("E{}", i + 1), body)
+                }
+            };
+            if matches!(slot, Slot::Embedded(_)) {
+                let _ = writeln!(s, "/{name} {size} Tf\n{string}");
+            } else {
+                let _ = writeln!(s, "/{name} {size} Tf\n{string} Tj");
             }
-            let _ = writeln!(s, "/F{} {} Tf\n{} Tj", slot + 1, size, string);
             rest = tail;
         }
         s.push_str("ET");
@@ -680,6 +839,8 @@ pub struct Info {
 pub struct PdfDoc {
     pages: Vec<Page>,
     pub info: Info,
+    /// The embedded faces, captured when the document was created.
+    faces: std::sync::Arc<embed::FaceSet>,
 }
 
 /// PackBits-style run-length encoding (PDF `RunLengthDecode`).
@@ -739,15 +900,44 @@ fn pdf_text_string(text: &str) -> String {
 }
 
 impl PdfDoc {
+    /// A new document that embeds the faces registered with [`set_fallback_faces`].
     pub fn new() -> PdfDoc {
-        PdfDoc::default()
+        PdfDoc { faces: embed::current(), ..PdfDoc::default() }
+    }
+
+    /// A new document that embeds these font files (TrueType) instead of the registered ones.
+    pub fn with_fallback_faces(regular: Option<std::sync::Arc<[u8]>>, bold: Option<std::sync::Arc<[u8]>>) -> PdfDoc {
+        PdfDoc { faces: std::sync::Arc::new(embed::FaceSet::with_fallback(regular, bold)), ..PdfDoc::default() }
+    }
+
+    /// Adds a named family (regular, bold, italic, bold italic) to this document's faces only.
+    pub fn add_font_family(&mut self, name: &str, faces: [Option<std::sync::Arc<[u8]>>; 4]) -> bool {
+        let mut set = (*self.faces).clone();
+        let ok = set.set_family(name, faces);
+        self.faces = std::sync::Arc::new(set);
+        let n = self.faces.len();
+        for p in &mut self.pages {
+            p.faces = std::sync::Arc::clone(&self.faces);
+            p.glyphs.resize_with(n, Default::default);
+        }
+        ok
     }
 
     /// Adds a page of `width_pt` × `height_pt` points and returns it for drawing.
     pub fn add_page(&mut self, width_pt: f32, height_pt: f32) -> &mut Page {
         let width = if width_pt.is_finite() { width_pt.clamp(3.0, 14_400.0) } else { 612.0 };
         let height = if height_pt.is_finite() { height_pt.clamp(3.0, 14_400.0) } else { 792.0 };
-        self.pages.push(Page { width, height, content: String::new(), fonts: [false; FONT_SLOTS], images: Vec::new(), links: Vec::new(), depth: 0 });
+        self.pages.push(Page {
+            width,
+            height,
+            content: String::new(),
+            fonts: [false; FONT_SLOTS],
+            faces: std::sync::Arc::clone(&self.faces),
+            glyphs: vec![Default::default(); self.faces.len()],
+            images: Vec::new(),
+            links: Vec::new(),
+            depth: 0,
+        });
         let i = self.pages.len() - 1;
         &mut self.pages[i]
     }
@@ -761,31 +951,14 @@ impl PdfDoc {
         self.pages.get_mut(i)
     }
 
-    /// Serializes the document. A document without pages gets one blank Letter page.
-    pub fn finish(mut self) -> Vec<u8> {
-        if self.pages.is_empty() {
-            self.add_page(612.0, 792.0);
-        }
-        // Object numbering: 1 catalog, 2 page tree, 3 info, then fonts, then per page.
-        let mut used = [false; FONT_SLOTS];
-        for p in &self.pages {
-            for (u, f) in used.iter_mut().zip(p.fonts.iter()) {
-                *u |= *f;
-            }
-        }
-        let mut next = 4u32;
-        let mut font_ids = [0u32; FONT_SLOTS];
-        for (i, u) in used.iter().enumerate() {
-            if *u {
-                font_ids[i] = next;
-                // The CID font also needs its descendant font and font descriptor.
-                next += if i == CID_FONT { 3 } else { 1 };
-            }
-        }
-        let mut objects: Vec<(u32, Vec<u8>)> = Vec::new();
-        let mut kids = Vec::new();
-        let mut annotations = Vec::new();
-        let page_count = self.pages.len();
+    /// The font resource dictionary entries, adding each used font's objects to `objects`.
+    fn font_objects(
+        &self,
+        font_ids: &[u32; FONT_SLOTS],
+        glyphs: &[std::collections::BTreeMap<u16, (String, u16)>],
+        embed_ids: &[u32],
+        objects: &mut Vec<(u32, Vec<u8>)>,
+    ) -> String {
         let mut font_dict = String::new();
         for (i, id) in font_ids.iter().enumerate() {
             if *id != 0 {
@@ -820,6 +993,57 @@ impl PdfDoc {
                 objects.push((*id, format!("<< /Type /Font /Subtype /Type1 /BaseFont /{name}{enc} >>").into_bytes()));
             }
         }
+        for (i, (id, used)) in embed_ids.iter().zip(glyphs).enumerate() {
+            if let Some(face) = self.faces.face(i)
+                && *id != 0
+            {
+                let _ = write!(font_dict, "/E{} {} 0 R ", i + 1, id);
+                objects.extend(embed::objects(face, *id, used));
+            }
+        }
+        font_dict
+    }
+
+    /// Serializes the document. A document without pages gets one blank Letter page.
+    pub fn finish(mut self) -> Vec<u8> {
+        if self.pages.is_empty() {
+            self.add_page(612.0, 792.0);
+        }
+        // Object numbering: 1 catalog, 2 page tree, 3 info, then fonts, then per page.
+        let mut used = [false; FONT_SLOTS];
+        for p in &self.pages {
+            for (u, f) in used.iter_mut().zip(p.fonts.iter()) {
+                *u |= *f;
+            }
+        }
+        let mut glyphs: Vec<std::collections::BTreeMap<u16, (String, u16)>> = vec![Default::default(); self.faces.len()];
+        for p in &mut self.pages {
+            for (all, page) in glyphs.iter_mut().zip(p.glyphs.iter_mut()) {
+                all.append(page);
+            }
+        }
+        let mut next = 4u32;
+        let mut font_ids = [0u32; FONT_SLOTS];
+        for (i, u) in used.iter().enumerate() {
+            if *u {
+                font_ids[i] = next;
+                // The CID font also needs its descendant font and font descriptor.
+                next += if i == CID_FONT { 3 } else { 1 };
+            }
+        }
+        // An embedded face: Type0 font, descendant font, descriptor, file and ToUnicode CMap.
+        let mut embed_ids = vec![0u32; glyphs.len()];
+        for (id, used) in embed_ids.iter_mut().zip(&glyphs) {
+            if !used.is_empty() {
+                *id = next;
+                next += 5;
+            }
+        }
+        let mut objects: Vec<(u32, Vec<u8>)> = Vec::new();
+        let mut kids = Vec::new();
+        let mut annotations = Vec::new();
+        let page_count = self.pages.len();
+        let font_dict = self.font_objects(&font_ids, &glyphs, &embed_ids, &mut objects);
         for page in &mut self.pages {
             while page.depth > 0 {
                 page.restore();

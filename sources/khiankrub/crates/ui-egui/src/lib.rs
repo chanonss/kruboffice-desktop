@@ -36,6 +36,7 @@ pub mod credits;
 pub mod crop;
 pub mod desktop_theme;
 pub mod dialogs;
+pub mod dialogs_character;
 pub mod dialogs_chart;
 pub mod dialogs_controls;
 pub mod dialogs_insert;
@@ -67,6 +68,7 @@ pub mod mini_toolbar;
 pub mod number_select;
 pub mod number_text;
 pub mod numfield;
+pub mod object_pane;
 pub mod objects;
 pub mod options;
 pub mod panes;
@@ -81,6 +83,7 @@ pub mod ruler_tabs;
 pub mod scroll;
 pub mod system_clipboard;
 pub mod table_mouse;
+pub mod table_pane;
 pub mod table_pen;
 pub mod table_resize;
 pub mod table_ruler;
@@ -312,6 +315,9 @@ pub struct UiState {
     pub recent_symbols: Vec<dialogs_insert::RecentSymbol>,
     /// Colours picked in the Colors dialog (More Colors…), most recent first (#606).
     pub recent_colors: Vec<String>,
+    /// Fonts pinned to the top of every font list, in the order they were pinned
+    /// ([`krub_icons::fonts`]).
+    pub pinned_fonts: Vec<String>,
     /// Interface theme: light, dark, or follow the OS appearance (#115).
     pub theme: theme::Appearance,
     /// The band's colour at the top (title bar and tab strip): navy or one of five others.
@@ -444,6 +450,7 @@ impl Default for UiState {
             recent: Vec::new(),
             recent_symbols: Vec::new(),
             recent_colors: Vec::new(),
+            pinned_fonts: Vec::new(),
             theme: theme::Appearance::default(),
             band_color: theme::BandColor::default(),
             band_motif: theme::BandMotif::default(),
@@ -866,6 +873,7 @@ impl WordApp {
         self.session.ribbon = std::mem::take(&mut self.ui.ribbon);
         self.session.ribbon.retain_known(&reg);
         self.session.view.draw.pens = std::mem::take(&mut self.ui.ink_pens);
+        self.ui.pinned_fonts = krub_icons::fonts::sanitized(std::mem::take(&mut self.ui.pinned_fonts));
     }
 
     /// Select the picture or icon the person just inserted or pasted, so it shows its handles.
@@ -2456,6 +2464,8 @@ impl WordApp {
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
+        // Fonts pinned or unpinned in a font list last frame, and the list for this frame's.
+        krub_icons::fonts::sync(&ctx, &mut self.ui.pinned_fonts);
         // Animation effects off: egui's scroll areas get a wheel notch whole, not eased in.
         if !self.animations_on() {
             let opts = ctx.options(|o| o.input_options);
@@ -2482,6 +2492,12 @@ impl WordApp {
         if self.ui.backstage && self.ui.backstage_page == "printPreview" {
             print_page::show_full_preview(self, ui);
         } else if self.ui.backstage {
+            // The title bar stays on screen in File, as in the other KrubOffice apps
+            // (`krub_icons::qat`): the title, AutoSave and the Quick Access Toolbar. The start
+            // screen (nothing open) has its own header instead, as in the other apps.
+            if self.has_document() {
+                chrome::title_bar(self, ui);
+            }
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
@@ -2955,6 +2971,26 @@ mod tests_perf;
 mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
+
+    /// Pinned fonts are saved with the interface settings (`ui.json`, the web's `localStorage`)
+    /// and come back cleaned at the next start; every font list of the next frame shows them.
+    #[test]
+    fn pinned_fonts_persist_between_runs() {
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.ui.pinned_fonts = vec!["Sarabun".into(), "Tahoma".into()];
+        let saved = serde_json::to_vec(&a.prefs()).unwrap();
+        let mut b = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        b.apply_prefs(UiState::from_json(&saved).unwrap());
+        assert_eq!(b.ui.pinned_fonts, a.ui.pinned_fonts);
+        let ctx = egui::Context::default();
+        krub_icons::fonts::sync(&ctx, &mut b.ui.pinned_fonts);
+        assert_eq!(krub_icons::fonts::pinned(&ctx), a.ui.pinned_fonts);
+        // A damaged list: repeats and blanks dropped, a wrong type reads as none.
+        let mut c = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        c.apply_prefs(UiState::from_json(br#"{"pinnedFonts": ["Arial", " arial ", "", "Tahoma"]}"#).unwrap());
+        assert_eq!(c.ui.pinned_fonts, vec!["Arial".to_string(), "Tahoma".to_string()]);
+        assert!(UiState::from_json(br#"{"pinnedFonts": 7}"#).unwrap().pinned_fonts.is_empty());
+    }
 
     fn mod_key(key: egui::Key) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }
@@ -5576,7 +5612,8 @@ mod tests {
         h.run_steps(4);
         let page = |h: &egui_kittest::Harness<'_, WordApp>| h.get(By::new().role(Role::Image)).rect();
         let fit = page(&h);
-        assert!(fit.height() > 650.0, "the page fills the pane's height: {fit:?}");
+        // The title bar (38 points) stays above File since the KrubOffice apps share one layout.
+        assert!(fit.height() > 610.0, "the page fills the pane's height: {fit:?}");
         assert!(h.query(By::new().role(Role::Label).label("Page 1 of 1")).is_some(), "the page indicator stays");
 
         for _ in 0..5 {

@@ -1,14 +1,21 @@
 //! Original Quiet Glass artwork, MIT OR Apache-2.0. See docs/icon-design.md.
+//! Most toolbar icons are now drawn from Tabler Icons (MIT, see `tabler.rs` and LICENSE-tabler.txt).
 //! Shared source: keep this crate identical in all three KrubOffice repositories.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
 
+pub mod chrome;
 pub mod deck;
+pub mod fonts;
 pub mod line;
 pub mod menu;
+pub mod options;
+pub mod qat;
+pub mod shape_pane;
 pub mod sheet;
+pub mod tabler;
 mod thai;
 mod word;
 
@@ -45,6 +52,7 @@ pub fn canonical_name(name: &str) -> String {
         "outdent" => "decrease-indent",
         "thaiDistribute" => "thai-distribution",
         "thaiDigits" => "thai-digits",
+        "arabicDigits" => "arabic-digits",
         "find" | "search" => "search",
         "shading" | "fill" => "shape-fill",
         "borderPainter" => "format-painter",
@@ -95,12 +103,18 @@ pub fn paint_named(p: &Painter, r: Rect, name: &str, ink: Color32, flat: bool, d
     if !size.is_finite() || size <= 0.5 || !r.center().is_finite() {
         return false;
     }
+    if tabler::paint(p, r, name, ink, disabled) {
+        return true;
+    }
     if let Some(alias) = sheet::Icon::ALL.iter().copied().find(|icon| icon.name() == name).and_then(sheet::canonical)
         && alias != name
     {
         return paint_named(p, r, alias, ink, flat, disabled);
     }
     let canonical = canonical_name(name);
+    if tabler::paint(p, r, &canonical, ink, disabled) {
+        return true;
+    }
     if let Some(icon) = deck::Icon::from_name(&canonical) {
         deck::paint_ex(p, r, icon, ink, disabled, flat);
         return true;
@@ -121,6 +135,24 @@ pub fn paint_named(p: &Painter, r: Rect, name: &str, ink: Color32, flat: bool, d
         return true;
     }
     false
+}
+
+/// Tabler Icons' MIT licence text. It must ship with every copy of the icons, so the apps show it
+/// in Help › About.
+pub const TABLER_LICENSE: &str = include_str!("../LICENSE-tabler.txt");
+/// Tabler Icons' home page.
+pub const TABLER_URL: &str = "https://tabler.io/icons";
+
+/// The icon credit on an About page: `credit` (already translated), a link to Tabler Icons, and
+/// the full licence text under a collapsible `license_heading`.
+pub fn tabler_credit(ui: &mut egui::Ui, credit: &str, license_heading: &str) {
+    ui.label(egui::RichText::new(credit).small());
+    ui.hyperlink_to("tabler.io/icons", TABLER_URL);
+    egui::CollapsingHeader::new(egui::RichText::new(license_heading).small()).id_salt("krub_icons_tabler_license").show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+            ui.label(egui::RichText::new(TABLER_LICENSE).monospace().small());
+        });
+    });
 }
 
 /// Complete inventory, used by the review gallery and coverage checks.

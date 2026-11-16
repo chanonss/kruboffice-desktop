@@ -694,10 +694,10 @@ fn bands_unit() {
     let b = bands(0, 2, |r| if r == 1 { 100.0 } else { 10.0 }, |_| 35.0, &[], 100);
     assert_eq!(b, vec![(0, 0), (1, 1), (2, 2)]);
     assert_eq!(bands(0, 1_000_000, |_| 10.0, |_| 5.0, &[], 3).len(), 3);
-    let w = wrap_lines("the quick brown fox jumps", Font::Helvetica, 10.0, 50.0);
+    let w = wrap_lines("the quick brown fox jumps", Font::Helvetica, None, 10.0, 50.0);
     assert!(w.len() >= 2);
     assert!(w.iter().all(|l| gridcraft_pdf::text_width(Font::Helvetica, 10.0, l) <= 50.0 || !l.contains(' ')));
-    let w = wrap_lines("Supercalifragilistic", Font::Helvetica, 10.0, 20.0);
+    let w = wrap_lines("Supercalifragilistic", Font::Helvetica, None, 10.0, 20.0);
     assert!(w.len() > 2);
 }
 
@@ -755,7 +755,11 @@ fn wrap_lines_matches_the_remeasuring_wrapper() {
     for text in texts {
         for font in [Font::Helvetica, Font::HelveticaBold, Font::Courier] {
             for (size, width) in [(10.0, 50.0), (10.0, 20.0), (11.0, 1.0), (8.0, 300.0), (12.0, 0.0)] {
-                assert_eq!(wrap_lines(text, font, size, width), wrap_lines_remeasuring(text, font, size, width), "{text:?} {font:?} {size} {width}");
+                assert_eq!(
+                    wrap_lines(text, font, None, size, width),
+                    wrap_lines_remeasuring(text, font, size, width),
+                    "{text:?} {font:?} {size} {width}"
+                );
             }
         }
     }
@@ -766,12 +770,12 @@ fn wrapping_a_long_word_in_a_narrow_box_stops_at_the_line_limit() {
     // One character per line: the old wrapper re-measured and copied the rest of the word for
     // each of the 100,000 lines before checking the limit.
     let word = "w".repeat(100_000);
-    let lines = wrap_lines(&word, Font::Helvetica, 10.0, 1.0);
+    let lines = wrap_lines(&word, Font::Helvetica, None, 10.0, 1.0);
     assert!(lines.len() <= 2002, "{}", lines.len());
     assert!(lines.iter().all(|l| l == "w"));
     // A long paragraph in a very wide box is one line.
     let para = vec!["word"; 50_000].join(" ");
-    assert_eq!(wrap_lines(&para, Font::Helvetica, 10.0, 1.0e9), vec![para.clone()]);
+    assert_eq!(wrap_lines(&para, Font::Helvetica, None, 10.0, 1.0e9), vec![para.clone()]);
 }
 
 #[test]
@@ -937,4 +941,18 @@ fn equations_print_with_the_symbol_font() {
     assert!(contains(&pdf, "(\\345) Tj") && contains(&pdf, "(a) Tj"));
     // A glyph no standard font has is a [?] box.
     assert!(contains(&pdf, "(?) Tj"));
+}
+
+/// File › Print › Print Selection and Export › Create PDF of Selected Cells pass the selection as
+/// `range`: only it prints, even when the sheet has a print area.
+#[test]
+fn a_selected_range_prints_instead_of_the_print_area() {
+    let mut s = s();
+    s.execute("range.setValues", json!({"range": "A1", "values": [["a", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]]})).unwrap();
+    s.execute("pageLayout.pageSetup", json!({"printArea": "A1:C3"})).unwrap();
+    let all = s.execute("file.printPreview", json!({})).unwrap();
+    assert_eq!(all["pageList"][0]["range"], "A1:C3");
+    let sel = s.execute("file.printPreview", json!({"range": "B2:C3"})).unwrap();
+    assert_eq!(sel["pages"], 1);
+    assert_eq!(sel["pageList"][0]["range"], "B2:C3");
 }

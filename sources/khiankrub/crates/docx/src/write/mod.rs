@@ -1,6 +1,7 @@
 //! [`Document`] → DOCX.
 
 mod embed;
+mod font_embed;
 mod settings_merge;
 pub(crate) use settings_merge::has_unowned as settings_has_unowned;
 mod math;
@@ -18,7 +19,7 @@ use wordcraft_doc::props::VAlign;
 use wordcraft_doc::styles::{Style, StyleKind, TablePart};
 use wordcraft_doc::{Blocks, Document, PartKind};
 
-use crate::package::{MAX_VBA_RELATED, VBA_PROJECT_PART, VBA_RELATED, rt, zip_entries};
+use crate::package::{FONT_TABLE_PART, MAX_VBA_RELATED, VBA_PROJECT_PART, VBA_RELATED, rt, zip_entries};
 use crate::xml::{self, W};
 use crate::{DocxError, Flavor};
 
@@ -127,14 +128,30 @@ pub fn write(doc: &Document) -> Result<Vec<u8>, DocxError> {
     write_as(doc, Flavor::Document)
 }
 
-/// Write a package of the given flavour (`.docx`, `.docm`, `.dotx`, `.dotm`).
+pub use font_embed::EmbedFont;
+
+/// Write a package of the given flavour (`.docx`, `.docm`, `.dotx`, `.dotm`). The font table
+/// the file came with, and the fonts it embeds, are written back as they were.
 pub fn write_as(doc: &Document, flavor: Flavor) -> Result<Vec<u8>, DocxError> {
-    zip_entries(&write_parts(doc, flavor)?)
+    zip_entries(&write_parts_with(doc, flavor, None)?)
+}
+
+/// [`write_as`] with the fonts to embed decided by the caller (File › Options › Save › Embed
+/// fonts in the file): the font table is written anew with `fonts` embedded, keeping the file's
+/// own entries but none of the fonts it embedded. An empty `fonts` embeds nothing.
+pub fn write_as_embedding(doc: &Document, flavor: Flavor, fonts: &[EmbedFont]) -> Result<Vec<u8>, DocxError> {
+    zip_entries(&write_parts_with(doc, flavor, Some(fonts))?)
 }
 
 /// The parts of the package [`write_as`] zips, in order, `[Content_Types].xml` first: (part name
 /// without the leading `/`, bytes).
 pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String, Vec<u8>)>, DocxError> {
+    write_parts_with(doc, flavor, None)
+}
+
+/// [`write_parts`] with the fonts to embed (see [`write_as_embedding`]); `None` keeps the file's
+/// font table as it was.
+fn write_parts_with(doc: &Document, flavor: Flavor, fonts: Option<&[EmbedFont]>) -> Result<Vec<(String, Vec<u8>)>, DocxError> {
     // A range field must be whole in the file: drop markers that lost their partner in editing.
     let balanced;
     let doc = if doc.has_unbalanced_field_ranges() {
@@ -419,7 +436,26 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         PartRels::default(),
     );
 
-    wr.embeds.font_table(&mut rels);
+    match fonts {
+        None => wr.embeds.font_table(&mut rels),
+        Some(fonts) => {
+            // Names this package already uses, and those of kept parts written below.
+            let used = |name: &str| {
+                entries.iter().any(|(n, _)| n.eq_ignore_ascii_case(name))
+                    || wr.embeds.parts.iter().any(|(n, ..)| n.eq_ignore_ascii_case(name))
+                    || doc.passthrough.keys().any(|k| k.eq_ignore_ascii_case(name) && !k.eq_ignore_ascii_case(FONT_TABLE_PART))
+            };
+            if used(FONT_TABLE_PART) {
+                log::warn!("docx: {FONT_TABLE_PART} is taken by another part; fonts are not embedded");
+            } else if let Some(table) = font_embed::font_table(doc, fonts, |n| used(n)) {
+                for (name, bytes) in table.fonts {
+                    push_part(&mut entries, &mut overrides, &name, bytes, font_embed::OBFUSCATED_FONT, PartRels::default());
+                }
+                push_part(&mut entries, &mut overrides, FONT_TABLE_PART, table.xml, &format!("{CT_WML}fontTable+xml"), table.rels);
+                rels.add(rt::FONT_TABLE, "fontTable.xml", false);
+            }
+        }
+    }
 
     // Media referenced by some drawing (orphan parts would make the package suspect).
     let mut media_types: BTreeMap<String, &str> = BTreeMap::new();
@@ -994,6 +1030,16 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     }
     if s.page_color.is_some() || s.page_picture.is_some() {
         w.empty("w:displayBackgroundShape", &[]);
+    }
+    // §17.15.1.42, .41, .76: after the print settings, before `w:saveFormsData`.
+    if s.embed_fonts {
+        w.empty("w:embedTrueTypeFonts", &[]);
+        if s.embed_system_fonts {
+            w.empty("w:embedSystemFonts", &[]);
+        }
+        if s.embed_subset {
+            w.empty("w:saveSubsetFonts", &[]);
+        }
     }
     if s.mirror_margins {
         w.empty("w:mirrorMargins", &[]);

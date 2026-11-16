@@ -519,6 +519,8 @@ pub fn import_checked(bytes: &[u8]) -> Result<(Presentation, Vec<String>), PptxE
     default_text_anchor(&mut p);
     p.header_footer = header_footer(&p);
     p.embedded_fonts = read_embedded_fonts(&mut imp, &pres_part, pres_el);
+    p.embed_fonts = pres_el.bool("embedTrueTypeFonts").unwrap_or(false);
+    p.embed_all_characters = pres_el.bool("saveSubsetFonts") == Some(false);
     p.media = std::mem::take(&mut imp.media);
     p.next_id = imp.next;
     p.fix_next_id();

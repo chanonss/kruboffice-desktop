@@ -1,7 +1,7 @@
 use super::{
     ColorRef, ColorTransform, Dash, Effects, Fill, Geom, Glow, Gradient, GradientShape, GradientStop, Line, LineEnd, PictureFill, PictureMode,
     Reflection, Result, Rgba, SchemeSlot, Session, Shadow, ShapeStyle, Value, apply_fill, bad, bool_or, color_param, color_value, edit_geometry,
-    edit_shapes, f64_param, inherited_fills, json, requested_fill, str_param, targets, usize_param,
+    edit_shapes, f64_param, inherited_fills, inherited_line_colors, json, requested_fill, str_param, targets, usize_param,
 };
 
 pub(super) fn adjust(s: &mut Session, p: &Value) -> Result<Value> {
@@ -263,11 +263,14 @@ pub(super) fn line(s: &mut Session, p: &Value) -> Result<Value> {
         "miter" => deckcraft_model::style::LineJoin::Miter,
         _ => deckcraft_model::style::LineJoin::Round,
     });
+    let transparency = f64_param(p, "transparency").map(|t| t.clamp(0.0, 1.0));
+    let inherited = if transparency.is_some() { inherited_line_colors(s, p)? } else { Default::default() };
     edit_group_appearance(s, p, "shape.line", |sh| {
         if reset {
             sh.line = None;
             return Ok(());
         }
+        let id = sh.id;
         let l = sh.line.get_or_insert_with(Line::default);
         if none {
             l.fill = Some(Fill::None);
@@ -307,6 +310,22 @@ pub(super) fn line(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if compound.is_some() {
             l.compound = compound;
+        }
+        // Transparency is the outline colour's alpha; an outline that comes from the shape's
+        // style gets its own colour first, so the change shows (a shape with no outline keeps none).
+        if let Some(t) = transparency {
+            let base = match &l.fill {
+                Some(Fill::Solid { color }) => Some(color.clone()),
+                Some(_) => None,
+                None => inherited.get(&id).cloned().flatten(),
+            };
+            if let Some(mut color) = base {
+                color.mods.retain(|m| !matches!(m, ColorTransform::Alpha(_)));
+                if t > 0.0 {
+                    color.mods.push(ColorTransform::Alpha(((1.0 - t) * 100_000.0).round() as i32));
+                }
+                l.fill = Some(Fill::Solid { color });
+            }
         }
         // Arrowhead size (width and length together), kept when the kind changes.
         for (end, size) in [(&mut l.head, &head_size), (&mut l.tail, &tail_size)] {

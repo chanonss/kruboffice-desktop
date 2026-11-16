@@ -30,6 +30,7 @@ mod editor;
 mod geo;
 mod interact;
 mod keyboard;
+pub(crate) use keyboard::hold_typing;
 mod menus;
 mod quadrant;
 mod selection;

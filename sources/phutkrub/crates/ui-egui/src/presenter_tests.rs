@@ -33,3 +33,37 @@ fn presenter_view_needs_a_second_display() {
     assert_eq!(presenter(None, true), Some(true), "a host that can't count displays keeps Presenter View");
     assert_eq!(presenter(Some(2), false), Some(false), "the setting still turns it off");
 }
+
+#[test]
+fn two_displays_place_the_show_and_presenter_apart() {
+    // #433: the presenter keeps the editor's display, the slides fill the other one.
+    let start = |list: Option<crate::DisplayList>, setting: bool| {
+        let services = Services { monitors: Some(Box::new(move || list.clone())), ..Default::default() };
+        let mut app = SlideApp::new(Session::with_new(), services);
+        app.ui.presenter_view = setting;
+        app.start_show(0, false);
+        app
+    };
+    let two = crate::DisplayList { displays: vec![0, 1], here: Some(0), primary: Some(0), ..Default::default() };
+    let mut app = start(Some(two.clone()), true);
+    assert_eq!(app.show.as_ref().unwrap().displays.map(|p| (p.audience, p.presenter)), Some((1, 0)));
+    let v = app.run("show.swapDisplays", json!({})).unwrap();
+    assert_eq!(v, json!({"swapped": true, "audience": 0, "presenter": 1}));
+    assert_eq!(app.show.as_ref().unwrap().displays.map(|p| (p.audience, p.presenter)), Some((0, 1)));
+
+    // One display (a laptop alone, or mirrored screens): only the slides, as on Linux (#1156).
+    // On macOS the presenter window over the show crashed egui-wgpu.
+    let one = crate::DisplayList { displays: vec![0, 0], here: Some(0), primary: Some(0), ..Default::default() };
+    let mut app = start(Some(one), true);
+    assert!(!app.show.as_ref().unwrap().presenter, "one display: no Presenter View");
+    assert_eq!(app.show.as_ref().unwrap().displays, None);
+    assert_eq!(app.run("show.swapDisplays", json!({})).unwrap(), json!({"swapped": false}));
+    let none = crate::DisplayList::default();
+    assert!(start(Some(none), true).show.as_ref().unwrap().presenter, "an empty list keeps Presenter View");
+
+    assert_eq!(start(Some(two), false).show.as_ref().unwrap().displays, None, "Presenter View off: the show stays where it is");
+    assert_eq!(start(None, true).show.as_ref().unwrap().displays, None, "a host that can't list displays keeps the old behaviour");
+
+    let mut idle = SlideApp::new(Session::with_new(), Services::default());
+    assert_eq!(idle.run("show.swapDisplays", json!({})).unwrap(), json!({"swapped": false}), "no show running");
+}

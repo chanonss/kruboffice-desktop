@@ -549,11 +549,12 @@ fn solver_model_range_is_a_reference_box_until_its_area_is_hidden() {
     assert_eq!(h.get_all_by_label("Collapse dialog").count(), 5, "Model Range is a reference box too");
     click_button(&mut h, "Collapse dialog", 4);
     assert_eq!(collapsed(&h).as_deref(), Some("modelRange"));
-    drag(&mut h, "H1", "H3");
-    assert_eq!(field(&h, "modelRange"), "$H$1:$H$3");
+    // Below the collapsed dialog, which floats over the sheet's first rows.
+    drag(&mut h, "H5", "H7");
+    assert_eq!(field(&h, "modelRange"), "$H$5:$H$7");
     key(&mut h, Key::Escape, Modifiers::NONE);
     assert_eq!(collapsed(&h), None);
-    assert_eq!(field(&h, "modelRange"), "$H$1:$H$3", "expanding keeps the picked range");
+    assert_eq!(field(&h, "modelRange"), "$H$5:$H$7", "expanding keeps the picked range");
 
     // Hiding the Load/Save area ends picking into its box: a selection on the grid no longer
     // changes a range that isn't shown.
@@ -561,7 +562,7 @@ fn solver_model_range_is_a_reference_box_until_its_area_is_hidden() {
     h.run_steps(3);
     assert!(h.query_by_label("Model Range:").is_none(), "the area is hidden");
     drag(&mut h, "C3", "C3");
-    assert_eq!(field(&h, "modelRange"), "$H$1:$H$3");
+    assert_eq!(field(&h, "modelRange"), "$H$5:$H$7");
 }
 
 #[test]

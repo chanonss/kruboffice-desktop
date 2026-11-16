@@ -33,6 +33,8 @@ pub(super) fn about(ui: &mut egui::Ui, d: &mut Dialog) {
             }
             ui.hyperlink_to(lang.tr("Original project: github.com/storytold/gridcraft"), "https://github.com/storytold/gridcraft");
             ui.add_space(6.0);
+            krub_icons::tabler_credit(ui, lang.tr("Icons from Tabler Icons by Paweł Kuna (MIT License)"), lang.tr("Tabler Icons license"));
+            ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(lang.tr(
                     "MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the GridCraft contributors. Modifications copyright (c) 2026 Chanon Sarasuk.",

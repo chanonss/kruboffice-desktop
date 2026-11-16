@@ -162,6 +162,20 @@ pub fn delete_selection(s: &mut Session) -> Result<Pos, CmdError> {
     Ok(at)
 }
 
+/// Where an inserted object (picture, shape, text box, chart, SmartArt, table) goes: the
+/// selection, deleted first, as typing would; but a selected floating object (one with text
+/// wrapping) stays, as in Word, and the new one goes just after its anchor.
+pub fn insert_point(s: &mut Session) -> Result<Pos, CmdError> {
+    if let Some((pos, o)) = objects::object_selection(s)
+        && o.frame().is_some_and(|(_, _, f)| f.wrap != wordcraft_doc::para::Wrap::Inline)
+    {
+        let after = Pos { off: pos.off + wordcraft_doc::para::OBJ.len_utf8(), ..pos };
+        s.sel = crate::Selection::caret(after.clone());
+        return Ok(after);
+    }
+    delete_selection(s)
+}
+
 /// A revision record for the current author.
 pub fn new_revision(s: &mut Session, kind: RevisionKind) -> u32 {
     let date = now_iso();

@@ -31,9 +31,23 @@ pub(super) fn font_dialog(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bo
             .width(300.0)
             .show_ui(ui, |ui| {
                 egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                    for f in &fams {
-                        if ui.selectable_label(family == *f, f).clicked() {
-                            d.fields.insert("family".into(), f.clone());
+                    // The pinned fonts first, as in the Home font list ([`krub_icons::fonts`]).
+                    let pins = krub_icons::fonts::pinned(ui.ctx());
+                    for row in krub_icons::fonts::rows(&fams, &pins) {
+                        match row {
+                            krub_icons::fonts::Row::Heading(h) => {
+                                if h == krub_icons::fonts::ALL_FONTS {
+                                    ui.separator();
+                                }
+                                crate::widgets::font_heading(ui, h);
+                            }
+                            krub_icons::fonts::Row::Font { index, .. } => {
+                                if let Some(f) = fams.get(index)
+                                    && ui.selectable_label(family == *f, f).clicked()
+                                {
+                                    d.fields.insert("family".into(), f.clone());
+                                }
+                            }
                         }
                     }
                 });

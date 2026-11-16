@@ -102,7 +102,7 @@ echo "==> assembling $APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Executable and icon carry the display name (CFBundleExecutable / CFBundleIconFile).
 cp "$WORK/bin/wordcraft" "$APP/Contents/MacOS/KhianKrub"
-cp "$ROOT/assets/app-icon/wordcraft.icns" "$APP/Contents/Resources/KhianKrub.icns"
+"$ROOT/packaging/macos/khiankrub-icns.sh" "$APP/Contents/Resources/KhianKrub.icns"
 # Licences of the embedded craft-fonts fonts (only when built with CRAFT_FONTS_DIR).
 copy_font_licences "$APP/Contents/Resources"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@SHORT_VERSION@/$SHORT_VERSION/g" \

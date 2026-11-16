@@ -791,7 +791,7 @@ fn options_in_backstage_shows_inline_settings() {
     h.run_steps(3);
     assert_eq!(page(&h), Some(Page::Options));
     assert!(h.state().dialog.is_none());
-    h.get_by_label("Dark appearance").click();
+    crate::dialogs::preferences_tests::pick(&mut h, "Interface theme:", "Dark");
     h.run_steps(3);
     assert_eq!(h.state().ui.brightness, crate::theme::Brightness::Dark);
     assert!(h.state().backstage_open());
@@ -861,7 +861,7 @@ fn web_home_lists_browser_drafts_and_opens_one_in_a_new_tab() {
     assert!(h.query_by_label("Drafts on this device").is_some());
     assert!(h.query_by_label("Monthly report (draft)").is_some(), "each draft says it is one");
     assert!(h.query_by_label_contains("may remove drafts by itself").is_none(), "this browser keeps them");
-    assert!(h.query_by_label("Blank Presentation").is_some() && h.query_by_label("Starter decks").is_some());
+    assert!(h.query_by_label("Blank Presentation").is_some() && h.query_all_by_label_contains("Example slides").count() >= 2);
     assert!(h.query_by_label("Open file").is_some() && h.query_by_label("KrubOffice apps").is_some(), "the top bar");
     assert!(h.query_by_label("Print").is_none(), "no File sidebar");
     let mut opened = Vec::new();
@@ -895,8 +895,8 @@ fn web_home_lists_browser_drafts_and_opens_one_in_a_new_tab() {
     assert!(h.query_by_label_contains("pick up where you left off").is_some());
 }
 
-/// Blank, a theme and a starter deck each open in a new tab with their own address, and the start
-/// screen stays as it is.
+/// Blank, a theme and a starter deck (the "+ Example slides" link under its theme) each open in a
+/// new tab with their own address, and the start screen stays as it is.
 #[test]
 fn web_home_tiles_open_in_a_new_tab() {
     let (mut h, _) = web_start(Some(Vec::new()), "en");
@@ -905,7 +905,7 @@ fn web_home_tiles_open_in_a_new_tab() {
     for (label, url) in [
         ("Blank Presentation", "./?new=blank".to_string()),
         (theme.as_str(), format!("./?theme={}", crate::backstage::web_home_url_component(&theme))),
-        (starter, format!("./?template={}", crate::backstage::web_home_url_component(starter))),
+        (format!("+ Example slides: {starter}").as_str(), format!("./?template={}", crate::backstage::web_home_url_component(starter))),
     ] {
         let mut opened = Vec::new();
         h.get_all_by_label(label).next().unwrap().click();
@@ -944,7 +944,7 @@ fn the_app_switcher_links_to_the_other_two_apps() {
 #[test]
 fn the_web_start_screen_is_in_thai() {
     let (h, _) = web_start(Some(Vec::new()), "th");
-    for label in ["งานนำเสนอเปล่า", "เปิดไฟล์", "ฉบับร่างในอุปกรณ์นี้", "ชุดสไลด์เริ่มต้น"]
+    for label in ["งานนำเสนอเปล่า", "เปิดไฟล์", "ฉบับร่างในอุปกรณ์นี้", "+ สไลด์ตัวอย่าง: แสงเหนือ"]
     {
         assert!(h.query_by_label(label).is_some(), "{label}");
     }

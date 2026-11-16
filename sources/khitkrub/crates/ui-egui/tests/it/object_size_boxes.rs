@@ -1,7 +1,7 @@
-//! Picture Format / Shape Format show the selected object's size in inches (English) and a typed size reaches the object.
+//! The Shape pane shows the selected object's size in inches (English) and a typed size reaches the object.
 
 use egui::accesskit::Role;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use gridcraft_engine::Session;
 use gridcraft_engine::model::{ObjKind, ObjRef};
 use serde_json::json;
@@ -14,10 +14,12 @@ fn shape_format_size_boxes_show_inches_and_resize_the_shape() {
     let id = shape["shape"].as_u64().unwrap() as u32;
     let mut h = crate::support::harness(session, 4);
     h.state_mut().selected_object = Some(ObjRef::new(ObjKind::Shape, id));
-    h.state_mut().ui.ribbon_tab = "Shape Format".into();
     h.run_steps(3);
-    let boxes: Vec<_> = h.get_all_by_role(Role::SpinButton).collect();
-    assert_eq!(boxes.len(), 2, "Height and Width boxes");
+    // The Shape pane's Width: and Height: boxes, named by their labels (1.5 by 1 inch).
+    for (label, inches) in [("Width:", 1.5), ("Height:", 1.0)] {
+        let n = h.get_by_role_and_label(Role::SpinButton, label);
+        assert!(n.accesskit_node().numeric_value().is_some_and(|v| (v - inches).abs() < 0.005), "{label}");
+    }
     let size = |h: &crate::common::Harness| {
         let a = h.state().session.active().unwrap().wb.active().unwrap().shapes[0].anchor;
         (a.width, a.height)

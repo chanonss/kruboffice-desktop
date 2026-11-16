@@ -1,9 +1,34 @@
 use super::{Rect, Sense, SheetApp, Stroke, StrokeKind, Style, Tokens, Ui, keytip_table, pos2, theme, vec2};
 
 pub(super) fn sep(ui: &mut Ui) {
+    if crate::widgets::pane_mode() {
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(13.0, crate::ribbon_layout::CONTENT_H), Sense::hover());
     ui.painter().line_segment([pos2(r.center().x, r.top() + 6.0), pos2(r.center().x, r.bottom() - 6.0)], Stroke::new(1.0, t.separator));
+}
+
+/// Where a ribbon group ends: a separator in the ribbon; in a side pane, a heading that starts
+/// the next section on a new line.
+pub(super) fn section(ui: &mut Ui, title: &str) {
+    if crate::widgets::pane_mode() {
+        pane_heading(ui, title);
+    } else {
+        sep(ui);
+    }
+}
+
+/// A section heading in a side pane (nothing in the ribbon, where groups have no names).
+pub(super) fn pane_heading(ui: &mut Ui, title: &str) {
+    if !crate::widgets::pane_mode() {
+        return;
+    }
+    ui.end_row();
+    ui.add_space(4.0);
+    let text = crate::i18n::current(ui.ctx()).tr(title);
+    ui.label(egui::RichText::new(text).font(theme::ui_bold(12.5)));
+    ui.end_row();
 }
 
 pub(super) fn active_style(app: &SheetApp) -> Style {
@@ -106,7 +131,46 @@ pub(crate) fn editable_combo(
     items: &[(&str, String)],
     forced: bool,
 ) -> ComboResult {
-    combo_popup(ui, anchor, salt, current_value, items, ComboPopupOptions { forced, filter: true, under: None })
+    combo_popup(ui, anchor, salt, current_value, items, ComboPopupOptions { forced, filter: true, under: None, pins: None })
+}
+
+/// The pins of a font list ([`krub_icons::fonts`]): their look and the translated headings.
+pub(crate) struct FontPins {
+    pub style: krub_icons::fonts::PinStyle,
+    pub pinned_heading: String,
+    pub all_heading: String,
+}
+
+impl FontPins {
+    pub(crate) fn new(ui: &Ui, lang: crate::i18n::Language) -> Self {
+        let t = Tokens::get(ui.ctx());
+        FontPins {
+            style: krub_icons::fonts::PinStyle {
+                ink: t.text_dim,
+                hover: t.hover,
+                pin: lang.tr(krub_icons::fonts::PIN).to_string(),
+                unpin: lang.tr(krub_icons::fonts::UNPIN).to_string(),
+                announce: |resp, label| resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label)),
+            },
+            pinned_heading: lang.tr(krub_icons::fonts::PINNED_FONTS).to_string(),
+            all_heading: lang.tr(krub_icons::fonts::ALL_FONTS).to_string(),
+        }
+    }
+}
+
+/// [`editable_combo`] for fonts: with nothing typed, the pinned fonts head the list under Pinned
+/// Fonts, then every font under All Fonts; each row has a pin at its right end. The list stays
+/// open while fonts are pinned and closes when one is picked.
+pub(crate) fn font_editable_combo(
+    ui: &mut Ui,
+    anchor: &egui::Response,
+    salt: &'static str,
+    current_value: &str,
+    items: &[(&str, String)],
+    forced: bool,
+    pins: FontPins,
+) -> ComboResult {
+    combo_popup(ui, anchor, salt, current_value, items, ComboPopupOptions { forced, filter: true, under: None, pins: Some(pins) })
 }
 
 /// The dropdown of [`editable_combo`] without the filter field: the whole list, picked by click or
@@ -120,12 +184,14 @@ pub(super) fn list_combo(
     current_value: &str,
     items: &[(&str, String)],
 ) -> ComboResult {
-    combo_popup(ui, anchor, salt, current_value, items, ComboPopupOptions { forced: false, filter: false, under: Some(under) })
+    combo_popup(ui, anchor, salt, current_value, items, ComboPopupOptions { forced: false, filter: false, under: Some(under), pins: None })
 }
 
 /// What the header of a combo popup hands to its list: the rows to show and the highlighted one.
 struct ComboHead {
     filtered: Vec<usize>,
+    /// Per row of `filtered` with pins: the heading drawn above it, if any, and whether it's pinned.
+    marks: Vec<(Option<&'static str>, bool)>,
     sel: i32,
     down: bool,
     up: bool,
@@ -136,11 +202,52 @@ struct ComboPopupOptions {
     forced: bool,
     filter: bool,
     under: Option<Rect>,
+    pins: Option<FontPins>,
+}
+
+/// The rows a combo shows for filter text `lower` (lowercase): indices into `items`, and with
+/// `pins` each row's heading and pinned mark. Pinned fonts head the list only while nothing is
+/// typed; typing lists each match once.
+fn display_rows(items: &[(&str, String)], lower: &str, pins: Option<&[String]>) -> (Vec<usize>, Vec<(Option<&'static str>, bool)>) {
+    let Some(pins) = pins else {
+        let filtered = items.iter().enumerate().filter(|(_, (_, d))| d.to_lowercase().contains(lower)).map(|(i, _)| i).collect();
+        return (filtered, Vec::new());
+    };
+    let names: Vec<String> = items.iter().map(|(v, _)| v.to_string()).collect();
+    let mut filtered = Vec::new();
+    let mut marks = Vec::new();
+    if lower.is_empty() {
+        let mut heading = None;
+        for row in krub_icons::fonts::rows(&names, pins) {
+            match row {
+                krub_icons::fonts::Row::Heading(h) => heading = Some(h),
+                krub_icons::fonts::Row::Font { index, pinned } => {
+                    filtered.push(index);
+                    marks.push((heading.take(), pinned));
+                }
+            }
+        }
+    } else {
+        for (i, (v, d)) in items.iter().enumerate() {
+            if d.to_lowercase().contains(lower) {
+                filtered.push(i);
+                marks.push((None, krub_icons::fonts::is_pinned(pins, v)));
+            }
+        }
+    }
+    (filtered, marks)
 }
 
 /// Arrow and Enter keys (taken out of the input so a filter field never sees them), the filter
 /// field when `text` is given, and the rows its text matches.
-fn combo_head(ui: &mut Ui, text: Option<(&mut String, egui::Id)>, open_now: bool, sel: i32, items: &[(&str, String)]) -> ComboHead {
+fn combo_head(
+    ui: &mut Ui,
+    text: Option<(&mut String, egui::Id)>,
+    open_now: bool,
+    sel: i32,
+    items: &[(&str, String)],
+    pins: Option<&[String]>,
+) -> ComboHead {
     let (mut down, mut up, mut enter) = (false, false, false);
     ui.input(|i| {
         down = i.key_pressed(egui::Key::ArrowDown);
@@ -168,7 +275,7 @@ fn combo_head(ui: &mut Ui, text: Option<(&mut String, egui::Id)>, open_now: bool
         ui.separator();
         lower = text.to_lowercase();
     }
-    let filtered: Vec<usize> = items.iter().enumerate().filter(|(_, (_, d))| d.to_lowercase().contains(&lower)).map(|(i, _)| i).collect();
+    let (filtered, marks) = display_rows(items, &lower, pins);
     let mut sel = sel;
     if !filtered.is_empty() {
         let n = filtered.len() as i32;
@@ -180,12 +287,13 @@ fn combo_head(ui: &mut Ui, text: Option<(&mut String, egui::Id)>, open_now: bool
             sel = (sel - 1).rem_euclid(n);
         }
     }
-    ComboHead { filtered, sel, down, up, enter }
+    ComboHead { filtered, marks, sel, down, up, enter }
 }
 
 /// The rows of a combo popup. Returns the picked value and the highlighted row.
-fn combo_rows(ui: &mut Ui, head: ComboHead, items: &[(&str, String)], row_w: f32) -> (Option<String>, i32) {
-    let ComboHead { filtered, mut sel, down, up, enter } = head;
+fn combo_rows(ui: &mut Ui, head: ComboHead, items: &[(&str, String)], row_w: f32, pins: Option<&FontPins>) -> (Option<String>, i32) {
+    let ComboHead { filtered, marks, mut sel, down, up, enter } = head;
+    let list_id = ui.scope_id().with("font_pins");
     let mut picked = None;
     if enter && !filtered.is_empty() {
         let idx = filtered[sel.clamp(0, filtered.len() as i32 - 1) as usize];
@@ -193,11 +301,18 @@ fn combo_rows(ui: &mut Ui, head: ComboHead, items: &[(&str, String)], row_w: f32
     }
     for (pos, i) in filtered.iter().enumerate() {
         let (value, disp) = &items[*i];
+        let (heading, pinned) = marks.get(pos).copied().unwrap_or((None, false));
+        if let (Some(h), Some(p)) = (heading, pins) {
+            let text = if h == krub_icons::fonts::PINNED_FONTS { &p.pinned_heading } else { &p.all_heading };
+            let t = Tokens::get(ui.ctx());
+            krub_icons::fonts::heading(ui, row_w, 20.0, text, t.text_dim, theme::ui_font(11.5));
+        }
         let row = ui.add(egui::Button::selectable(pos as i32 == sel, egui::RichText::new(disp)).min_size(vec2(row_w, 20.0)));
+        let pin_clicked = pins.is_some_and(|p| krub_icons::fonts::pin_button(ui, list_id.with(pos), row.rect, value, pinned, &p.style));
         if (down || up) && pos as i32 == sel && !ui.clip_rect().contains_rect(row.rect) {
             row.scroll_to_me(Some(if down { egui::Align::Max } else { egui::Align::Min }));
         }
-        if row.clicked() {
+        if row.clicked() && !pin_clicked {
             picked = Some(value.to_string());
         }
         if row.hovered() {
@@ -218,7 +333,8 @@ fn combo_popup(
     items: &[(&str, String)],
     options: ComboPopupOptions,
 ) -> ComboResult {
-    let ComboPopupOptions { forced, filter, under } = options;
+    let ComboPopupOptions { forced, filter, under, pins } = options;
+    let pinned = pins.as_ref().map(|_| krub_icons::fonts::pinned(ui.ctx()));
     let popup_id = egui::Popup::default_response_id(anchor);
     let state_id = anchor.id.with(salt).with("__combo_state");
     let mut st = ui.data_mut(|d| d.get_temp::<ComboState>(state_id)).unwrap_or_default();
@@ -228,7 +344,8 @@ fn combo_popup(
     let open_now = egui::Popup::is_id_open(ui.ctx(), popup_id);
     if open_now && !st.was_open {
         st.text = String::new();
-        st.sel = items.iter().position(|(v, _)| *v == current_value).map(|i| i as i32).unwrap_or(0);
+        let (order, _) = display_rows(items, "", pinned.as_deref());
+        st.sel = order.iter().position(|&i| items.get(i).is_some_and(|(v, _)| *v == current_value)).map(|i| i as i32).unwrap_or(0);
         // The reset lands on the frame AFTER the popup opens, which usually has no input of
         // its own — without a repaint request the stale filtered list stays on screen.
         ui.ctx().request_repaint();
@@ -248,18 +365,22 @@ fn combo_popup(
     if filter {
         height += ui.spacing().interact_size.y + 4.0 * spacing + 1.0;
     }
-    let menu = craft_ui::combo::Menu::new(ui, &field).height(height);
+    let mut menu = craft_ui::combo::Menu::new(ui, &field).height(height);
+    if pins.is_some() {
+        // Pinning keeps the list open; a pick closes it (`combo_rows`).
+        menu = menu.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    }
     let text_id = anchor.id.with(salt).with("__combo_text");
     let sel0 = st.sel;
     let shown = if filter {
         menu.show_ui_with_header(
-            |ui| combo_head(ui, Some((&mut st.text, text_id)), open_now, sel0, items),
-            |ui, head| combo_rows(ui, head, items, row_w),
+            |ui| combo_head(ui, Some((&mut st.text, text_id)), open_now, sel0, items, pinned.as_deref()),
+            |ui, head| combo_rows(ui, head, items, row_w, pins.as_ref()),
         )
     } else {
         menu.show_ui(|ui| {
-            let head = combo_head(ui, None, open_now, sel0, items);
-            combo_rows(ui, head, items, row_w)
+            let head = combo_head(ui, None, open_now, sel0, items, pinned.as_deref());
+            combo_rows(ui, head, items, row_w, pins.as_ref())
         })
     };
     let mut result = ComboResult::None;

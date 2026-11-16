@@ -322,10 +322,18 @@ pub fn specs() -> Vec<CommandSpec> {
             sel_result(s)
         })
         .params(r#"{"label"?: "Figure|Table|Equation|ภาพที่|ตารางที่"}"#),
-        CommandSpec::new("references.updateFigures", "Update Table", "References › Captions", |s, _| {
-            update_generated(s)?;
+        CommandSpec::new("references.updateFigures", "Update Table", "References › Captions", |s, v| {
+            // `kind` figure or table: only the tables of figures (Figure, ภาพที่) or of tables
+            // (Table, ตารางที่); without it, every generated list.
+            match p::str(v, "kind") {
+                Some("figure") => update_generated_where(s, |k| caption_list_of(k, &["Figure", THAI_FIGURE]))?,
+                Some("table") => update_generated_where(s, |k| caption_list_of(k, &["Table", THAI_TABLE]))?,
+                Some(other) => return Err(CmdError::Params(format!("unknown kind `{other}` (figure or table)"))),
+                None => update_generated(s)?,
+            }
             sel_result(s)
-        }),
+        })
+        .params(r#"{"kind"?: "figure|table"}"#),
         CommandSpec::new("references.markCitation", "Mark Citation", "References › Table of Authorities", |s, v| {
             let entry = p::str(v, "entry").map(str::to_string).unwrap_or_else(|| s.selected_text().trim().to_string());
             if entry.is_empty() {
@@ -717,11 +725,26 @@ fn list_kind(p: &Paragraph) -> Option<String> {
 
 const ENTRY_STYLE: &str = "ListEntry";
 
+/// True when `kind` (a generated list's field code) is a table of figures for one of `labels`
+/// (`TOC \c "ภาพที่"`).
+fn caption_list_of(kind: &str, labels: &[&str]) -> bool {
+    kind.strip_prefix("TOC \\c").is_some_and(|rest| {
+        let label = rest.trim().trim_start_matches('"');
+        let label = label.split('"').next().unwrap_or("").trim();
+        labels.contains(&label)
+    })
+}
+
 /// Rebuild every generated list.
 pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
+    update_generated_where(s, |_| true)
+}
+
+/// Rebuild the generated lists whose field code `wanted` accepts.
+fn update_generated_where(s: &mut Session, wanted: impl Fn(&str) -> bool) -> Result<(), CmdError> {
     let mut i = 0;
     while i < s.doc.body.len() {
-        let kind = s.doc.body.get(i).and_then(|b| b.as_para()).and_then(list_kind);
+        let kind = s.doc.body.get(i).and_then(|b| b.as_para()).and_then(list_kind).filter(|k| wanted(k));
         let Some(kind) = kind else {
             i += 1;
             continue;
@@ -1112,6 +1135,64 @@ mod tests {
         let (name, _) = s.doc.bookmarks().into_iter().find(|(n, _)| n.starts_with("_Ref")).unwrap();
         assert_eq!(crate::cmd::references::bookmark_text(&s.doc, &name).as_deref(), Some("Figure 1"));
         assert!(fields(&s).contains(&(format!("REF {name} \\h"), "Figure 1".to_string())), "{:?}", fields(&s));
+    }
+
+    /// In a new KhianKrub document, ภาพที่ and ตารางที่ captions are TH Sarabun New 16 pt bold,
+    /// Thai distributed, single spaced, with nothing before or after (owner, 2026-11-15).
+    #[test]
+    fn thai_captions_in_a_new_document_have_the_thai_caption_format() {
+        let mut s = Session::new(wordcraft_doc::Document::default());
+        s.set_thai_defaults(true);
+        s.run("text.insert", &json!({"text": "เตาเผา"})).unwrap();
+        for label in [THAI_FIGURE, THAI_TABLE] {
+            s.run("references.caption", &json!({"label": label, "text": "ทดสอบ"})).unwrap();
+            let path = s.sel.focus.path.clone();
+            let para = s.doc.para(StoryRef::Body, &path).unwrap();
+            assert!(para.plain_text().starts_with(label), "{}", para.plain_text());
+            let pp = s.doc.styles.resolve_para(&para.props);
+            assert_eq!(pp.style, "Caption");
+            assert_eq!(pp.align, wordcraft_doc::Align::ThaiDistribute);
+            assert_eq!(pp.line_spacing, wordcraft_doc::props::LineSpacing::Multiple(1.0));
+            assert_eq!((pp.space_before, pp.space_after), (0.0, 0.0));
+            assert!(!pp.before_auto && !pp.after_auto);
+            let ch = s.doc.styles.resolve_char(Some("Caption"), &wordcraft_doc::CharProps::default());
+            assert_eq!(ch.font, "TH Sarabun New");
+            assert_eq!(ch.size, 16.0);
+            assert!(ch.bold && !ch.italic);
+            assert_eq!(ch.color, wordcraft_doc::TextColor::Auto);
+            s.run("caret.docEnd", &json!({})).unwrap();
+        }
+    }
+
+    /// Update Table of Figures and Update Table of Tables each refresh only their own list.
+    #[test]
+    fn update_by_kind_refreshes_only_that_list() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("เตาเผา\nตาราง\nท้าย"));
+        s.run("select.text", &json!({"text": "เตาเผา"})).unwrap();
+        s.run("references.caption", &json!({"label": THAI_FIGURE, "text": "เตาเผา"})).unwrap();
+        s.run("select.text", &json!({"text": "ตาราง"})).unwrap();
+        s.run("references.caption", &json!({"label": THAI_TABLE, "text": "ราคา"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("references.tableOfFigures", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("references.tableOfFigures", &json!({"kind": "table"})).unwrap();
+        s.run("select.text", &json!({"text": "เตาเผา"})).unwrap();
+        s.run("references.caption", &json!({"label": THAI_FIGURE, "text": "เตาใหม่"})).unwrap();
+        s.run("select.text", &json!({"text": "ตาราง"})).unwrap();
+        s.run("references.caption", &json!({"label": THAI_TABLE, "text": "ค่าส่ง"})).unwrap();
+        let entries = |s: &Session| s.doc.plain_text(StoryRef::Body).lines().filter(|l| l.contains('\t')).map(str::to_string).collect::<Vec<_>>();
+        let before = entries(&s);
+        s.run("references.updateFigures", &json!({"kind": "table"})).unwrap();
+        let after = entries(&s);
+        assert_eq!(
+            after.iter().filter(|l| l.starts_with(THAI_FIGURE)).count(),
+            before.iter().filter(|l| l.starts_with(THAI_FIGURE)).count(),
+            "{after:?}"
+        );
+        assert_eq!(after.iter().filter(|l| l.starts_with(THAI_TABLE)).count(), 2, "{after:?}");
+        s.run("references.updateFigures", &json!({"kind": "figure"})).unwrap();
+        assert_eq!(entries(&s).iter().filter(|l| l.starts_with(THAI_FIGURE)).count(), 2, "{:?}", entries(&s));
+        assert!(s.run("references.updateFigures", &json!({"kind": "chart"})).is_err());
     }
 
     /// Thai captions (ภาพที่, ตารางที่) number, list in a table of figures (its default when the

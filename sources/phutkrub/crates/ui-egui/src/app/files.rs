@@ -477,7 +477,10 @@ impl SlideApp {
             && let Some(d) = self.session.active()
         {
             match deckcraft_engine::cmd::file::save_bytes(&d.doc, ext) {
-                Ok(bytes) => dl(&suggested, &bytes),
+                Ok(bytes) => {
+                    dl(&suggested, &bytes);
+                    self.report_unembedded_fonts();
+                }
                 Err(e) => self.set_status(e.to_string()),
             }
         }
@@ -540,6 +543,7 @@ impl SlideApp {
         match saved {
             Ok(()) => {
                 self.set_status(format!("Saved {name}"));
+                self.report_unembedded_fonts();
                 Ok(name)
             }
             Err(e) => {

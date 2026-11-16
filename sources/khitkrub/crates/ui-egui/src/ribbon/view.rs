@@ -56,12 +56,12 @@ pub(super) fn view(app: &mut SheetApp, ui: &mut Ui) {
         app.open_dialog("zoom", json!({}));
     }
     crate::ribbon_layout::column(ui, |ui| {
-        let __k = small_button(ui, Icon::Search, "100%", "Zoom to 100%", false);
+        let __k = small_button(ui, Icon::ZoomReset, "100%", "Zoom to 100%", false);
         control_keytip(app, ui, &__k, "view.zoom");
         if __k.clicked() || invoke(app, "view.zoom") {
             act(app, "view.zoom", json!({"percent": 100}));
         }
-        let __k = small_button(ui, Icon::Zoom, "Zoom to Selection", "Zoom to Selection", false);
+        let __k = small_button(ui, Icon::ZoomSelection, "Zoom to Selection", "Zoom to Selection", false);
         control_keytip(app, ui, &__k, "view.zoomToSelection");
         if __k.clicked() {
             let r = app.grid.cells_rect.unwrap_or(Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 700.0)));

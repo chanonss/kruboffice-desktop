@@ -1090,7 +1090,12 @@ fn presentation_xml(x: &mut Exp, o: &mut Out, masters: &[(u64, String)], notes: 
     let p = x.p;
     let mut w = W::new();
     let first = (p.first_slide_number != 1).then_some(p.first_slide_number.min(9999));
-    root_open(&mut w, "p:presentation", A::new().a("saveSubsetFonts", 1).t("embedTrueTypeFonts", !fonts.is_empty()).o("firstSlideNum", first));
+    let subset = u8::from(!p.embed_all_characters);
+    root_open(
+        &mut w,
+        "p:presentation",
+        A::new().a("saveSubsetFonts", subset).t("embedTrueTypeFonts", p.embed_fonts || !fonts.is_empty()).o("firstSlideNum", first),
+    );
     w.open0("p:sldMasterIdLst");
     for (id, rid) in masters {
         w.empty("p:sldMasterId", A::new().a("id", id).a("r:id", rid));

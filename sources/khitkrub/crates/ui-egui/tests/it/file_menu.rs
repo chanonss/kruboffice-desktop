@@ -94,7 +94,7 @@ fn escape_leaves_file_fields_before_closing_the_view() {
             4,
         );
         h.state_mut().run("formulas.calculationOptions", serde_json::json!({"iterative": true})).unwrap();
-        h.state_mut().run("ui.backstage", serde_json::json!({"page": page_id})).unwrap();
+        h.state_mut().run("ui.backstage", serde_json::json!({"page": page_id, "pane": "formulas"})).unwrap();
         h.run_steps(3);
         let role = if page_id == "print" { Role::SpinButton } else { Role::TextInput };
         h.get_by_role_and_label(role, label).click();
@@ -500,7 +500,7 @@ fn a_cancelled_export_pdf_picker_writes_nothing() {
     assert!(h.state_mut().session.take_ui_requests().is_empty());
 }
 
-/// Options › Formulas: Maximum Iterations and Maximum Change, with the checkbox that enables them.
+/// Options › Formulas (the category): Maximum Iterations and Maximum Change, with the checkbox that enables them.
 #[test]
 fn options_sets_maximum_iterations_and_change_only_while_iteration_is_on() {
     use egui::accesskit::Role;
@@ -517,6 +517,9 @@ fn options_sets_maximum_iterations_and_change_only_while_iteration_is_on() {
     );
     h.run_steps(4);
     h.state_mut().run("file.options", serde_json::json!({})).unwrap();
+    h.run_steps(3);
+    // The calculation settings are in the Formulas category.
+    h.get_by_role_and_label(Role::Tab, "Formulas").click();
     h.run_steps(3);
     let calc = |h: &egui_kittest::Harness<'static, SheetApp>| h.state().session.active().unwrap().wb.calc.clone();
     // Resolve the field by its accessible name in both the disabled and enabled states.

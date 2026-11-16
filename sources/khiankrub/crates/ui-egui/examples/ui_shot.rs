@@ -7,7 +7,8 @@
 //! `docs/control-protocol.md`), `{"shot": "/abs/out.png"}` to save the window as PNG, or
 //! `{"steps": n}` to run extra frames, or `{"wait": ms}` to keep running frames for a while (for
 //! background work such as a Zotero session). The window is 1440×900 pt at 2× and opens the sample
-//! document unless the first line is `{"empty": true}`; `{"empty": true, "startScreen": true}`
+//! document unless the first line is `{"empty": true}` (`{"empty": true, "thai": true}`: a blank
+//! document with KhianKrub's Thai defaults); `{"empty": true, "startScreen": true}`
 //! starts the way the desktop app does with nothing to open (File › Home, #766).
 
 use wordcraft_engine::Session;
@@ -21,12 +22,21 @@ fn main() {
     let (tx, rx) = std::sync::mpsc::channel::<ControlRequest>();
     let lines: Vec<serde_json::Value> =
         script.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).expect("json line")).collect();
-    let doc = if lines.first().is_some_and(|l| l.get("empty").is_some()) {
+    let thai = lines.first().is_some_and(|l| l.get("thai").is_some());
+    let doc = if thai {
+        // A blank document with KhianKrub's Thai defaults (TH Sarabun New), as the apps start one.
+        let mut d = wordcraft_doc::Document::new();
+        d.apply_khiankrub_blank_defaults();
+        d
+    } else if lines.first().is_some_and(|l| l.get("empty").is_some()) {
         wordcraft_doc::Document::new()
     } else {
         wordcraft_engine::sample::sample_document()
     };
     let mut app = WordApp::new(Session::new(doc), Services::default()).with_control(rx);
+    if thai {
+        app.session.set_thai_defaults(true);
+    }
     app.integrated_titlebar = true;
     if lines.first().is_some_and(|l| l.get("startScreen").is_some()) {
         app.start_screen();

@@ -133,7 +133,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 /// Insert a block after the caret's paragraph (splitting it if the caret is mid-paragraph).
 fn insert_block_at_caret(s: &mut Session, block: Block) -> Result<Path, CmdError> {
-    let at = delete_selection(s)?;
+    let at = super::insert_point(s)?;
     let len = s.doc.para_at(&at).map(|p| p.len()).unwrap_or(0);
     let insert_at = if at.off == 0 {
         at.path.clone()
@@ -273,7 +273,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
         return Ok(json!({"media": key, "canvasMember": i}));
     }
     let props = s.typing_props();
-    let at = delete_selection(s)?;
+    let at = super::insert_point(s)?;
     let end = s.doc.insert_object(&at, obj, &props)?;
     s.sel = Selection::caret(end);
     Ok(json!({"media": key, "width": w, "height": h}))
@@ -345,7 +345,7 @@ fn shape(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     let props = s.typing_props();
-    let at = delete_selection(s)?;
+    let at = super::insert_point(s)?;
     let end = s.doc.insert_object(&at, obj, &props)?;
     s.sel = Selection { anchor: at, focus: end };
     sel_result(s)
@@ -372,7 +372,7 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     // A selected Drawing Canvas takes it in; otherwise it goes at the caret.
     if super::canvas::add_member(s, obj.clone())?.is_none() {
         let props = s.typing_props();
-        let at = delete_selection(s)?;
+        let at = super::insert_point(s)?;
         s.doc.insert_object(&at, obj, &props)?;
     }
     // Like Word, type straight into the new box.
@@ -1125,6 +1125,33 @@ fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Inserting with a floating shape selected keeps the shape (it used to be deleted, as if it
+    /// were selected text): the new object goes beside it, as in Word. A selected inline object is
+    /// part of the text, so an insert replaces it, as Word does.
+    #[test]
+    fn inserting_keeps_a_selected_floating_shape() {
+        let objects = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.objects.len()).sum::<usize>();
+        for (cmd, params) in [
+            ("insert.chart", json!({"type": "column"})),
+            ("insert.smartArt", json!({"layout": "process"})),
+            ("insert.shape", json!({"kind": "ellipse"})),
+        ] {
+            for floating in [true, false] {
+                let mut s = Session::new(wordcraft_doc::Document::new());
+                s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+                if floating {
+                    s.run("arrange.wrap", &json!({"wrap": "square"})).unwrap();
+                }
+                assert!(crate::cmd::objects::object_selection(&s).is_some(), "the shape is selected");
+                let depth = s.undo_depth();
+                s.run(cmd, &params).unwrap();
+                let want = if floating { 2 } else { 1 };
+                assert_eq!(objects(&s), want, "{cmd}, floating {floating}");
+                assert_eq!(s.undo_depth(), depth + 1, "{cmd}: one undo step");
+            }
+        }
+    }
 
     /// Closing the header or footer (Esc, the ribbon) puts the caret back where it was in the
     /// body, not on page 1 (#3331).

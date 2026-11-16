@@ -1369,16 +1369,129 @@ fn dlg_preferences(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     ok || cancel
 }
 
-/// Shared by the modal preferences dialog and File › Options.
+/// Shared by the modal preferences dialog and File › Options: the shared KrubOffice layout
+/// (`krub_icons::options`), categories on the left and the chosen one's settings on the right.
+/// The category shown waits in the dialog's `pane` field.
 pub(crate) fn preferences_controls(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) {
-    ui.label(egui::RichText::new(tl!("General")).font(theme::bold(13.0)));
+    let t = theme::Tokens::get(ui.ctx());
+    let style = krub_icons::options::Style {
+        text: t.text,
+        icon: t.text,
+        selected: t.selected,
+        hover: t.hover,
+        border: t.separator,
+        regular: theme::font(14.0),
+        semibold: theme::bold(14.0),
+        announce: |resp, active, label| resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, active, label)),
+    };
+    let mut pane = d.fields.get("pane").cloned().unwrap_or_default();
+    krub_icons::options::page(
+        ui,
+        &style,
+        &["general", "proofing", "save", "language", "advanced"],
+        |name| tl!(name).to_string(),
+        &mut pane,
+        |ui, id| match id {
+            "proofing" => preferences_proofing(app, ui, d),
+            "save" => preferences_save(app, ui),
+            "language" => preferences_language(app, ui),
+            "advanced" => preferences_advanced(app, ui),
+            _ => preferences_general(app, ui),
+        },
+    );
+    d.fields.insert("pane".into(), pane);
+}
+
+fn options_section(ui: &mut Ui, title: &str) {
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(tl!(title)).font(theme::bold(15.0)));
+    ui.add_space(2.0);
+}
+
+fn options_note(ui: &mut Ui, text: &str) {
+    ui.label(egui::RichText::new(tl!(text)).small().weak());
+}
+
+/// The menu sizes offered, in percent of the system's size.
+const INTERFACE_SIZES: [u16; 9] = [75, 80, 85, 90, 95, 100, 125, 150, 175];
+
+/// General: the interface (theme, size, fonts, ribbon) and your name.
+fn preferences_general(app: &mut SlideApp, ui: &mut Ui) {
+    options_section(ui, "Interface");
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Interface theme:"));
+        let dark = app.ui.brightness == theme::Brightness::Dark;
+        craft_ui::ComboBox::from_id_salt("interface_theme")
+            .width(220.0)
+            .selected_text(tl!(if dark { "Dark" } else { "Light" }))
+            .show_ui(ui, |ui| {
+                for (on, name) in [(false, "Light"), (true, "Dark")] {
+                    if ui.selectable_label(dark == on, tl!(name)).clicked() && dark != on {
+                        let _ = app.run("view.dark", json!({"on": on}));
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Interface size:"));
+        let current = (app.ui.ui_scale * 100.0).round() as u16;
+        craft_ui::ComboBox::from_id_salt("interface_size")
+            .width(220.0)
+            .selected_text(format!("{current}%"))
+            .show_ui(ui, |ui| {
+                for pct in INTERFACE_SIZES {
+                    if ui.selectable_label(current == pct, format!("{pct}%")).clicked() {
+                        app.ui.ui_scale = f32::from(pct) / 100.0;
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+    options_note(ui, "Makes the ribbon, menus and dialogs larger or smaller. 100% follows your system's display scaling. Slide zoom is separate.");
+    if let Some(load) = &app.services.load_system_ui_fonts {
+        if ui.button(tl!("Use system interface fonts")).clicked() {
+            load();
+        }
+        options_note(ui, "Your browser may ask for access to local fonts. Font files stay on this computer.");
+    } else if cfg!(target_arch = "wasm32") {
+        options_note(ui, "This browser cannot load system interface fonts. Bundled interface fonts are used.");
+    }
     ui.checkbox(&mut app.ui.show_ribbon_tab_numbers, tl!("Show numbers on ribbon tabs"));
     ui.checkbox(&mut app.ui.ribbon_tabs_centered, tl!("Center the ribbon tabs (off: start at the left)"));
-    // The interface language: English or Thai, each named in its own script.
+    ui.checkbox(&mut app.ui.show_draw_tab, tl!("Show the Draw tab"));
+    ui.add_space(8.0);
+    options_section(ui, "Personalize");
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Your name (comments):"));
+        // Name the field for assistive technology; a bare text edit next to a label is an
+        // unnamed input in egui 0.37's accessibility tree.
+        let _ = ui.add(egui::TextEdit::singleline(&mut app.session.prefs.author)).labelled_by(label.id);
+    });
+}
+
+/// Proofing: what changes as you type.
+fn preferences_proofing(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) {
+    options_section(ui, "As you type");
+    ui.checkbox(&mut app.session.prefs.smart_quotes, tl!("Replace straight quotes with smart quotes"));
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut app.session.prefs.autocorrect, tl!("AutoCorrect as you type"));
+        if ui.button(tl!("AutoCorrect Options…")).clicked() {
+            *d = Dialog::new("autocorrect");
+        }
+    });
+}
+
+/// Language: the interface language, English or Thai, each named in its own script.
+fn preferences_language(app: &mut SlideApp, ui: &mut Ui) {
+    options_section(ui, "Interface language");
     let current = crate::i18n::Lang::from_pref(&app.ui.language);
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Interface language"));
         craft_ui::ComboBox::from_id_salt("interface_language")
+            .width(220.0)
             .selected_text(current.name())
             .show_ui(ui, |ui| {
                 for info in crate::i18n::LANGUAGES.iter() {
@@ -1390,62 +1503,53 @@ pub(crate) fn preferences_controls(app: &mut SlideApp, ui: &mut Ui, d: &mut Dial
             .response
             .labelled_by(label.id);
     });
-    if let Some(load) = &app.services.load_system_ui_fonts {
-        if ui.button(tl!("Use system interface fonts")).clicked() {
-            load();
-        }
-        ui.label(egui::RichText::new(tl!("Your browser may ask for access to local fonts. Font files stay on this computer.")).small());
-    } else if cfg!(target_arch = "wasm32") {
-        ui.label(egui::RichText::new(tl!("This browser cannot load system interface fonts. Bundled interface fonts are used.")).small());
+    options_note(ui, "Menus and commands change; your presentations don't.");
+}
+
+/// Advanced: moving objects, and the measurement units.
+/// Save: embedding fonts in this presentation (`file.embedFonts`), as PowerPoint's
+/// "Preserve fidelity when sharing this presentation". The settings belong to the presentation,
+/// so changing them is an edit of it.
+fn preferences_save(app: &mut SlideApp, ui: &mut Ui) {
+    options_section(ui, "Preserve fidelity when sharing this presentation");
+    let Some(doc) = app.session.active().map(|d| &d.doc) else {
+        options_note(ui, "Open a presentation to choose how its fonts are saved.");
+        return;
+    };
+    let (mut embed, all) = (doc.embed_fonts, doc.embed_all_characters);
+    if ui.checkbox(&mut embed, tl!("Embed fonts in the file")).changed() {
+        let _ = app.session.execute("file.embedFonts", &serde_json::json!({"embed": embed}));
     }
-    ui.checkbox(&mut app.ui.show_draw_tab, tl!("Show the Draw tab"));
-    let mut dark = app.ui.brightness == theme::Brightness::Dark;
-    if ui.checkbox(&mut dark, tl!("Dark appearance")).changed() {
-        let _ = app.run("view.dark", json!({"on": dark}));
+    ui.add_enabled_ui(embed, |ui| {
+        ui.indent("embed-fonts", |ui| {
+            let mut pick = all;
+            ui.radio_value(&mut pick, false, tl!("Embed only the characters used in the presentation (best for reducing file size)"));
+            ui.radio_value(&mut pick, true, tl!("Embed all characters (best for editing by other people)"));
+            if pick != all {
+                let _ = app.session.execute("file.embedFonts", &serde_json::json!({"allCharacters": pick}));
+            }
+        });
+    });
+    options_note(
+        ui,
+        "Fonts are embedded when the presentation is saved as a PowerPoint file. A font whose licence doesn't allow embedding is left out.",
+    );
+    if cfg!(target_arch = "wasm32") {
+        options_note(ui, "In the browser, only the fonts that come with DeckCraft and fonts embedded in an opened presentation can be embedded.");
     }
-    // While the pointer holds the slider its value only waits in the dialog: applying it
-    // would rescale the slider under the pointer and run it to an end (#767). It applies
-    // on release, and at once from the keyboard.
-    let pending = d.fields.get("uiScale").and_then(|v| v.parse::<f32>().ok());
-    let mut scale = pending.unwrap_or(app.ui.ui_scale);
-    let r = ui.add(egui::Slider::new(&mut scale, 0.75..=1.75));
-    // No visible label here (the row is laid out to fit); the accessible name only.
-    let enabled = r.enabled();
-    r.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(scale), "Interface size"));
-    if r.is_pointer_button_down_on() {
-        if r.changed() || pending.is_some() {
-            d.fields.insert("uiScale".into(), scale.to_string());
-        }
-    } else {
-        if r.changed() || pending.is_some() {
-            app.ui.ui_scale = scale;
-        }
-        d.fields.remove("uiScale");
-    }
+}
+
+fn preferences_advanced(app: &mut SlideApp, ui: &mut Ui) {
+    options_section(ui, "Editing");
+    ui.checkbox(&mut app.session.prefs.smart_guides, tl!("Show smart guides"));
+    ui.checkbox(&mut app.session.prefs.snap_to_grid, tl!("Snap objects to grid"));
+    ui.add_space(8.0);
+    options_section(ui, "Display");
     // PowerPoint takes the unit from the system's measurement setting; DeckCraft asks here.
     ui.horizontal(|ui| {
         ui.label(tl!("Measurement units:"));
         let units = &mut app.session.prefs.units;
         ui.radio_value(units, deckcraft_geom::Unit::Inches, tl!("Inches"));
         ui.radio_value(units, deckcraft_geom::Unit::Centimeters, tl!("Centimeters"));
-    });
-    ui.label(egui::RichText::new(tl!("Editing")).font(theme::bold(13.0)));
-    ui.checkbox(&mut app.session.prefs.smart_guides, tl!("Show smart guides"));
-    ui.checkbox(&mut app.session.prefs.snap_to_grid, tl!("Snap objects to grid"));
-    ui.checkbox(&mut app.session.prefs.smart_quotes, tl!("Replace straight quotes with smart quotes"));
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut app.session.prefs.autocorrect, tl!("AutoCorrect as you type"));
-        if ui.button(tl!("AutoCorrect Options…")).clicked() {
-            *d = Dialog::new("autocorrect");
-        }
-    });
-    if d.id != "preferences" {
-        return;
-    }
-    ui.horizontal(|ui| {
-        let label = ui.label(tl!("Your name (comments):"));
-        // Name the field for assistive technology; a bare text edit next to a label is an
-        // unnamed input in egui 0.37's accessibility tree.
-        let _ = ui.add(egui::TextEdit::singleline(&mut app.session.prefs.author)).labelled_by(label.id);
     });
 }

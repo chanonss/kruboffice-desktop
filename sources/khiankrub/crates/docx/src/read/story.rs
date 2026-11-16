@@ -1337,6 +1337,14 @@ impl Reader<'_> {
         let arrow = |tag: &str| ln.and_then(|l| l.child(tag)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
         extra.arrow_start = arrow("a:headEnd");
         extra.arrow_end = arrow("a:tailEnd");
+        // Fill and outline transparency (`a:alpha` in their `a:solidFill`) and the outline's dash.
+        let solid_alpha = |e: Option<&El>| e.and_then(|e| e.child("a:solidFill")).map_or(0.0, |f| effect_color(f).1);
+        extra.fill_transparency = solid_alpha(sppr);
+        extra.line_transparency = solid_alpha(ln);
+        extra.dash = ln
+            .and_then(|l| l.child("a:prstDash"))
+            .and_then(|d| d.attr("val"))
+            .map_or(wordcraft_doc::connector::LineDash::Solid, wordcraft_doc::connector::LineDash::from_ooxml);
         // A connector's glued ends (ECMA-376 §20.1.2.2.36, §20.1.2.2.13).
         if let Some(cn) = wsp.child("wps:cNvCnPr") {
             let end = |tag: &str| {
@@ -1356,6 +1364,10 @@ impl Reader<'_> {
             kind = ShapeKind::Freeform;
             Arc::new(f)
         });
+        // A freeform keeps its line's opacity in its own alpha.
+        if freeform.is_some() {
+            extra.line_transparency = 0.0;
+        }
         InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, float, story, freeform, effects, extra }
     }
 

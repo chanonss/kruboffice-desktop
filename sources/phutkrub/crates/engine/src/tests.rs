@@ -1932,6 +1932,8 @@ fn an_embedded_face_is_used_when_the_machine_lacks_it() {
         .add_media("font1.fntdata", "application/x-fontdata", include_bytes!("../../render/tests/fixtures/colr-squares.ttf").to_vec())
         .expect("media");
     p.embedded_fonts.push(deckcraft_model::EmbeddedFont { typeface: "DeckCraft Colr Squares".into(), regular: Some(id), ..Default::default() });
+    // A file that embeds fonts says so (`embedTrueTypeFonts`); saving without it drops them.
+    p.embed_fonts = true;
     let data = crate::cmd::base64_encode(&crate::cmd::file::save_bytes(&p, "pptx").unwrap());
     let mut s = Session::with_new();
     let r = s.execute("file.openBytes", &json!({"name": "fonts.pptx", "data": data})).unwrap();

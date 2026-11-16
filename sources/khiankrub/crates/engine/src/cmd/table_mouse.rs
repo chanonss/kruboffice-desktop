@@ -881,6 +881,73 @@ mod tests {
         assert_eq!(para(&s, 1, 1).plain_text(), "r1c1");
     }
 
+    /// The Format Painter picks up a numbered cell paragraph's numbering and bold as it does from
+    /// body text, and lays them on body text and on another cell, with a caret or with a drag
+    /// across the text (as the app runs it), and on whole selected cells: one cell, or part of a
+    /// column, where every cell takes them (empty ones too) and the painter is used up once.
+    #[test]
+    fn the_format_painter_carries_a_cells_numbering() {
+        let numbered = |s: &mut Session| {
+            s.sel = Selection { anchor: cell_pos(s, 0, 0), focus: Pos { off: 4, ..cell_pos(s, 0, 0) } };
+            s.run("format.bold", &json!({})).unwrap();
+            s.sel = Selection::caret(Pos { off: 1, ..cell_pos(s, 0, 0) });
+            s.run("para.numbering", &json!({})).unwrap();
+            let num = para(s, 0, 0).props.numbering;
+            assert!(num.is_some_and(|n| n.num != 0), "the cell is numbered");
+            num
+        };
+        let painted = |s: &Session, path: &Path, num| {
+            let p = s.doc.para(StoryRef::Body, path).cloned().unwrap();
+            p.props.numbering == num && (p.is_empty() || p.props_of_char(0).bold == Some(true))
+        };
+        for drag in [false, true] {
+            let mut s = table_session(3, 2);
+            fill(&mut s);
+            let body = Pos { story: StoryRef::Body, path: Path(vec![table_path(&s).0[0] + 1]), off: 0 };
+            s.sel = Selection::caret(body.clone());
+            s.run("text.insert", &json!({"text": "body text"})).unwrap();
+            let num = numbered(&mut s);
+            for to in [cell_pos(&s, 1, 1), body.clone()] {
+                s.sel = Selection::caret(Pos { off: 1, ..cell_pos(&s, 0, 0) });
+                s.run("edit.formatPainter", &json!({})).unwrap();
+                if drag {
+                    let end = s.doc.para(StoryRef::Body, &to.path).map_or(0, |p| p.len());
+                    s.run("caret.set", &json!({"pos": to})).unwrap();
+                    s.run("caret.set", &json!({"pos": Pos { off: end, ..to.clone() }, "extend": true})).unwrap();
+                } else {
+                    s.sel = Selection::caret(Pos { off: 1, ..to.clone() });
+                }
+                s.run("edit.pasteFormat", &json!({})).unwrap();
+                assert!(painted(&s, &to.path, num), "{:?} (drag: {drag})", to.path);
+                assert!(s.painter.is_none(), "used up");
+            }
+        }
+        // Whole cells: one cell, then the lower two cells of a column (one of them empty).
+        let mut s = table_session(3, 2);
+        fill(&mut s);
+        let num = numbered(&mut s);
+        s.sel = Selection::caret(cell_pos(&s, 0, 0));
+        s.run("edit.formatPainter", &json!({})).unwrap();
+        s.sel = Selection::caret(cell_pos(&s, 0, 1));
+        s.run("table.selectCell", &json!({})).unwrap();
+        s.run("edit.pasteFormat", &json!({})).unwrap();
+        assert!(painted(&s, &cell_pos(&s, 0, 1).path, num), "a selected cell");
+        s.sel = Selection { anchor: cell_pos(&s, 2, 1), focus: Pos { off: 4, ..cell_pos(&s, 2, 1) } };
+        s.run("text.delete", &json!({})).unwrap();
+        s.sel = Selection::caret(cell_pos(&s, 0, 0));
+        s.run("edit.formatPainter", &json!({})).unwrap();
+        s.sel = Selection::caret(cell_pos(&s, 1, 1));
+        s.run("caret.set", &json!({"pos": cell_pos(&s, 2, 1), "extend": true})).unwrap();
+        assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((1, 2), (1, 1))), "two cells of a column");
+        s.run("edit.pasteFormat", &json!({})).unwrap();
+        for r in 1..3 {
+            assert!(painted(&s, &cell_pos(&s, r, 1).path, num), "cell ({r}, 1)");
+        }
+        assert!(!painted(&s, &cell_pos(&s, 1, 0).path, num), "the cell beside them is left alone");
+        assert_eq!(para(&s, 1, 1).plain_text(), "r1c1", "the text stays");
+        assert!(s.painter.is_none(), "used up once");
+    }
+
     /// Where the app extends the selection while dragging (`caret.set` with `extend`).
     fn drag_to(s: &mut Session, to: Pos) {
         s.run("caret.set", &json!({"pos": to, "extend": true})).unwrap();

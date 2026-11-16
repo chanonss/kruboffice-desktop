@@ -1,6 +1,6 @@
 # Thai (th) interface catalog. Columns, separated by a TAB:
 #   context <TAB> English source <TAB> translation
-#   context    usually empty. `template` words the name of a built-in template or theme where the same
+#   context    usually empty. `template` words the name of a built-in template or theme, `shapes` a Shapes menu group, where the same
 #              English needs other wording elsewhere; it falls back to the plain entry.
 #   source     the English text exactly as in the code (tl!(...), ribbon labels, command labels)
 #   escapes    \n  \t  \\ inside a column. `{name}` placeholders must appear in both columns, and a
@@ -220,7 +220,7 @@
 	From\nBeginning	จาก\nสไลด์แรก
 	From\nCurrent Slide	จาก\nสไลด์ปัจจุบัน
 	General	ทั่วไป
-	Glow	เรืองแสง
+	Glow	แสงเรือง
 	Go to	ไปที่
 	Gradient bar	แถบไล่ระดับสี
 	Gradient stops	จุดไล่ระดับสี
@@ -427,6 +427,10 @@
 	Replace…	แทนที่…
 	Reply…	ตอบกลับ…
 	Rescan Installed Fonts	สแกนฟอนต์ที่ติดตั้งใหม่
+	Pinned Fonts	ฟอนต์ที่ปักหมุด
+	All Fonts	ฟอนต์ทั้งหมด
+	Pin to Top	ปักหมุดไว้ด้านบน
+	Unpin	เลิกปักหมุด
 	Reset	รีเซ็ต
 	Reset Background	รีเซ็ตพื้นหลัง
 	Reset Effects	รีเซ็ตเอฟเฟกต์
@@ -821,6 +825,10 @@
 	Blank Presentation	งานนำเสนอเปล่า
 	Starter decks	ชุดสไลด์เริ่มต้น
 	Sample deck: Northern Lights	สไลด์ตัวอย่าง: แสงเหนือ
+	Theme: {}	ธีม: {}
+	Example slides: {}	สไลด์ตัวอย่าง: {}
+	Example slides: Northern Lights	สไลด์ตัวอย่าง: แสงเหนือ
+	A finished deck to look around in	งานนำเสนอที่ทำเสร็จแล้ว ให้ลองเปิดดู
 	KrubOffice apps	แอปของ KrubOffice
 	KhianKrub	เขียนครับ
 	KhitKrub	คิดครับ
@@ -1104,3 +1112,176 @@
 	Inside Vertical Border	เส้นขอบภายในแนวตั้ง
 	Diagonal Down Border	เส้นขอบทแยงลง
 	Diagonal Up Border	เส้นขอบทแยงขึ้น
+	Solid fill	สีทึบ
+	Gradient fill	ไล่ระดับสี
+	Picture or texture fill	รูปภาพหรือพื้นผิว
+	Pattern fill	ลวดลาย
+	Follow the layout	ตามเค้าโครง
+	Offset X	ระยะเลื่อน X
+	Offset Y	ระยะเลื่อน Y
+	Scale X	มาตราส่วน X
+	Scale Y	มาตราส่วน Y
+	Alignment	การจัดแนว
+	Mirror	สะท้อน
+	Top Left	ซ้ายบน
+	Top Right	ขวาบน
+	Left	ซ้าย
+	Right	ขวา
+	Bottom Left	ซ้ายล่าง
+	Bottom Right	ขวาล่าง
+	Horizontal	แนวนอน
+	Vertical	แนวตั้ง
+	Both	ทั้งสองแบบ
+	Format Shape	จัดรูปแบบรูปร่าง
+	Animation Pane	บานหน้าต่างภาพเคลื่อนไหว
+	Selection	การเลือก
+	Design Ideas	แนวคิดการออกแบบ
+	Text Pane	บานหน้าต่างข้อความ
+	Revisions	การแก้ไข
+	Pane	บานหน้าต่าง
+	not checked	ไม่ตรวจ
+	Edited	แก้ไขแล้ว
+	Presentation	งานนำเสนอ
+	English (United States)	อังกฤษ (สหรัฐอเมริกา)
+	English (United Kingdom)	อังกฤษ (สหราชอาณาจักร)
+	English (Australia)	อังกฤษ (ออสเตรเลีย)
+	English (Canada)	อังกฤษ (แคนาดา)
+	Automatic	อัตโนมัติ
+	Begin arrow	หัวลูกศรเริ่มต้น
+	Bottom bevel	มุมเอียงด้านล่าง
+	Cap type	ชนิดปลายเส้น
+	Compound type	ชนิดเส้นผสม
+	Contour	เส้นขอบนอก
+	Depth	ความลึก
+	Distance from ground	ระยะห่างจากพื้น
+	End arrow	หัวลูกศรปลาย
+	Fill & Line	เติมและเส้น
+	Flat	ตัดตรง
+	From	จาก
+	Join type	ชนิดรอยต่อ
+	Lighting	แสง
+	Material	วัสดุ
+	No fill	ไม่เติม
+	No line	ไม่มีเส้น
+	Presets	แบบสำเร็จรูป
+	Reset 3-D	รีเซ็ตสามมิติ
+	Round	มน
+	Scale Height	มาตราส่วนความสูง
+	Scale Width	มาตราส่วนความกว้าง
+	Single	เดี่ยว
+	Size & Properties	ขนาดและคุณสมบัติ
+	Slide background fill	เติมตามพื้นหลังสไลด์
+	Solid line	เส้นทึบ
+	Text Options	ตัวเลือกข้อความ
+	Top bevel	มุมเอียงด้านบน
+	X Rotation	การหมุนแกน X
+	Y Rotation	การหมุนแกน Y
+	Z Rotation	การหมุนแกน Z
+	size (pt)	ขนาด (pt)
+	Play From	เล่นจากรายการนี้
+	Play All	เล่นทั้งหมด
+	No Fill	ไม่เติม
+	No Outline	ไม่มีเส้นขอบ
+	Advanced	ขั้นสูง
+	As you type	ขณะพิมพ์
+	Interface	ส่วนติดต่อผู้ใช้
+	Interface size:	ขนาดเมนู:
+	Interface theme:	ธีมของโปรแกรม:
+	Light	สว่าง
+	Makes the ribbon, menus and dialogs larger or smaller. 100% follows your system's display scaling. Slide zoom is separate.	ปรับขนาดริบบิ้น เมนู และกล่องโต้ตอบให้ใหญ่หรือเล็กลง 100% จะตามการปรับขนาดหน้าจอของระบบ การย่อ/ขยายสไลด์ตั้งแยกกัน
+	Menus and commands change; your presentations don't.	เมนูและคำสั่งจะเปลี่ยนภาษา ส่วนงานนำเสนอของคุณไม่เปลี่ยน
+	Personalize	ข้อมูลส่วนตัว
+	Proofing	การพิสูจน์อักษร
+	Dark	มืด
+	Preferences	ตัวเลือก
+	Done	เสร็จสิ้น
+	Undo History	ประวัติการเลิกทำ
+	Can't Undo	เลิกทำไม่ได้
+	{} slides	{} สไลด์
+	Icons from Tabler Icons by Paweł Kuna (MIT License)	ไอคอนจาก Tabler Icons โดย Paweł Kuna (สัญญาอนุญาต MIT)
+	Tabler Icons license	สัญญาอนุญาตของ Tabler Icons
+	Preserve fidelity when sharing this presentation	คงรูปแบบให้ตรงเมื่อแชร์งานนำเสนอนี้
+	Open a presentation to choose how its fonts are saved.	เปิดงานนำเสนอก่อน แล้วจึงเลือกวิธีบันทึกฟอนต์ของงานนั้น
+	Embed fonts in the file	ฝังฟอนต์ไว้ในไฟล์
+	Embed only the characters used in the presentation (best for reducing file size)	ฝังเฉพาะตัวอักษรที่ใช้ในงานนำเสนอ (ไฟล์เล็กที่สุด)
+	Embed all characters (best for editing by other people)	ฝังตัวอักษรทั้งหมด (เหมาะเมื่อผู้อื่นจะแก้ไขต่อ)
+	Fonts are embedded when the presentation is saved as a PowerPoint file. A font whose licence doesn't allow embedding is left out.	ฟอนต์จะถูกฝังเมื่อบันทึกงานนำเสนอเป็นไฟล์ PowerPoint ฟอนต์ที่สัญญาอนุญาตไม่ให้ฝังจะถูกข้ามไป
+	In the browser, only the fonts that come with DeckCraft and fonts embedded in an opened presentation can be embedded.	ในเบราว์เซอร์ ฝังได้เฉพาะฟอนต์ที่มากับ PhutKrub และฟอนต์ที่ฝังมากับงานนำเสนอที่เปิดอยู่
+	Swap Displays	สลับจอภาพ
+	Pane: {}	แผง: {}
+	Insert Shapes	แทรกรูปร่าง
+	Shape Styles	ลักษณะรูปร่าง
+	WordArt Styles	ลักษณะ WordArt
+	Accessibility	การช่วยสำหรับการเข้าถึง
+	More Formatting	การจัดรูปแบบเพิ่มเติม
+	Adjust	ปรับ
+	Border and Style	เส้นขอบและลักษณะ
+	Crop Picture	ครอบตัดรูปภาพ
+	Cell Shading	แรเงาเซลล์
+	Cell Borders	เส้นขอบเซลล์
+	Draw Borders	วาดเส้นขอบ
+	Rows & Columns	แถวและคอลัมน์
+	Merge	ผสาน
+	Cell Size	ขนาดเซลล์
+	Chart Type and Data	ชนิดและข้อมูลแผนภูมิ
+	Create Graphic	สร้างกราฟิก
+	Choose a shape, picture, table, chart or SmartArt graphic on the slide to see its commands here.	เลือกรูปร่าง รูปภาพ ตาราง แผนภูมิ หรือกราฟิก SmartArt บนสไลด์ เพื่อดูคำสั่งของสิ่งนั้นที่นี่
+	Area	พื้นที่
+	Effect	เอฟเฟกต์
+	Style	ลักษณะ
+	Thickness	ความหนา
+	Arrow styles	ลักษณะหัวลูกศร
+	Radius	รัศมี
+	Soft Edge	ขอบนุ่ม
+	Keep ratio	คงสัดส่วน
+	Order	จัดลำดับ
+	Solid	เส้นทึบ
+	Dot	จุด
+	Dash Dot	เส้นประจุด
+	Line start	ต้นเส้น
+	Line end	ปลายเส้น
+	Open Arrow	ลูกศรเปิด
+	Stealth	ลูกศรแหลม
+	Oval	วงรี
+	Arrow	ลูกศร
+	Align Objects Left	จัดวัตถุชิดซ้าย
+	Align Objects Center	จัดวัตถุกึ่งกลางแนวนอน
+	Align Objects Right	จัดวัตถุชิดขวา
+	Align Objects Top	จัดวัตถุชิดบน
+	Align Objects Middle	จัดวัตถุกึ่งกลางแนวตั้ง
+	Align Objects Bottom	จัดวัตถุชิดล่าง
+	Fill:	สีเติม:
+	Transparency:	ความโปร่งใส:
+	Line style:	ลักษณะเส้น:
+	Dotted	เส้นจุด
+	Dashed	เส้นประ
+	Long dash	เส้นประยาว
+	Dash dot	เส้นประจุด
+	Thickness:	ความหนา:
+	Color:	สี:
+	Arrow styles:	หัวลูกศร:
+	No Shadow	ไม่มีเงา
+	Radius:	รัศมี:
+	Rotation:	การหมุน:
+	Flip:	พลิก:
+	Vertically	แนวตั้ง
+	Horizontally	แนวนอน
+	Align:	จัดแนว:
+	Arrange:	จัดลำดับ:
+	Glow radius	รัศมีแสงเรือง
+	Soft edge radius	รัศมีขอบนุ่ม
+	Align to Slide	จัดแนวกับสไลด์
+	Align Selected Objects	จัดแนววัตถุที่เลือก
+	Fill color	สีเติม
+	Line color	สีเส้น
+	Glow color	สีแสงเรือง
+# Shapes menu groups (Insert › Shapes, Home › Shapes): context `shapes`.
+shapes	Lines	เส้น
+shapes	Rectangles	สี่เหลี่ยมผืนผ้า
+shapes	Basic Shapes	รูปร่างพื้นฐาน
+shapes	Block Arrows	ลูกศรแบบทึบ
+shapes	Equation Shapes	เครื่องหมายคณิตศาสตร์
+shapes	Flowchart	ผังงาน
+shapes	Stars and Banners	ดาวและแถบป้าย
+shapes	Callouts	กล่องคำอธิบาย
+shapes	Action Buttons	ปุ่มการทำงาน

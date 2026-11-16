@@ -81,6 +81,9 @@ impl Pen<'_> {
 
 /// Paint a document-specific symbol with shared ink, stroke and surface roles.
 pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, flat: bool) {
+    if crate::tabler::paint(p, r, name, c, false) {
+        return;
+    }
     let _ = draw_0(p, r, name, c, flat)
         || draw_1(p, r, name, c, flat)
         || draw_2(p, r, name, c, flat)
@@ -230,6 +233,7 @@ fn draw_0(p: &Painter, r: Rect, name: &str, c: Color32, flat: bool) -> bool {
         "justify" => pen.lines(3.0, 17.0, &[4.0, 7.0, 10.0, 13.0, 16.0]),
         "thaiDistribute" => crate::thai::paint(p, r, c, flat),
         "thaiDigits" => crate::thai::paint_digits(p, r, c, flat),
+        "arabicDigits" => crate::thai::paint_arabic_digits(p, r, c, flat),
         // Text direction: lines set from the start edge, an arrow in the reading direction.
         "textLtr" => {
             pen.lines(3.0, 14.0, &[4.0, 8.0]);
@@ -1671,6 +1675,7 @@ pub const ALL: &[&str] = &[
     "justify",
     "thaiDistribute",
     "thaiDigits",
+    "arabicDigits",
     "textLtr",
     "textRtl",
     "lineSpacing",

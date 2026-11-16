@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::SlideApp;
 use crate::theme;
 
+mod displays;
 mod keys;
 mod media;
 mod presenter;
@@ -19,6 +20,10 @@ mod render;
 mod ui;
 mod zoom;
 pub(crate) use zoom::GRID_CAP;
+
+pub(crate) use displays::Placement;
+use displays::Staging;
+pub use displays::place_show;
 
 #[cfg(test)]
 use media::{on_screen, pointer_on_media_bar, shown_slide_rect, slide_media_bars};
@@ -42,6 +47,17 @@ pub struct Show {
     pub state: ShowState,
     pub reading: bool,
     pub presenter: bool,
+    /// The displays the slides and Presenter View fill, when there are two (#433).
+    pub(crate) displays: Option<Placement>,
+    /// The display the show window was last sent to full screen on.
+    on_display: Option<usize>,
+    /// A staged move of the show windows in progress (macOS).
+    staging: Staging,
+    /// Where Presenter View opens and how big (egui points), when the show places it (macOS).
+    presenter_frame: Option<(egui::Pos2, egui::Vec2)>,
+    /// Commands for the presenter window, sent from its own pass (commands sent to it from the
+    /// show window's pass are not applied).
+    presenter_cmds: Vec<egui::ViewportCommand>,
     /// Preview from the Transitions/Animations tab: exits after the current slide.
     pub preview_only: bool,
     /// Play every step automatically (animation preview).
@@ -215,6 +231,13 @@ pub(crate) fn viewport_visible(ctx: &egui::Context) -> bool {
 }
 
 impl Show {
+    /// Swap Displays: the slides and Presenter View trade displays. `None` without two displays.
+    pub(crate) fn swap_displays(&mut self) -> Option<Placement> {
+        let p = self.displays?.swapped();
+        self.displays = Some(p);
+        Some(p)
+    }
+
     /// Initialise show state at the requested slide with reading/presenter modes; an out-of-range
     /// slide starts an ended show.
     pub fn new(doc: &Presentation, from: usize, reading: bool, presenter: bool) -> Self {
@@ -223,6 +246,11 @@ impl Show {
             state: ShowState::start_at(doc, from),
             reading,
             presenter,
+            displays: None,
+            on_display: None,
+            staging: Staging::Done,
+            presenter_frame: None,
+            presenter_cmds: vec![],
             preview_only: false,
             autoplay: false,
             rehearse: false,

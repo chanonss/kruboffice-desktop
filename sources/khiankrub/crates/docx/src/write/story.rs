@@ -1021,10 +1021,20 @@ impl Writer<'_> {
         }
         let alpha = geom.map_or(1.0, |f| f.alpha);
         let ink = geom.is_some_and(|f| f.is_ink());
+        // Fill and outline transparency (`a:alpha`: opacity in 1000ths of a percent).
+        let opaque = |t: f32| if t.is_finite() { 1.0 - t.clamp(0.0, 100.0) / 100.0 } else { 1.0 };
+        let fill_alpha = opaque(extra.fill_transparency);
+        let alpha = alpha * opaque(extra.line_transparency);
         match fill.filter(|_| !ink && !kind.is_open()) {
             Some(c) => {
                 w.open("a:solidFill", &[]);
-                w.empty("a:srgbClr", &[("val", &c.hex())]);
+                if fill_alpha < 1.0 {
+                    w.open("a:srgbClr", &[("val", &c.hex())]);
+                    w.empty("a:alpha", &[("val", &n((fill_alpha * 100_000.0).round() as i64))]);
+                    w.close("a:srgbClr");
+                } else {
+                    w.empty("a:srgbClr", &[("val", &c.hex())]);
+                }
                 w.close("a:solidFill");
             }
             None => w.empty("a:noFill", &[]),
@@ -1043,6 +1053,9 @@ impl Writer<'_> {
                     w.empty("a:srgbClr", &[("val", &c.hex())]);
                 }
                 w.close("a:solidFill");
+                if !extra.dash.is_solid() {
+                    w.empty("a:prstDash", &[("val", extra.dash.ooxml())]);
+                }
                 if ink {
                     w.empty("a:round", &[]);
                 }

@@ -81,6 +81,11 @@ fn render_preview(doc: &Presentation, n: usize, size: (u32, u32), threads: u16) 
     crate::textures::to_color_image(&deckcraft_render::render_slide(doc, n, &opts), false)
 }
 
+/// The presenter window's viewport.
+pub(super) fn presenter_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("deckcraft_presenter")
+}
+
 /// Render the presenter window and set `keep` false when the user ends or closes the show.
 pub(super) fn presenter_window(ctx: &egui::Context, show: &mut Show, doc: &std::sync::Arc<Presentation>, now: f64, keep: &mut bool) {
     let cur = show.state.slide;
@@ -147,9 +152,24 @@ pub(super) fn presenter_window(ctx: &egui::Context, show: &mut Show, doc: &std::
         ui.add(egui::Button::new(egui::RichText::new(s).size(15.0).color(Color32::WHITE)).fill(Color32::from_gray(60)).min_size(vec2(0.0, 30.0)))
     };
     ctx.show_viewport_immediate(
-        egui::ViewportId::from_hash_of("deckcraft_presenter"),
-        egui::ViewportBuilder::default().with_title(tl!("Presenter View — PhutKrub")).with_inner_size([1100.0, 700.0]),
+        presenter_id(),
+        {
+            let b = egui::ViewportBuilder::default().with_title(tl!("Presenter View — PhutKrub")).with_inner_size([1100.0, 700.0]);
+            // Two displays: the presenter fills the one the slides are not on (#433). On macOS it
+            // opens there at that display's size; a later move is a command from its own pass.
+            match show.displays {
+                Some(p) if p.staged() => match show.presenter_frame {
+                    Some((at, size)) => b.with_position(at).with_inner_size(size),
+                    None => b,
+                },
+                Some(p) => b.with_monitor(p.presenter),
+                None => b,
+            }
+        },
         |ui, _| {
+            for c in show.presenter_cmds.drain(..) {
+                ui.ctx().send_viewport_cmd(c);
+            }
             if !keyboard(ui.ctx(), show, doc, now, true) {
                 *keep = false;
             }
@@ -197,6 +217,9 @@ pub(super) fn presenter_window(ctx: &egui::Context, show: &mut Show, doc: &std::
                     }
                     if button(ui, show.zoom_label()).clicked() {
                         show.zoom_key();
+                    }
+                    if show.displays.is_some() && button(ui, tl!("Swap Displays")).clicked() {
+                        show.swap_displays();
                     }
                 });
                 ui.add_space(8.0);

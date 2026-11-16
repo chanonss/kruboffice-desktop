@@ -129,11 +129,14 @@ fn big_split_button_separates_the_default_action_from_the_menu() {
     h.get_by_label("Auto Sum").hover();
     h.run_steps(6);
     assert!(h.query_by_value("AutoSum (\u{2318}\u{21e7}T)").is_some(), "tooltip with the macOS shortcut");
-    // The icon part sits above the label part, across the full width.
+    // The arrow is a strip at the right end of the label row, inside the button: the icon and
+    // the label text stay on the main part (the KrubOffice split button).
     let main = h.get_by_label("Auto Sum").rect();
     let arrow = h.get_by_label("Auto Sum options").rect();
-    assert!(main.max.y <= arrow.min.y + 0.5);
-    assert!((main.min.x - arrow.min.x).abs() < 0.5 && (main.max.x - arrow.max.x).abs() < 0.5);
+    assert!(main.contains_rect(arrow), "{arrow:?} sits inside {main:?}");
+    assert!((arrow.max.x - main.max.x).abs() < 0.5 && (arrow.max.y - main.max.y).abs() < 0.5, "bottom-right corner");
+    assert!((arrow.width() - widgets::SPLIT_ARROW_W).abs() < 0.5);
+    assert!(arrow.min.y > main.min.y + main.height() / 3.0, "the arrow is in the label row, below the icon");
 }
 
 #[test]

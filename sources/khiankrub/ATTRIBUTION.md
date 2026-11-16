@@ -6,7 +6,9 @@ Every non-code asset in this repository (fonts, icons, images, example documents
 
 Data compiled in from crates.io dependencies is not a file in this repository and has no row here; it is listed with its licence text in [`NOTICE`](NOTICE) (for example the Thai word-break dictionary in ICU4X's `icu_segmenter_data`, Unicode-3.0).
 
-Generated-in-code art is original and has no file to list: the UI icon set (`crates/ui-egui/src/icons.rs`), the sample documents and templates (`crates/engine/src/sample.rs`), the table and style previews, and theme colours (`crates/engine/src/cmd/design.rs`).
+Generated-in-code art is original and has no file to list: the UI icons not taken from Tabler Icons (below; `crates/ui-egui/src/icons.rs`, `crates/krub-icons`), the sample documents and templates (`crates/engine/src/sample.rs`), the table and style previews, and theme colours (`crates/engine/src/cmd/design.rs`).
+
+**Tabler Icons.** Most ribbon, toolbar and menu icons are drawn from [Tabler Icons](https://tabler.io/icons) 3.50.0 by Paweł Kuna, under the MIT License; the full text is [`crates/krub-icons/LICENSE-tabler.txt`](crates/krub-icons/LICENSE-tabler.txt). Their outline SVG paths were converted into Rust geometry in `crates/krub-icons/src/tabler.rs` (no SVG files are bundled), and `crates/krub-icons/tools/tabler-map.tsv` lists which icon names use them. The apps credit Tabler Icons in Help › About and show the licence there. Icons not in that list (for example the Thai Distribution ท and Thai digits icons, the function library books and the preset diagrams) remain original KrubOffice drawings.
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
@@ -21,6 +23,12 @@ Generated-in-code art is original and has no file to list: the UI icon set (`cra
 | `packaging/web/kruboffice/images/khiankrub-missing-font.png` | Chanon Sarasuk | Copy of docs/images/khiankrub-web-missing-font.png | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
 | `packaging/web/kruboffice/images/khiankrub-header-footer.png` | Chanon Sarasuk | Copy of docs/images/khiankrub-web-header-footer.png | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
 | `packaging/web/kruboffice/images/kruboffice-versions.png` | Chanon Sarasuk | Screenshot of the KrubOffice launcher (our own page and icons) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/khiankrub-ribbon-0.16.0.png` | Chanon Sarasuk | Screenshot of KhianKrub's own ribbon (our own icons, drawn in code) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/khitkrub-ribbon-0.5.0.png` | Chanon Sarasuk | Screenshot of KhitKrub's own ribbon (our own icons, drawn in code) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/phutkrub-ribbon-0.7.0.png` | Chanon Sarasuk | Screenshot of PhutKrub's own ribbon (our own icons, drawn in code) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/khiankrub-pane-0.17.0.png` | Chanon Sarasuk | Screenshot of KhianKrub's own window with its shape pane (our own UI; Tabler Icons, MIT) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/khitkrub-pane-0.6.0.png` | Chanon Sarasuk | Screenshot of KhitKrub's own window with its shape pane (our own UI; Tabler Icons, MIT) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
+| `packaging/web/kruboffice/images/phutkrub-pane-0.8.0.png` | Chanon Sarasuk | Screenshot of PhutKrub's own window with its shape pane (our own UI; Tabler Icons, MIT) | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
 | `packaging/web/kruboffice/images/kruboffice-desktop-start.png` | Chanon Sarasuk | Copy of kruboffice-desktop `docs/images/start-light.png` (our own interface, icons and Sarabun) | MIT OR Apache-2.0 (Sarabun: SIL OFL 1.1) | Original; no Microsoft UI or assets |
 | `packaging/web/kruboffice/images/phutkrub-presenter.png` | Chanon Sarasuk | Copy of PhutKrub's docs/images/phutkrub-web-presenter.png: Presenter View in its own browser window with the built-in sample deck | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |
 | `packaging/web/kruboffice/images/khitkrub-formulas.png` | Chanon Sarasuk | Copy of KhitKrub's docs/images/khitkrub-web-formulas.png: the Formulas tab in Thai | MIT OR Apache-2.0 | Original; no Microsoft UI or assets |

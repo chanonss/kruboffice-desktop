@@ -17,8 +17,8 @@ pub fn status_bar(app: &mut SlideApp, ui: &mut Ui) {
         let Some(st) = app.session.active() else { return };
         let n = st.doc.slides.len();
         let left = match st.selection.target {
-            deckcraft_engine::Target::Slides => format!("Slide {} of {}", (st.selection.slide + 1).min(n.max(1)), n),
-            _ => "Slide Master".to_string(),
+            deckcraft_engine::Target::Slides => crate::i18n::fmtp(tl!("Slide {} of {}"), &[&(st.selection.slide + 1).min(n.max(1)), &n]),
+            _ => tl!("Slide Master").to_string(),
         };
         let p = ui.painter();
         // Left to right: slide counter, language, status message. Each starts at its usual column, or
@@ -29,7 +29,10 @@ pub fn status_bar(app: &mut SlideApp, ui: &mut Ui) {
         let right_x = rect.max.x - 560.0;
         // The selection's proofing language; a click opens Review › Language.
         let (lang, no_proof) = crate::dialogs::selected_language(app);
-        let name = crate::squiggles::display_lang_name(ui.ctx(), &lang) + if no_proof { " (not checked)" } else { "" };
+        let mut name = crate::squiggles::display_lang_name(ui.ctx(), &lang);
+        if no_proof {
+            name = format!("{name} ({})", tl!("not checked"));
+        }
         let lx = (rect.min.x + 120.0).max(sr.max.x + 16.0);
         let lclip = Rect::from_min_max(pos2(lx - 3.0, rect.min.y), pos2(right_x.max(lx - 3.0), rect.max.y));
         let lr = p.with_clip_rect(lclip).text(pos2(lx, rect.center().y), Align2::LEFT_CENTER, &name, theme::font(12.0), t.text_dim);

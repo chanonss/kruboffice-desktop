@@ -129,7 +129,9 @@ fn options_opens_over_the_start_screen_and_back_returns_to_it() {
     h.get_by_label("Options").click();
     h.run_steps(3);
     assert!(!h.state().web_start_screen(), "the Options page shows");
-    assert!(h.query_by_label("Interface language").is_some());
+    h.get_by_role_and_label(egui::accesskit::Role::Tab, "Language").click();
+    h.run_steps(3);
+    assert!(h.query_all_by_label("Interface language").next().is_some(), "the Language category shows the picker");
     h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
     h.run_steps(3);
     assert!(h.state().web_start_screen(), "Back returns to the start screen");

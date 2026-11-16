@@ -325,10 +325,16 @@ fn new_window(path: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-/// Window, Dock and taskbar icon.
+/// Window, Dock and taskbar icon. On macOS inside the .app the Dock keeps the bundle's own icon:
+/// setting another picture at run time made the icon change as the app opened (owner,
+/// 2026-11-16). An empty icon tells eframe to leave it alone.
 fn app_icon() -> Option<egui::IconData> {
     #[cfg(target_os = "macos")]
-    let png: &[u8] = include_bytes!("../../../assets/app-icon/wordcraft-macos-512.png");
+    if std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/")) {
+        return Some(egui::IconData::default());
+    }
+    #[cfg(target_os = "macos")]
+    let png: &[u8] = include_bytes!("../../../assets/app-icon/khiankrub-512.png");
     #[cfg(not(target_os = "macos"))]
     let png: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.wordcraft.png");
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()

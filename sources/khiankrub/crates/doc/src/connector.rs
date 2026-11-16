@@ -38,6 +38,72 @@ pub struct ShapeExtra {
     /// 100000ths of the shorter side, at most [`MAX_CORNER`]; `None` draws [`DEFAULT_CORNER`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corner: Option<u32>,
+    /// The fill's and the outline's transparency, percent (0 opaque; `a:alpha` in their
+    /// `a:solidFill`, ECMA-376 §20.1.2.3.1).
+    #[serde(skip_serializing_if = "is_zero_f32")]
+    pub fill_transparency: f32,
+    #[serde(skip_serializing_if = "is_zero_f32")]
+    pub line_transparency: f32,
+    /// The outline's dash (`a:prstDash`, ECMA-376 §20.1.8.48); solid when absent.
+    #[serde(skip_serializing_if = "LineDash::is_solid")]
+    pub dash: LineDash,
+}
+
+/// An outline's dash pattern (the preset dashes Word offers).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineDash {
+    #[default]
+    Solid,
+    /// Round dots (`sysDot`).
+    Dot,
+    /// Short dashes (`sysDash`).
+    Dash,
+    /// Long dashes (`lgDash`).
+    LongDash,
+    /// Dash, dot (`dashDot`).
+    DashDot,
+}
+
+impl LineDash {
+    pub const ALL: [LineDash; 5] = [LineDash::Solid, LineDash::Dot, LineDash::Dash, LineDash::LongDash, LineDash::DashDot];
+    pub fn is_solid(&self) -> bool {
+        *self == LineDash::Solid
+    }
+    /// The `a:prstDash` value.
+    pub fn ooxml(self) -> &'static str {
+        match self {
+            LineDash::Solid => "solid",
+            LineDash::Dot => "sysDot",
+            LineDash::Dash => "sysDash",
+            LineDash::LongDash => "lgDash",
+            LineDash::DashDot => "dashDot",
+        }
+    }
+    /// From an `a:prstDash` value; the other presets map to the nearest of ours.
+    pub fn from_ooxml(v: &str) -> LineDash {
+        match v {
+            "sysDot" | "dot" => LineDash::Dot,
+            "sysDash" | "dash" => LineDash::Dash,
+            "lgDash" | "lgDashDot" | "lgDashDotDot" => LineDash::LongDash,
+            "dashDot" | "sysDashDot" | "sysDashDotDot" => LineDash::DashDot,
+            _ => LineDash::Solid,
+        }
+    }
+    /// The dash pattern in multiples of the line width (on, off, …); empty for solid.
+    pub fn pattern(self) -> &'static [f32] {
+        match self {
+            LineDash::Solid => &[],
+            LineDash::Dot => &[1.0, 1.0],
+            LineDash::Dash => &[3.0, 1.0],
+            LineDash::LongDash => &[8.0, 3.0],
+            LineDash::DashDot => &[4.0, 3.0, 1.0, 3.0],
+        }
+    }
+}
+
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
 }
 
 fn is_zero(v: &u32) -> bool {

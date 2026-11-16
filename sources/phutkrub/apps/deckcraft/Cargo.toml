@@ -32,6 +32,8 @@ rfd = { workspace = true }
 arboard = { workspace = true, features = ["image-data"] }
 image = { workspace = true }
 cpal = "0.16"
+# The displays Presenter View places the show on (#433); eframe brings winit already.
+winit = { version = "0.30", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Finder double-click, Open With, Dock drops and `open -a DeckCraft deck.pptx` arrive as a

@@ -8,6 +8,7 @@
 
 pub mod catalog;
 pub mod cmd;
+pub mod embed_fonts;
 pub mod file_access;
 pub mod io;
 mod io_ext;

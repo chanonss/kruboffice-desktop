@@ -1,6 +1,6 @@
 # Slide show and presenter view: parity with PowerPoint
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-11-02 · **Change:** minor (deleting slides removes them from custom shows; previous: minor, Presenter View only with a second display on Linux and the BSDs, #1156; previous: minor, Set Up Slide Show ▸ Keep mouse cursor visible, #1445; previous: minor, Ctrl+wheel zooms the show around the pointer, #1286; previous: major, community PR wave 2026-10-14: interactive decks, laser pointer, See All Slides and zoom, go-to-slide number, custom show playback, presenter timer, clock, notes size and keyboard, Show Media Controls, swipe; breadth 68%; duplicated rows and headers folded; previous: major, created) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-11-15 · **Change:** minor (on the desktop the show fills a second display and Presenter View the first; Swap Displays, #433; previous: minor, deleting slides removes them from custom shows; previous: minor, Presenter View only with a second display on Linux and the BSDs, #1156; previous: minor, Set Up Slide Show ▸ Keep mouse cursor visible, #1445; previous: minor, Ctrl+wheel zooms the show around the pointer, #1286; previous: major, community PR wave 2026-10-14: interactive decks, laser pointer, See All Slides and zoom, go-to-slide number, custom show playback, presenter timer, clock, notes size and keyboard, Show Media Controls, swipe; breadth 68%; duplicated rows and headers folded; previous: major, created) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Presenting is the job PowerPoint is hired for. This doc covers the show window, presenter view,
 rehearsal and recording. Transition and animation playback are in
@@ -41,14 +41,14 @@ ready** (estimated), **10–16 h** to parity.
 
 | Feature | PowerPoint | DeckCraft | Notes |
 |---|---|---|---|
-| Separate presenter window with current slide, next slide, notes | yes | yes (an egui viewport, 1100×700); the notes keep their bullets, numbers, indents and bold/italic, as in the notes pane | On Linux and the BSDs it stays off if winit lists exactly one display as the show starts, as in PowerPoint: on one display it covered the show, and the hidden window stalled every frame (#1156). If winit lists none, the setting is kept. There is not yet a way to switch to Presenter View by hand during a one-display show. macOS, Windows and the browser are unchanged |
+| Separate presenter window with current slide, next slide, notes | yes | yes (an egui viewport, 1100×700); the notes keep their bullets, numbers, indents and bold/italic, as in the notes pane | It stays off if winit lists exactly one display as the show starts (mirrored screens count as one), as in PowerPoint: on one display it covered the show, and the hidden window stalled every frame on Linux (#1156) and intermittently aborted the app in egui-wgpu on macOS ("Tried to update a texture that has not been allocated yet", 2026-11-15). If winit lists none, the setting is kept. There is not yet a way to switch to Presenter View by hand during a one-display show. The browser is unchanged |
 | Elapsed timer | yes | yes | |
 | Pause / reset timer, clock | yes | yes: Pause/Resume and Reset in presenter view (T pauses, R resets); the clock is local time, `--:--` where there is no clock | Pausing the timer does not pause the show, animations or rehearsal |
 | Slide counter, previous/next/end buttons | yes | yes | |
 | Keyboard navigation while Presenter View has focus | yes | yes | Shares the audience window's key handling; handled keys are consumed before buttons, and the presenter stays available at the end screen |
 | Notes font size, scrolling | yes | yes: A- / A+ (and `[` / `]`), 12–48 pt in steps of 4, default 18; the notes scroll | |
-| Placed on the presenter's display automatically, show on the projector | yes | **no**: opens wherever the OS puts it | Beta blocker, 3–5 h. Open PR #433 places the show on a second display when one is attached. This change does not |
-| Swap displays | yes | no | Still open on #433 |
+| Placed on the presenter's display automatically, show on the projector | yes | yes on the desktop (#433): with Presenter View on and two or more displays, the show goes full screen on another display and Presenter View fills the one the editor window is on (the main display if the system can't tell). With three, the slides skip the main display. On macOS each window is moved first and enters full screen once it is there (AppKit enters full screen on the display a window is on); Presenter View is a window sized to its display, not full screen | Checked on a Mac with a built-in and an external display (start, swap, swap back, end; no crash in four runs). Windows and Linux use winit's full screen on a chosen display directly, not yet tried on hardware. One display: no Presenter View. In Chrome and Edge the browser build uses the Window Management API (asked once): the page goes full screen on the slides screen and the presenter popup opens filling the other (checked in Chrome 157); other browsers: drag the popup to the other screen. No Swap Displays on the web. After the show the editor comes back on the display the slides were on |
+| Swap displays | yes | yes on the desktop: Swap Displays in Presenter View (command `show.swapDisplays`). On macOS the show leaves full screen, both windows move, and the show enters full screen again (about 1–2 s) | No ribbon Monitor picker yet |
 | Pen, laser, black screen, zoom from presenter view | yes | Black, White and Zoom buttons; the audience zoom is framed on the presenter slide | Pen and laser are driven from the audience window only; the presenter window does not move the laser dot |
 | See all slides from presenter view | yes | yes: All slides (or G) opens the grid in presenter view only, the audience keeps the slide; click a thumbnail to go there, Esc closes it | |
 | Rehearse with Coach (Speaker Coach) | yes (cloud) | no | AI dimension |
@@ -71,7 +71,7 @@ Reading View in a window with navigation: present (checklist row done).
 | Work | Hours |
 |---|---|
 | Highlighter, eraser, keep-annotations prompt, laser from presenter view | 2–4 |
-| Presenter view on the right display and a swap-displays command | 2–4 |
+| A ribbon Monitor picker (choose the slide display by hand) | 1–2 |
 | Record slide show with narration (no camera) | 5–8 |
 | **Total** | **~9–16** (the slide-show row of the feature table carries 10–16 h; recording overlaps the Media row) |
 
@@ -79,6 +79,7 @@ Reading View in a window with navigation: present (checklist row done).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | minor | Desktop: one display now means no Presenter View on macOS and Windows too (it could crash on macOS). With Presenter View and two displays, the show goes full screen on the other display and Presenter View fills the editor's; Swap Displays trades them (#433) |
 | 2026-11-02 | minor | On Linux and the BSDs, Presenter View stays off when winit lists exactly one display; if it lists none, the setting is kept (#1156) |
 | 2026-10-27 | minor | Set Up Slide Show ▸ Keep mouse cursor visible: full-screen shows keep a still pointer, so clickable choices stay targetable; Reading View unchanged (#1445) |
 | 2026-10-22 | minor | See All Slides from presenter view opens in presenter view, not on the audience screen (#1130) |

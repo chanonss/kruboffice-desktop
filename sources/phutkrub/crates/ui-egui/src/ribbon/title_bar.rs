@@ -1,13 +1,13 @@
 use super::{Align2, Icon, Rect, Sense, SlideApp, Tokens, Ui, icon_toggle, json, pos2, theme};
 
-pub const TITLE_H: f32 = 38.0;
+pub const TITLE_H: f32 = krub_icons::chrome::TITLE_H;
 
 /// macOS draws the window into the title bar (`with_fullsize_content_view`) and AppKit paints the
 /// traffic lights itself, 16 pt from the top of the window on macOS 27. Moving them would take
 /// AppKit calls (`unsafe`, forbidden here), so on macOS the title bar is the band they are centred
 /// in, with the controls beside them (#71). Up to macOS 15 the lights are smaller and centred 14 pt
 /// from the top, about 2 pt above this bar's centre.
-pub const MAC_TITLE_BAR: f32 = 32.0;
+pub const MAC_TITLE_BAR: f32 = krub_icons::chrome::MAC_TITLE_H;
 
 /// The traffic lights as AppKit lays them out, measured on macOS 27: button diameter,
 /// centre-to-centre pitch and the first button's left edge.
@@ -84,8 +84,18 @@ pub fn title_bar(app: &mut SlideApp, ui: &mut Ui) {
 pub(crate) fn document_title(app: &SlideApp) -> String {
     let Some(d) = app.session.active() else { return tl!("PhutKrub").into() };
     match app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()) {
-        Some(saved) => format!("{} ({}) — {}", d.title(), tl!("draft"), if saved { tl!("Saved on this device") } else { tl!("Saving…") }),
-        None => format!("{}{}", d.title(), if d.is_dirty() { " — Edited" } else { "" }),
+        Some(saved) => format!("{} ({}) — {}", shown_name(d), tl!("draft"), if saved { tl!("Saved on this device") } else { tl!("Saving…") }),
+        None => format!("{}{}", shown_name(d), if d.is_dirty() { format!(" — {}", tl!("Edited")) } else { String::new() }),
+    }
+}
+
+/// The presentation's name as shown: a new, never-saved one ("Presentation1") in the interface
+/// language ("งานนำเสนอ1"); any other name exactly as it is.
+fn shown_name(d: &deckcraft_engine::DocState) -> String {
+    let title = d.title();
+    match title.strip_prefix("Presentation") {
+        Some(n) if d.path.is_none() && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => format!("{}{n}", tl!("Presentation")),
+        _ => title,
     }
 }
 
@@ -116,5 +126,24 @@ mod tests {
         assert_eq!(document_title(&app), "Trip plan (draft) — Saved on this device");
         saved.set(None);
         assert_eq!(document_title(&app), "Trip plan — Edited", "a presentation saved elsewhere is not a draft");
+    }
+
+    /// In Thai a new, never-saved presentation is "งานนำเสนอ1" and an edit says "แก้ไขแล้ว"; a name
+    /// the user gave stays as it is.
+    #[test]
+    fn the_title_is_in_thai() {
+        let mut app = SlideApp::new(deckcraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({})).unwrap();
+        app.run("slide.new", json!({})).unwrap();
+        crate::i18n::set_current(crate::i18n::lang_from_tag("th").unwrap());
+        let shown = document_title(&app);
+        let named = {
+            let d = app.session.active_mut().unwrap();
+            d.title = "Presentation plan".into();
+            document_title(&app)
+        };
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        assert!(shown.starts_with("งานนำเสนอ") && shown.ends_with("— แก้ไขแล้ว") && !shown.contains("Presentation"), "{shown}");
+        assert_eq!(named, "Presentation plan — แก้ไขแล้ว");
     }
 }

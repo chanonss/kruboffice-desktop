@@ -265,6 +265,25 @@ fn read_shape(obj: &El, anchor: Anchor) -> Option<Shape> {
     let text = obj.child("txBody").map(body_text).unwrap_or_default();
     let mut format = read_text_format(obj.child("txBody"));
     format.no_line = ln.is_some_and(|l| l.child("noFill").is_some());
+    format.no_fill = sp.child("noFill").is_some();
+    format.fill_transparency = sp.child("solidFill").map_or(0.0, dml_transparency);
+    format.line_transparency = ln.and_then(|l| l.child("solidFill")).map_or(0.0, dml_transparency);
+    // Outline width in EMU (12,700 to a point); no `w`, or the default ¾ pt the writer puts on
+    // every outline, is the default.
+    format.line_width =
+        ln.and_then(|l| l.attr_f64("w")).filter(|w| w.is_finite() && *w > 0.0 && *w != 9525.0).map(|w| ((w / 12700.0) as f32).clamp(0.25, 1584.0));
+    format.line_dash = ln.and_then(|l| l.child("prstDash")).and_then(|d| d.attr("val")).map_or(gridcraft_model::LineDash::Solid, dash_from_name);
+    let end = |name: &str| ln.and_then(|l| l.child(name)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
+    format.arrow_start = end("headEnd");
+    // An Arrow shape's own head at the end is its kind, not a setting (the writer adds it back).
+    format.arrow_end = (format.arrow_start || kind != ShapeKind::Arrow) && end("tailEnd");
+    if let Some(x) = sp.child("xfrm") {
+        // Rotation in 60,000ths of a degree.
+        format.rotation = x.attr_f64("rot").filter(|r| r.is_finite()).map_or(0.0, |r| ((r / 60000.0).rem_euclid(360.0)) as f32);
+        format.flip_h = x.attr_bool("flipH").unwrap_or(false);
+        format.flip_v = x.attr_bool("flipV").unwrap_or(false);
+    }
+    read_effects(sp, &mut format);
     Some(Shape { id: 0, kind, anchor, fill, line, text, format, math: Default::default() })
 }
 
@@ -444,6 +463,123 @@ pub fn srgb(c: &Color, theme: &Theme) -> Option<String> {
     Some(format!("<a:srgbClr val=\"{r:02X}{g:02X}{b:02X}\"/>"))
 }
 
+/// [`srgb`] with a transparency in percent (`a:alpha`, in thousandths of a percent of opacity).
+fn srgb_alpha(c: &Color, theme: &Theme, transparency: f32) -> Option<String> {
+    let base = srgb(c, theme)?;
+    if transparency <= 0.0 {
+        return Some(base);
+    }
+    let alpha = ((100.0 - transparency.clamp(0.0, 100.0)) * 1000.0).round() as i64;
+    Some(base.replacen("/>", &format!("><a:alpha val=\"{alpha}\"/></a:srgbClr>"), 1))
+}
+
+/// The transparency in percent of the colour choice inside `e` (its `a:alpha`), 0 without one.
+fn dml_transparency(e: &El) -> f32 {
+    ["srgbClr", "schemeClr", "sysClr", "prstClr"]
+        .iter()
+        .find_map(|n| e.child(n))
+        .and_then(|c| c.child("alpha"))
+        .and_then(|a| a.attr_f64("val"))
+        .map_or(0.0, |v| (100.0 - v / 1000.0).clamp(0.0, 100.0) as f32)
+}
+
+/// A shape's `a:effectLst` (glow, outer shadow, soft edges, in the schema's order), or nothing.
+fn effect_list(f: &gridcraft_model::ShapeFormat, theme: &Theme) -> String {
+    let emu = |pt: f32| (f64::from(pt) * 12700.0).round() as i64;
+    let mut e = String::new();
+    if f.glow_radius > 0.0 {
+        let alpha = ((100.0 - f.glow_transparency.clamp(0.0, 100.0)) * 1000.0).round() as i64;
+        let c = match f.glow_color {
+            Color::Auto => format!("<a:schemeClr val=\"accent1\"><a:alpha val=\"{alpha}\"/></a:schemeClr>"),
+            c => srgb_alpha(&c, theme, f.glow_transparency).unwrap_or_default(),
+        };
+        let _ = write!(e, "<a:glow rad=\"{}\">{c}</a:glow>", emu(f.glow_radius));
+    }
+    if let Some(sh) = f.shadow {
+        let alpha = ((100.0 - sh.transparency.clamp(0.0, 100.0)) * 1000.0).round() as i64;
+        let dir = (f64::from(sh.dir.rem_euclid(360.0)) * 60000.0).round() as i64;
+        let _ = write!(
+            e,
+            "<a:outerShdw blurRad=\"{}\" dist=\"{}\" dir=\"{dir}\" algn=\"ctr\" rotWithShape=\"0\"><a:srgbClr val=\"000000\"><a:alpha val=\"{alpha}\"/></a:srgbClr></a:outerShdw>",
+            emu(sh.blur),
+            emu(sh.dist)
+        );
+    }
+    if f.soft_edge > 0.0 {
+        let _ = write!(e, "<a:softEdge rad=\"{}\"/>", emu(f.soft_edge));
+    }
+    if e.is_empty() { e } else { format!("<a:effectLst>{e}</a:effectLst>") }
+}
+
+/// Reads a shape's `a:effectLst` into `format` (the effects the shape pane offers).
+fn read_effects(sp: &El, format: &mut gridcraft_model::ShapeFormat) {
+    let Some(list) = sp.child("effectLst") else { return };
+    let pt = |e: &El, key: &str, max: f32| e.attr_f64(key).filter(|v| v.is_finite()).map_or(0.0, |v| ((v / 12700.0) as f32).clamp(0.0, max));
+    if let Some(g) = list.child("glow") {
+        format.glow_radius = pt(g, "rad", 150.0);
+        format.glow_transparency = dml_transparency(g);
+        format.glow_color = match dml_color(g) {
+            Some(Color::Theme(4, 0)) | None => Color::Auto,
+            Some(c) => c,
+        };
+    }
+    if let Some(sh) = list.child("outerShdw") {
+        format.shadow = Some(gridcraft_model::ShapeShadow {
+            dist: pt(sh, "dist", 200.0),
+            dir: sh.attr_f64("dir").filter(|v| v.is_finite()).map_or(0.0, |v| ((v / 60000.0).rem_euclid(360.0)) as f32),
+            blur: pt(sh, "blurRad", 100.0),
+            transparency: dml_transparency(sh),
+        });
+    }
+    if let Some(se) = list.child("softEdge") {
+        format.soft_edge = pt(se, "rad", 100.0);
+    }
+}
+
+/// A shape's `a:xfrm`: its size, and its rotation and flips when set.
+fn shape_xfrm(sh: &Shape) -> String {
+    let f = &sh.format;
+    let mut attrs = String::new();
+    let rot = (f64::from(f.rotation.rem_euclid(360.0)) * 60000.0).round() as i64;
+    if rot != 0 {
+        attrs.push_str(&format!(" rot=\"{rot}\""));
+    }
+    if f.flip_h {
+        attrs.push_str(" flipH=\"1\"");
+    }
+    if f.flip_v {
+        attrs.push_str(" flipV=\"1\"");
+    }
+    xfrm(&sh.anchor, "a:xfrm").replacen("<a:xfrm>", &format!("<a:xfrm{attrs}>"), 1)
+}
+
+/// The DrawingML preset name of a shape outline's dash.
+fn dash_name(d: gridcraft_model::LineDash) -> &'static str {
+    use gridcraft_model::LineDash as D;
+    match d {
+        D::Solid => "solid",
+        D::Dot => "dot",
+        D::Dash => "dash",
+        D::LgDash => "lgDash",
+        D::DashDot => "dashDot",
+        D::LgDashDot => "lgDashDot",
+        D::LgDashDotDot => "lgDashDotDot",
+        D::SysDash => "sysDash",
+        D::SysDot => "sysDot",
+        D::SysDashDot => "sysDashDot",
+        D::SysDashDotDot => "sysDashDotDot",
+    }
+}
+
+/// The dash for a DrawingML preset name (solid for one we don't know).
+fn dash_from_name(name: &str) -> gridcraft_model::LineDash {
+    use gridcraft_model::LineDash as D;
+    [D::Dot, D::Dash, D::LgDash, D::DashDot, D::LgDashDot, D::LgDashDotDot, D::SysDash, D::SysDot, D::SysDashDot, D::SysDashDotDot]
+        .into_iter()
+        .find(|d| dash_name(*d) == name)
+        .unwrap_or(D::Solid)
+}
+
 /// One drawing object to write.
 pub enum Obj<'a> {
     Image(&'a Image, String),
@@ -528,27 +664,40 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                     "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{id}\" name=\"Shape {}\"/><xdr:cNvSpPr{}/></xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom>",
                     id - 1,
                     if tx { " txBox=\"1\"" } else { "" },
-                    xfrm(&sh.anchor, "a:xfrm")
+                    shape_xfrm(sh)
                 );
-                if let Some(c) = srgb(&sh.fill, theme) {
+                let f = &sh.format;
+                if f.no_fill {
+                    s.push_str("<a:noFill/>");
+                } else if let Some(c) = srgb_alpha(&sh.fill, theme, f.fill_transparency) {
                     let _ = write!(s, "<a:solidFill>{c}</a:solidFill>");
                 }
-                let line_c = srgb(&sh.line, theme);
-                if sh.format.no_line {
+                let line_c = srgb_alpha(&sh.line, theme, f.line_transparency);
+                let arrows = f.arrow_start || f.arrow_end || sh.kind == ShapeKind::Arrow;
+                if f.no_line {
                     s.push_str("<a:ln><a:noFill/></a:ln>");
-                } else if line_c.is_some() || sh.kind == ShapeKind::Arrow {
-                    s.push_str("<a:ln w=\"9525\">");
+                } else if line_c.is_some() || arrows || f.line_width.is_some() || f.line_dash != gridcraft_model::LineDash::Solid {
+                    let w = (f64::from(f.line_width.unwrap_or(0.75).clamp(0.0, 1584.0)) * 12700.0).round() as i64;
+                    let _ = write!(s, "<a:ln w=\"{w}\">");
                     match line_c {
                         Some(c) => {
                             let _ = write!(s, "<a:solidFill>{c}</a:solidFill>");
                         }
                         None => s.push_str("<a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill>"),
                     }
-                    if sh.kind == ShapeKind::Arrow {
+                    if f.line_dash != gridcraft_model::LineDash::Solid {
+                        let _ = write!(s, "<a:prstDash val=\"{}\"/>", dash_name(f.line_dash));
+                    }
+                    if f.arrow_start {
+                        s.push_str("<a:headEnd type=\"triangle\"/>");
+                    }
+                    // An Arrow shape from Insert › Shapes has its head at the end.
+                    if f.arrow_end || (sh.kind == ShapeKind::Arrow && !f.arrow_start) {
                         s.push_str("<a:tailEnd type=\"triangle\"/>");
                     }
                     s.push_str("</a:ln>");
                 }
+                s.push_str(&effect_list(f, theme));
                 s.push_str("</xdr:spPr>");
                 if !sh.text.is_empty() {
                     let f = &sh.format;

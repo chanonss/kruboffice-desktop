@@ -116,6 +116,16 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("format.thaiDigits", "Thai Digits", "Home › Paragraph", thai_digits).params(
             r#"{"mode"?: "thai|arabic" (the other way from what the text has when not given), "scope"?: "selection|document"} → 0–9 become ๐–๙ (or back) in text whose font has the Thai digits; others stay, counted in `skipped`"#,
         ),
+        CommandSpec::new("format.arabicDigits", "Arabic Digits", "Home › Paragraph", |s, v| {
+            thai_digits(s, &json!({"mode": "arabic", "scope": p::str(v, "scope")}))
+        })
+        .params(
+            r#"{"scope"?: "selection|document"} → Thai digits ๐–๙ go back to 0–9 in the selection (or, with nothing selected, the whole text); for text that must stay Arabic after Thai Digits"#,
+        )
+        .when(|s| {
+            let (a, b) = s.sel.ordered();
+            (a != b && !selection_has_thai_digits(s)).then_some("the selection has no Thai digits")
+        }),
         CommandSpec::new("format.changeCase", "Change Case", "Home › Font", change_case)
             .key("Shift+F3")
             .params(r#"{"mode"?: "sentence|lower|upper|title|toggle"}"#),
@@ -138,7 +148,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"points": number}"#),
         CommandSpec::new("format.charStyle", "Apply Character Style", "Home › Styles", char_style).params(r#"{"style": string}"#),
-        CommandSpec::new("format.set", "Set Character Formatting", "Home › Font › Font", set).params(r#"{"props": CharProps}"#),
+        CommandSpec::new("format.set", "Set Character Formatting", "Home › Font › Font", set).params(r#"{"props": CharProps, "clear"?: ["shading"|"border"]}"#),
         CommandSpec::new("format.fontDialog", "Font Dialog", "Home › Font", |s, _| {
             s.ui_requests.push(json!({"open": "font"}));
             sel_result(s)
@@ -543,6 +553,20 @@ fn ascii_digit(c: char) -> Option<char> {
     char::from_digit(n, 10)
 }
 
+/// Whether the selection has a Thai digit ๐–๙ that Arabic Digits would change back (the right-click
+/// menu offers it only then). An empty selection has none.
+pub fn selection_has_thai_digits(s: &Session) -> bool {
+    let (a, b) = s.sel.ordered();
+    a != b
+        && s.doc.paths_between(&a, &b).iter().any(|path| {
+            s.doc.para(a.story, path).is_some_and(|p| {
+                let from = if *path == a.path { a.off } else { 0 };
+                let to = if *path == b.path { b.off } else { p.len() };
+                live_chars(p, from, to).iter().any(|&(_, c)| ascii_digit(c).is_some())
+            })
+        })
+}
+
 /// Whether the font a character at `off` of `p` is set in has the Thai digits ๐–๙: Thai text
 /// uses the complex-script font (`font_cs`, which follows the font when none is set).
 pub fn font_has_thai_digits(doc: &wordcraft_doc::Document, p: &wordcraft_doc::Paragraph, off: usize) -> bool {
@@ -792,7 +816,24 @@ fn set(s: &mut Session, v: &Value) -> CmdResult {
     props.size_cs = props.size_cs.or(props.size);
     props.bold_cs = props.bold_cs.or(props.bold);
     props.italic_cs = props.italic_cs.or(props.italic);
-    apply(s, &|c| c.overlay(&props))
+    // `clear`: settings to remove in the same step (the Character dialog's Background › None and
+    // Border › None), which an overlay can't express.
+    let clear: Vec<String> =
+        v.get("clear").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    for name in &clear {
+        if !matches!(name.as_str(), "shading" | "border") {
+            return Err(CmdError::Params(format!("`clear`: shading or border, not `{name}`")));
+        }
+    }
+    apply(s, &|c| {
+        c.overlay(&props);
+        if clear.iter().any(|n| n == "shading") {
+            c.shading = None;
+        }
+        if clear.iter().any(|n| n == "border") {
+            c.border = None;
+        }
+    })
 }
 
 /// What the ribbon shows: the formatting at the selection (mixed values are null).
@@ -834,6 +875,26 @@ pub fn state(s: &Session) -> Value {
         // The proofing language (a BCP 47 tag; null when mixed or unset) and "Do not check".
         "lang": same(&|r| json!(r.lang)),
         "noProof": all.iter().all(|r| r.no_proof),
+        // The Character dialog's: Thai (complex-script) text's font, size, style and language;
+        // the underline and strikethrough kinds; effects; position, width and kerning; shading
+        // and the border round the text (null when the selection differs).
+        "fontCs": same(&|r| json!(r.font_cs)),
+        "sizeCs": same(&|r| json!(r.size_cs)),
+        "boldCs": all.iter().all(|r| r.bold_cs),
+        "italicCs": all.iter().all(|r| r.italic_cs),
+        "langBidi": same(&|r| json!(r.lang_bidi)),
+        "underlineStyle": same(&|r| json!(r.underline)),
+        "underlineColor": same(&|r| json!(r.underline_color.map(|c| c.hex()))),
+        "doubleStrike": all.iter().all(|r| r.double_strike),
+        "outline": all.iter().all(|r| r.outline),
+        "shadow": all.iter().all(|r| r.shadow),
+        "emboss": all.iter().all(|r| r.emboss),
+        "engrave": all.iter().all(|r| r.engrave),
+        "position": same(&|r| json!(r.position)),
+        "scale": same(&|r| json!(r.scale)),
+        "kern": same(&|r| json!(r.kern)),
+        "shading": same(&|r| json!(r.shading.map(|c| c.hex()))),
+        "borderLine": same(&|r| json!(r.border)),
     })
 }
 

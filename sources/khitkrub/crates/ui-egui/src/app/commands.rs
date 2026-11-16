@@ -259,6 +259,10 @@ impl SheetApp {
                     },
                     None => self.open_backstage(backstage::Page::Home),
                 }
+                // `{"page": "options", "pane": "formulas"}` opens an Options category.
+                if let (Some(pane), Some(bs)) = (p.get("pane").and_then(Json::as_str), self.backstage.as_mut()) {
+                    bs.options_pane = pane.trim().to_string();
+                }
                 Ok(json!({"page": self.backstage.as_ref().map(|b| b.page.id())}))
             }
             "ui.dialog" => {

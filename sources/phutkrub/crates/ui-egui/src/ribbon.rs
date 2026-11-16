@@ -36,7 +36,7 @@ use animations::animations;
 pub use animations::paint_anim_tile;
 #[cfg(test)]
 use animations::{animation_effect_rows, marked_options, text_build_id};
-pub use arrange::{align_menu, arrange_menu};
+pub use arrange::{align_menu, align_to_slide, arrange_menu};
 use chart::chart_design;
 use design::design;
 pub use design::paint_theme_tile;
@@ -82,6 +82,12 @@ fn run(app: &mut SlideApp, id: &str, p: Value) {
 }
 
 /// Which contextual tabs apply to the selection.
+/// The contextual tabs showing now (tests).
+#[cfg(test)]
+pub fn contextual_tabs_for_tests(app: &SlideApp) -> Vec<&'static str> {
+    contextual(app)
+}
+
 fn contextual(app: &SlideApp) -> Vec<&'static str> {
     let mut v = vec![];
     let Some(st) = app.session.active() else { return v };
@@ -92,29 +98,60 @@ fn contextual(app: &SlideApp) -> Vec<&'static str> {
     } else if st.selection.target != Target::Slides {
         v.push("Slide Master");
     }
+    // A shape's, picture's, table's, SmartArt graphic's and chart's commands are in the
+    // right-hand pane ([`object_panes`]), not in contextual tabs (owner, 2026-11-16).
     let shapes = st.selected_shapes();
-    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Shape | ShapeKind::Group { .. } | ShapeKind::Connector { .. }))
-        || st.selection.text.is_some()
-    {
-        v.push("Shape Format");
-    }
-    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Picture { .. })) {
-        v.push("Picture Format");
-    }
-    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Table(_))) || st.selection.text.as_ref().is_some_and(|t| t.cell.is_some()) {
-        v.push("Table Design");
-        v.push("Layout");
-    }
-    if deckcraft_engine::cmd::smartart::selected(st).is_some() {
-        v.push("SmartArt Design");
-    }
-    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Chart(_))) {
-        v.push("Chart Design");
-    }
     if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Media(_))) {
         v.push("Playback");
     }
     v
+}
+
+/// The object panes the selection asks for, in the dock strip's order: what used to be the
+/// Shape Format, Picture Format, Table Design and Layout, SmartArt Design and Chart Design tabs.
+pub fn object_panes(app: &SlideApp) -> Vec<&'static str> {
+    let mut v = vec![];
+    let Some(st) = app.session.active() else { return v };
+    let shapes = st.selected_shapes();
+    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Table(_))) || st.selection.text.as_ref().is_some_and(|t| t.cell.is_some()) {
+        v.push("table");
+    }
+    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Picture { .. })) {
+        v.push("picture");
+    }
+    if deckcraft_engine::cmd::smartart::selected(st).is_some() {
+        v.push("smartart");
+    }
+    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Chart(_))) {
+        v.push("chart");
+    }
+    if shapes.iter().any(|s| matches!(s.kind, ShapeKind::Shape | ShapeKind::Group { .. } | ShapeKind::Connector { .. }))
+        || st.selection.text.as_ref().is_some_and(|t| t.cell.is_none())
+    {
+        v.push("shape");
+    }
+    v
+}
+
+/// An object pane's commands: the former contextual tab's groups, wrapped to the pane's width.
+pub fn object_pane(app: &mut SlideApp, ui: &mut Ui, id: &str) {
+    crate::widgets::in_pane(|| match id {
+        "table" => {
+            table_design(app, ui);
+            table_layout(app, ui);
+        }
+        "picture" => picture_format(app, ui),
+        "smartart" => smartart_design(app, ui),
+        "chart" => chart_design(app, ui),
+        _ => crate::panels::shape_pane(app, ui),
+    });
+}
+
+/// The Shape pane's PhutKrub sections after the shared ones: Insert Shapes, Quick Styles, WordArt
+/// Styles, Accessibility and More Formatting (the former Shape Format tab without what the shared
+/// Area, Line, Effect and Position and Size sections cover).
+pub fn shape_extras(app: &mut SlideApp, ui: &mut Ui) {
+    crate::widgets::in_pane(|| shape_format(app, ui));
 }
 
 const TABS: [&str; 10] = ["Home", "Insert", "Draw", "Design", "Transitions", "Animations", "Slide Show", "Record", "Review", "View"];
@@ -125,7 +162,7 @@ fn visible_tabs(app: &SlideApp) -> Vec<&'static str> {
 }
 
 /// Height of the coral tab strip (the active tab reaches the ribbon at its bottom edge).
-const TAB_STRIP_H: f32 = 28.0;
+const TAB_STRIP_H: f32 = krub_icons::chrome::TAB_STRIP_H;
 
 /// The active tab: a white tab with rounded top corners whose bottom corners curve outward into the
 /// ribbon below, so the tab and the ribbon read as one shape. `bottom` is the strip's lower edge.
@@ -186,7 +223,8 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     if !tabs.contains(&app.ui.tab.as_str()) && !ctx_tabs.contains(&app.ui.tab.as_str()) {
         app.ui.tab = "Home".into();
     }
-    let h = 28.0 + if app.ui.ribbon_collapsed { 4.0 } else { RIBBON_H + 20.0 };
+    // The KrubOffice heights (`krub_icons::chrome`): the tab strip, and the ribbon under it.
+    let h = if app.ui.ribbon_collapsed { TAB_STRIP_H } else { krub_icons::chrome::TABS_AND_RIBBON_H };
     egui::Panel::top("ribbon").exact_size(h).show_separator_line(false).frame(egui::Frame::NONE.fill(t.card)).show(ui, |ui| {
         let rect = ui.max_rect();
         // The coral band (tab strip) runs on from the title bar; the ribbon below it is white and has
@@ -282,10 +320,16 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             return;
         }
         // The white ribbon.
-        let card = Rect::from_min_max(pos2(rect.min.x + 8.0, rect.min.y + 30.0), pos2(rect.max.x - 8.0, rect.min.y + 30.0 + RIBBON_H + 10.0));
+        let card = Rect::from_min_max(
+            pos2(rect.min.x + 8.0, rect.min.y + TAB_STRIP_H),
+            pos2(rect.max.x - 8.0, rect.min.y + krub_icons::chrome::TABS_AND_RIBBON_H),
+        );
         ui.painter().line_segment([pos2(rect.min.x, rect.max.y - 0.5), pos2(rect.max.x, rect.max.y - 0.5)], Stroke::new(1.0, t.card_border));
         let margin = crate::ribbon_layout::CONTENT_MARGIN;
-        let inner = Rect::from_min_size(pos2(rect.min.x + margin, card.min.y + 5.0), vec2((rect.width() - 2.0 * margin).max(0.0), RIBBON_H));
+        let inner = Rect::from_min_size(
+            pos2(rect.min.x + margin, card.min.y + krub_icons::chrome::RIBBON_PAD),
+            vec2((rect.width() - 2.0 * margin).max(0.0), RIBBON_H),
+        );
         let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(inner));
         cui.set_clip_rect(inner.expand2(vec2(0.0, 3.0)));
         let tab = app.ui.tab.clone();
@@ -326,12 +370,6 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                         "Record" => record(app, ui),
                         "Review" => review(app, ui),
                         "View" => view(app, ui),
-                        "Shape Format" => shape_format(app, ui),
-                        "Picture Format" => picture_format(app, ui),
-                        "Table Design" => table_design(app, ui),
-                        "Layout" => table_layout(app, ui),
-                        "Chart Design" => chart_design(app, ui),
-                        "SmartArt Design" => smartart_design(app, ui),
                         "Playback" => playback(app, ui),
                         "Slide Master" => slide_master(app, ui),
                         "Handout Master" => handout_master(app, ui),

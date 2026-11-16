@@ -178,6 +178,7 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
             super::sel_result(s)
         }
         "format.changeCase" | "format.clear" | "format.resetChar" => per_row(s, run, v, &segs),
+        "edit.pasteFormat" => paste_format(s, run, v, &segs),
         _ if id.starts_with("format.") || id.starts_with("para.") || id == "select.column" => run(s, v),
         // Pasting formatting (the format painter) leaves the text alone.
         _ if mutates && (id.starts_with("text.") || (id.starts_with("edit.paste") && id != "edit.pasteFormat")) => {
@@ -245,6 +246,42 @@ fn delete(s: &mut Session, segs: &[(Pos, Pos)]) -> Result<(), CmdError> {
 }
 
 /// Run a selection command once per non-empty row, then restore the block.
+/// The Format Painter on a column block paints each row's piece: on whole cells (part of a
+/// column) every cell's paragraphs, empty ones too, with their paragraph formatting, as Word does,
+/// leaving the cells between the corners alone. It is used up once, after the last piece (unless
+/// it stays on).
+fn paste_format(s: &mut Session, run: fn(&mut Session, &Value) -> CmdResult, v: &Value, segs: &[(Pos, Pos)]) -> CmdResult {
+    let Some(sticky) = s.painter.as_ref().map(|p| p.2) else { return run(s, v) };
+    if let Some(p) = s.painter.as_mut() {
+        p.2 = true;
+    }
+    let block = s.column.take();
+    let mut out = Ok(());
+    for (a, b) in segs.iter().rev() {
+        let (a, b) = (s.doc.clamp(a), s.doc.clamp(b));
+        if a.path != b.path {
+            continue;
+        }
+        s.sel = Selection { anchor: a, focus: b };
+        if let Err(e) = run(s, v) {
+            out = Err(e);
+            break;
+        }
+    }
+    if let Some(p) = s.painter.as_mut() {
+        p.2 = sticky;
+    }
+    if out.is_ok() && !sticky {
+        s.painter = None;
+    }
+    if let Some(c) = &block {
+        s.sel = c.sel.clone();
+    }
+    s.column = block;
+    out?;
+    result(s)
+}
+
 fn per_row(s: &mut Session, run: fn(&mut Session, &Value) -> CmdResult, v: &Value, segs: &[(Pos, Pos)]) -> CmdResult {
     let block = s.column.take();
     for (a, b) in segs.iter().rev() {

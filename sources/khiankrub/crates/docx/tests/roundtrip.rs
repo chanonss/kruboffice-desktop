@@ -2676,3 +2676,42 @@ fn book_fold_pages_are_saved_as_the_landscape_sheet_and_read_back_as_pages() {
     assert_eq!((plain.last_section.page_w, plain.last_section.page_h), (612.0, 792.0));
     assert!(!plain.settings.book_fold);
 }
+
+/// A shape's fill and outline transparency and its outline's dash (the Shape pane's Area and
+/// Line) survive a save: `a:alpha` in each `a:solidFill`, and `a:prstDash`.
+#[test]
+fn shape_transparency_and_dash_round_trip() {
+    let mut doc = Document::from_text("x");
+    let extra = wordcraft_doc::connector::ShapeExtra {
+        fill_transparency: 40.0,
+        line_transparency: 25.0,
+        dash: wordcraft_doc::connector::LineDash::DashDot,
+        ..Default::default()
+    };
+    let shape = InlineObject::Shape {
+        kind: ShapeKind::Rectangle,
+        w: 72.0,
+        h: 36.0,
+        fill: Some(Rgb(0x44, 0x72, 0xC4)),
+        stroke: Some(Rgb(0x1F, 0x38, 0x64)),
+        stroke_width: 1.5,
+        float: Float::default(),
+        story: None,
+        freeform: None,
+        effects: Default::default(),
+        extra,
+    };
+    if let Some(wordcraft_doc::Block::Para(p)) = doc.body.first_mut().map(std::sync::Arc::make_mut) {
+        p.insert_object(0, shape, &CharProps::default()).unwrap();
+    }
+    let saved = rt(&doc);
+    let p = paras(&saved)[0];
+    let got = p.objects.iter().find_map(|o| match o {
+        InlineObject::Shape { extra, .. } => Some(extra.clone()),
+        _ => None,
+    });
+    let got = got.expect("the shape");
+    assert!((got.fill_transparency - 40.0).abs() < 0.01, "{}", got.fill_transparency);
+    assert!((got.line_transparency - 25.0).abs() < 0.01, "{}", got.line_transparency);
+    assert_eq!(got.dash, wordcraft_doc::connector::LineDash::DashDot);
+}

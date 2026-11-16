@@ -249,7 +249,7 @@ pub fn lang_name(tag: &str) -> String {
 /// face, egui 0.37's strict missing-glyph policy would abort the frame instead of drawing boxes,
 /// so state the fallback explicitly (and never skip the row).
 pub fn display_lang_name(ctx: &egui::Context, tag: &str) -> String {
-    let name = lang_name(tag);
+    let name = crate::i18n::t(&lang_name(tag)).to_string();
     if ctx.fonts_mut(|f| f.has_glyphs(&egui::FontId::proportional(13.0), &name)) { name } else { tag.to_string() }
 }
 

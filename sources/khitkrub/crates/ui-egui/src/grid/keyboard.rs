@@ -158,8 +158,26 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
 
 /// This frame's input events, without those the focused form control took.
 fn grid_events(app: &mut SheetApp, ctx: &egui::Context, sh: &Sheet) -> Vec<egui::Event> {
-    let events = ctx.input(|i| i.events.clone());
-    events.into_iter().filter(|ev| !form_control_event(app, sh, ev)).collect()
+    let (events, now) = ctx.input(|i| (i.events.clone(), i.time));
+    let held = ctx.data(|d| d.get_temp::<f64>(typing_hold_id())).is_some_and(|until| now <= until);
+    events
+        .into_iter()
+        .filter(|ev| !(held && matches!(ev, egui::Event::Text(_) | egui::Event::Ime(_))))
+        .filter(|ev| !form_control_event(app, sh, ev))
+        .collect()
+}
+
+fn typing_hold_id() -> egui::Id {
+    egui::Id::unique("gridcraft.grid.typing_hold")
+}
+
+/// A box outside the grid (a side pane's number box) just let go of the keyboard: for a moment
+/// typed text doesn't start a cell edit. On the web, text typed fast with the Enter that commits
+/// the box can reach the app again after the box let go (seen 2026-11-16: the box and the active
+/// cell both got the "4"); it belongs to the box, not to a new edit of the active cell.
+pub(crate) fn hold_typing(ctx: &egui::Context) {
+    let until = ctx.input(|i| i.time) + 0.15;
+    ctx.data_mut(|d| d.insert_temp(typing_hold_id(), until));
 }
 
 /// Whether the focused form control takes `ev`: arrows, Page Up and Down, Home, End, Space and

@@ -84,6 +84,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             && let Err(e) = app.run("table.selectRow", json!({}))
         {
             app.status(e);
+        } else {
+            // With the Format Painter armed, the cells taken paint as a drag across text does.
+            crate::canvas::apply_format_painter(app);
         }
         return true;
     }

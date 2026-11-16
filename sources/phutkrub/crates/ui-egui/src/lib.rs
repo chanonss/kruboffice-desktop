@@ -19,7 +19,7 @@ macro_rules! tl {
 /// PhutKrub's own version number, shown in File › About and read by `packaging/web/publish.sh`.
 /// The DeckCraft version this fork is based on is in the crates' own `Cargo.toml` and in
 /// `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.7.0";
+pub const APP_VERSION: &str = "0.8.0";
 
 /// DeckCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
@@ -89,8 +89,8 @@ pub use panels::selpane;
 pub use panels::thumbs;
 pub use ribbon::qat;
 pub use services::{
-    BrowserDraft, BrowserRecoveryServices, DownloadFn, DraftAction, DriveServices, HostSaveFn, Inbox, InboxEvent, InboxFile, OpenAsyncFn, PickFn,
-    ReadFn, Services, WriteFn,
+    BrowserDraft, BrowserRecoveryServices, DisplayList, DownloadFn, DraftAction, DriveServices, HostSaveFn, Inbox, InboxEvent, InboxFile,
+    OpenAsyncFn, PickFn, ReadFn, Services, WriteFn,
 };
 use state::{FilePlace, FilePurpose, ImeDescriptorKey, ImeDestination, ImeTerminalStamp};
 pub use state::{RECENT_MAX, UiState, ViewMode, ZOOM_RANGE};
@@ -145,6 +145,12 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
         None,
         "{on?: bool} → {on, window} (presenter view, with notes, a clock and the next slide, appears in its own separate window beside the show window when the show starts; window is false in the browser build, which draws it inside the page)",
     ),
+    (
+        "show.swapDisplays",
+        "Swap Displays",
+        None,
+        "{} → {swapped, audience?, presenter?} (during a show with Presenter View on two displays, the slides and the presenter window trade displays; audience and presenter are display indices)",
+    ),
     ("show.keepCursor", "Keep Mouse Cursor Visible", None, "{on?: bool}"),
     ("show.end", "End Show", None, "{}"),
     ("animation.preview", "Preview Animations", None, "{on?: bool, from?: effect index}"),
@@ -160,7 +166,7 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
     ("app.about", "About DeckCraft", None, "{}"),
     ("app.checkUpdates", "Check for Updates…", None, "{}"),
     ("app.palette", "Command Palette", Some("Cmd+Shift+P"), "{}"),
-    ("app.preferences", "Preferences…", Some("Cmd+,"), "{}"),
+    ("app.preferences", "Preferences…", Some("Cmd+,"), "{pane?: general|proofing|save|language|advanced}"),
     ("app.openDialog", "Open…", None, "{purpose?}"),
     ("app.insertPictureDialog", "Picture from File…", None, "{}"),
     ("app.smartArtPictureDialog", "Insert Picture in SmartArt…", None, "{id?, index}"),
@@ -488,6 +494,8 @@ mod huge_deck_tests;
 mod ime_tests;
 #[cfg(test)]
 mod last_color_tests;
+#[cfg(test)]
+mod pinfonts_tests;
 #[cfg(test)]
 mod presenter_tests;
 #[cfg(test)]

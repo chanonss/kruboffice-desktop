@@ -9,12 +9,23 @@ use serde_json::json;
 use crate::theme::Brightness;
 use crate::{Services, SlideApp};
 
-/// The slider itself, not the label drawn beside it.
-fn interface_size<'a>(h: &'a Harness<'_, SlideApp>) -> Node<'a> {
-    let mut sliders = h.query_all_by_role_and_label(egui::accesskit::Role::Slider, "Interface size");
-    let slider = sliders.next().expect("the slider is there");
-    assert!(sliders.next().is_none(), "exactly one Interface size slider");
-    slider
+/// The Options category `name` in the list on the left.
+fn category<'a>(h: &'a Harness<'_, SlideApp>, name: &'a str) -> Node<'a> {
+    h.get_by_role_and_label(egui::accesskit::Role::Tab, name)
+}
+
+/// Choose `item` from the dropdown labelled `label`.
+pub(crate) fn pick(h: &mut Harness<'_, SlideApp>, label: &str, item: &str) {
+    // A popup egui still remembers as open closes on the first click: open it again then.
+    for _ in 0..2 {
+        h.get_by_role_and_label(egui::accesskit::Role::ComboBox, label).click();
+        h.run_steps(3);
+        if h.query_all_by_label(item).count() > 0 {
+            break;
+        }
+    }
+    h.query_all_by_label(item).last().unwrap_or_else(|| panic!("{item} is in the {label} list")).click();
+    h.run_steps(2);
 }
 
 fn harness() -> Harness<'static, SlideApp> {
@@ -30,8 +41,8 @@ fn harness() -> Harness<'static, SlideApp> {
     h
 }
 
-fn open_options(h: &mut Harness<'_, SlideApp>) {
-    h.state_mut().run("app.preferences", json!({})).expect("open Options");
+fn open_options(h: &mut Harness<'_, SlideApp>, pane: &str) {
+    h.state_mut().run("app.preferences", json!({"pane": pane})).expect("open Options");
     h.run_steps(3);
 }
 
@@ -44,7 +55,7 @@ fn dark(app: &SlideApp) -> bool {
 fn options_cancel_undoes_the_changes() {
     let mut h = harness();
     let was = h.state().session.prefs.smart_guides;
-    open_options(&mut h);
+    open_options(&mut h, "advanced");
 
     h.query_by_label("Show smart guides").expect("the checkbox is there").click();
     h.run_steps(2);
@@ -62,16 +73,22 @@ fn options_cancel_undoes_the_changes() {
 fn options_cancel_undoes_every_editing_setting() {
     let mut h = harness();
     let before = h.state().session.prefs.clone();
-    open_options(&mut h);
+    open_options(&mut h, "advanced");
 
-    for label in ["Snap objects to grid", "Replace straight quotes with smart quotes", "AutoCorrect as you type"] {
+    for (pane, label) in
+        [("Advanced", "Snap objects to grid"), ("Proofing", "Replace straight quotes with smart quotes"), ("Proofing", "AutoCorrect as you type")]
+    {
+        category(&h, pane).click();
+        h.run_steps(2);
         h.query_by_label(label).unwrap_or_else(|| panic!("the {label} checkbox is there")).click();
         h.run_steps(1);
     }
-    // The name field: it writes into the settings as it is typed.
+    // The name field, under General: it writes into the settings as it is typed.
+    category(&h, "General").click();
+    h.run_steps(2);
     // The name field is the last text input of the dialog (the label is a separate widget).
     let name = h.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("the name field is there");
-    name.click();
+    name.focus();
     h.run_steps(1);
     h.event(egui::Event::Text("Z".into()));
     h.run_steps(1);
@@ -92,22 +109,19 @@ fn options_cancel_undoes_every_editing_setting() {
     assert_eq!(after.author, before.author, "the name is restored");
 }
 
-/// The appearance toggle and the interface size go back on Cancel, too; Esc acts as Cancel.
+/// The interface theme and size go back on Cancel, too; Esc acts as Cancel.
 #[test]
 fn options_cancel_puts_the_appearance_and_scale_back() {
     let mut h = harness();
     let (dark_before, scale_before) = (dark(h.state()), h.state().ui.ui_scale);
-    open_options(&mut h);
+    open_options(&mut h, "general");
 
-    h.query_by_label("Dark appearance").expect("the checkbox is there").click();
-    h.run_steps(2);
-    assert!(dark(h.state()), "the appearance applies as it is toggled");
+    pick(&mut h, "Interface theme:", "Dark");
+    assert!(dark(h.state()), "the appearance applies as it is chosen");
 
-    // Clicking the slider's middle sets it near the middle of its range, away from the default.
-    interface_size(&h).click();
-    h.run_steps(2);
+    pick(&mut h, "Interface size:", "125%");
     let scale_in_dialog = h.state().ui.ui_scale;
-    assert!((scale_in_dialog - scale_before).abs() > 1e-3, "the slider applied a new size");
+    assert!((scale_in_dialog - 1.25).abs() < 1e-3, "the size applies as it is chosen: {scale_in_dialog}");
 
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
@@ -121,7 +135,7 @@ fn options_cancel_puts_the_appearance_and_scale_back() {
 fn options_close_button_restores_the_settings() {
     let mut h = harness();
     let was = h.state().session.prefs.smart_guides;
-    open_options(&mut h);
+    open_options(&mut h, "advanced");
 
     h.query_by_label("Show smart guides").expect("the checkbox is there").click();
     h.run_steps(2);
@@ -131,4 +145,25 @@ fn options_close_button_restores_the_settings() {
     h.run_steps(2);
     assert_eq!(h.state().session.prefs.smart_guides, was, "the close button restores the setting");
     assert!(h.state().dialog.is_none(), "and the dialog closes");
+}
+
+/// Save › Embed fonts in the file changes the presentation (`file.embedFonts`); the choice of
+/// characters is offered once it is on.
+#[test]
+fn the_save_category_embeds_fonts_in_the_presentation() {
+    let mut h = harness();
+    open_options(&mut h, "save");
+    let doc = |h: &Harness<'_, SlideApp>| {
+        let d = &h.state().session.active().expect("a presentation").doc;
+        (d.embed_fonts, d.embed_all_characters)
+    };
+    assert_eq!(doc(&h), (false, false));
+    h.query_by_label("Embed fonts in the file").expect("the checkbox is there").click();
+    h.run_steps(2);
+    assert_eq!(doc(&h), (true, false), "only the characters used, by default");
+    h.query_by_label("Embed all characters (best for editing by other people)").expect("the choice is there").click();
+    h.run_steps(2);
+    assert_eq!(doc(&h), (true, true));
+    h.state_mut().run("edit.undo", json!({})).expect("undo");
+    assert_eq!(doc(&h), (true, false), "each change is an edit of the presentation");
 }

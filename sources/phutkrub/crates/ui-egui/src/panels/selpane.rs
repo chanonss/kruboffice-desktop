@@ -120,10 +120,10 @@ fn small_icon_button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egu
 
 fn toolbar(app: &mut SlideApp, ui: &mut Ui, t: &Tokens, has_sel: bool) {
     ui.horizontal(|ui| {
-        if ui.add(egui::Button::new("Show All").stroke(Stroke::new(1.0, t.border))).clicked() {
+        if ui.add(egui::Button::new(tl!("Show All")).stroke(Stroke::new(1.0, t.border))).clicked() {
             run(app, "selection.showAll", json!({}));
         }
-        if ui.add(egui::Button::new("Hide All").stroke(Stroke::new(1.0, t.border))).clicked() {
+        if ui.add(egui::Button::new(tl!("Hide All")).stroke(Stroke::new(1.0, t.border))).clicked() {
             run(app, "selection.hideAll", json!({}));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

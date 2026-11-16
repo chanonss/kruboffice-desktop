@@ -36,7 +36,7 @@ pub(super) fn automate(app: &mut SheetApp, ui: &mut Ui) {
     });
     let macros = crate::macro_ui::macro_list(app);
     let recent: Vec<String> = app.macros.recent.iter().filter(|r| macros.iter().any(|(n, ..)| n.eq_ignore_ascii_case(r))).cloned().collect();
-    let (main, arrow) = big_split_button(ui, Icon::Macro, "Run\nMacro", "Run a macro on the selection");
+    let (main, arrow) = big_split_button(ui, Icon::Play, "Run\nMacro", "Run a macro on the selection");
     control_keytip(app, ui, &arrow, "macro.run");
     if main.clicked() {
         // The last macro run, or the only one; otherwise choose in the Macros dialog.
@@ -75,29 +75,24 @@ pub(super) fn automate(app: &mut SheetApp, ui: &mut Ui) {
         }
     });
     sep(ui);
-    let __k = big_button(ui, Icon::Script, "Command\nPalette", "Search and run any command", false);
+    let __k = big_button(ui, Icon::Search, "Command\nPalette", "Search and run any command", false);
     control_keytip(app, ui, &__k, "commandSearch");
     if __k.clicked() {
         app.open_dialog("commandSearch", json!({}));
     }
-    let __k = big_button(ui, Icon::Script, "Agent\nControl", "How agents drive KhitKrub (MCP / control channel)", false);
+    let __k = big_button(ui, Icon::Agent, "Agent\nControl", "How agents drive KhitKrub (MCP / control channel)", false);
     control_keytip(app, ui, &__k, "agents");
     if __k.clicked() {
         app.open_dialog("agents", json!({}));
     }
-    let __k = big_button(ui, Icon::Script, "Action\nJournal", "Every command run in this session (replayable)", false);
+    let __k = big_button(ui, Icon::Journal, "Action\nJournal", "Every command run in this session (replayable)", false);
     control_keytip(app, ui, &__k, "journal");
     if __k.clicked() {
         app.open_dialog("journal", json!({}));
     }
-    let __k = big_button(ui, Icon::Script, "Check for\nUpdates…", "Look for a newer KhitKrub release", false);
+    let __k = big_button(ui, Icon::Updates, "Check for\nUpdates…", "Look for a newer KhitKrub release", false);
     control_keytip(app, ui, &__k, "checkForUpdates");
     if __k.clicked() {
         app.run_or_alert("app.checkForUpdates", json!({}));
-    }
-    let __k = big_button(ui, Icon::Script, "About\nKhitKrub", "Version, contributors and the AI models that helped", false);
-    control_keytip(app, ui, &__k, "about");
-    if __k.clicked() {
-        app.open_dialog("about", json!({}));
     }
 }

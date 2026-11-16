@@ -24,12 +24,12 @@ pub(super) fn animation(app: &mut SlideApp, ui: &mut Ui) {
     let from = pick.filter(|&i| eligible(i)).or_else(|| (0..anims.len()).find(|&i| eligible(i)));
     ui.horizontal(|ui| {
         let playing = app.anim_preview_active();
-        let label = match (playing, from) {
-            (true, _) => "■ Stop",
-            (false, Some(_)) => "▶ Play From",
-            (false, None) => "▶ Play All",
+        let (mark, label) = match (playing, from) {
+            (true, _) => ("■", "Stop"),
+            (false, Some(_)) => ("▶", "Play From"),
+            (false, None) => ("▶", "Play All"),
         };
-        if ui.button(label).clicked() {
+        if ui.button(format!("{mark} {}", tl!(label))).clicked() {
             let p = match (playing, from) {
                 (false, Some(i)) => json!({"on": true, "from": i}),
                 _ => json!({"on": !playing}),

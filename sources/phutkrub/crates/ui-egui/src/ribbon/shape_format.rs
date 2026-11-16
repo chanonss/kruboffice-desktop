@@ -1,8 +1,8 @@
 use super::arrange::{arrange_group, size_group};
 use super::galleries::{cref_param, effects_menu, outline_menu, quick_styles, shapes_gallery};
 use super::{
-    Color32, CornerRadius, Icon, Rect, Sense, SlideApp, Stroke, Tokens, Ui, big, big_button, enabled, group, json, pos2, rows, run, scheme,
-    small_button, small_button_ex, theme, vec2, widgets,
+    Color32, CornerRadius, Icon, Rect, Sense, SlideApp, Stroke, Tokens, Ui, big, big_button, enabled, json, pos2, rows, run, scheme, small_button,
+    small_button_ex, theme, vec2, widgets,
 };
 
 // ---------- contextual tabs ----------
@@ -110,7 +110,7 @@ fn stroke_guide(p: &egui::Painter, g: &deckcraft_geom::warp::Guide, color: Color
 pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
     let sc = scheme(app);
     let sel = enabled(app, "shape.fill");
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Insert Shapes", |ui| {
         let r = big_button(ui, Icon::Shapes, tl!("Shapes"), true);
         egui::Popup::menu(&r).show(|ui| {
             if let Some(p) = shapes_gallery(ui) {
@@ -143,9 +143,15 @@ pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
             }
         });
     });
-    group(ui, |ui| {
+    // In the Shape pane, fill, outline, effects, arrange and size are its shared sections; only
+    // the quick styles stay here.
+    let pane = crate::widgets::pane_mode();
+    crate::widgets::group_named(ui, if pane { "Quick Styles" } else { "Shape Styles" }, |ui| {
         let r = big_button(ui, Icon::QuickStyles, tl!("Shape\nStyles"), sel);
         egui::Popup::menu(&r).width(330.0).show(|ui| quick_styles(app, ui));
+        if pane {
+            return;
+        }
         rows(ui, |ui| {
             ui.horizontal(|ui| {
                 let (m, a) = small_button_ex(ui, Icon::ShapeFill, tl!("Shape Fill"), sel, false, true);
@@ -188,7 +194,7 @@ pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "WordArt Styles", |ui| {
         rows(ui, |ui| {
             ui.horizontal(|ui| {
                 let (main, arrow) = small_button_ex(ui, Icon::TextFill, tl!("Text Fill"), sel, false, true);
@@ -226,12 +232,14 @@ pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Accessibility", |ui| {
         big(app, ui, Icon::AltText, tl!("Alt\nText"), "app.dialog", json!({"id": "altText"}));
     });
-    arrange_group(app, ui);
-    size_group(app, ui);
-    group(ui, |ui| {
+    if !pane {
+        arrange_group(app, ui);
+        size_group(app, ui);
+    }
+    crate::widgets::group_named(ui, "More Formatting", |ui| {
         big(app, ui, Icon::FormatBackground, tl!("Format\nPane"), "view.pane", json!({"pane": "format"}));
     });
 }

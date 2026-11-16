@@ -82,6 +82,8 @@ pub struct UiState {
     pub zoom: Option<f32>,
     pub sorter_zoom: f32,
     pub recent: Vec<String>,
+    /// Fonts pinned to the top of the font lists, in the order they were pinned ([`krub_icons::fonts`]).
+    pub pinned_fonts: Vec<String>,
     pub presenter_view: bool,
     /// Set Up Slide Show ▸ Keep mouse cursor visible: full-screen shows never hide a still pointer,
     /// for decks with clickable choices (#1445).
@@ -129,6 +131,7 @@ impl Default for UiState {
             zoom: None,
             sorter_zoom: 1.0,
             recent: vec![],
+            pinned_fonts: Vec::new(),
             presenter_view: true,
             show_keep_cursor: false,
             ui_scale: 1.0,
@@ -148,6 +151,18 @@ impl Default for UiState {
 pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.1..=4.0;
 
 impl UiState {
+    /// The pinned fonts the web app keeps in the browser's storage (a JSON array of names), read
+    /// back cleaned; nothing stored or a damaged value reads as none.
+    pub fn pinned_fonts_from_json(stored: Option<&str>) -> Vec<String> {
+        let names = stored.filter(|s| s.len() <= 64 << 10).and_then(|s| serde_json::from_str::<Vec<String>>(s).ok()).unwrap_or_default();
+        krub_icons::fonts::sanitized(names)
+    }
+
+    /// The pinned fonts as the web app stores them ([`Self::pinned_fonts_from_json`]).
+    pub fn pinned_fonts_json(&self) -> String {
+        serde_json::to_string(&self.pinned_fonts).unwrap_or_else(|_| "[]".into())
+    }
+
     /// The state with every value usable: `ui.json` is a file on disk, and a damaged or
     /// hand-edited one must not stop the window from opening. A zoom of 10,000 % asked the
     /// renderer for a texture larger than memory at start-up; panel sizes, scales and names are
@@ -161,6 +176,11 @@ impl UiState {
         self.notes_height = within(self.notes_height, 0.0, 2000.0, d.notes_height);
         self.thumbs_width = within(self.thumbs_width, 60.0, 1000.0, d.thumbs_width);
         self.pane_width = within(self.pane_width, 240.0, 520.0, d.pane_width);
+        // A toolbar nobody customized still holds the old default buttons: move it to the
+        // KrubOffice layout. A customized one stays as it is.
+        if self.qat.iter().map(|q| q.id.as_str()).eq(qat::OLD_DEFAULTS) {
+            self.qat = qat::defaults();
+        }
         let short = |s: &String| s.len() <= 64;
         if !short(&self.tab) {
             self.tab = d.tab;
@@ -175,6 +195,7 @@ impl UiState {
         self.recent.retain(|p| !p.is_empty() && p.len() <= 4096 && !p.contains('\0'));
         self.recent.dedup();
         self.recent.truncate(RECENT_MAX);
+        self.pinned_fonts = krub_icons::fonts::sanitized(std::mem::take(&mut self.pinned_fonts));
         self
     }
 }

@@ -129,48 +129,64 @@ fn quick_access_toolbar_adds_removes_resets_and_persists() {
     );
     harness.run_steps(2);
     let ids = |app: &SlideApp| app.ui.qat.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
-    assert_eq!(ids(harness.state()), ["app.home", "file.save", "app.exportDialog", "edit.undo", "edit.redo", "show.fromStart"]);
+    // The KrubOffice layout: Save · Undo · Redo, then PhutKrub's own Start from Beginning.
+    assert_eq!(ids(harness.state()), ["file.save", "edit.undo", "edit.redo", "show.fromStart"]);
     let app = harness.state_mut();
     app.run("app.qat", json!({"add": "insert.table", "label": "Table", "icon": "table"})).unwrap();
     app.run("app.qat", json!({"add": "insert.table"})).unwrap();
     app.run("app.qat", json!({"add": "view.pane", "params": {"pane": "selection"}, "label": "Selection Pane"})).unwrap();
     assert!(app.run("app.qat", json!({"add": "no.such"})).is_err());
     app.run("app.qat", json!({"remove": "edit.redo"})).unwrap();
-    assert_eq!(ids(app), ["app.home", "file.save", "app.exportDialog", "edit.undo", "show.fromStart", "insert.table", "view.pane"]);
-    assert_eq!(app.ui.qat[5].label, "Table");
+    assert_eq!(ids(app), ["file.save", "edit.undo", "show.fromStart", "insert.table", "view.pane"]);
+    assert_eq!(app.ui.qat[3].label, "Table");
     // Saved with the rest of the UI state and read back.
     let back: UiState = serde_json::from_value(serde_json::to_value(&app.ui).unwrap()).unwrap();
     assert_eq!(back.qat, app.ui.qat);
     harness.run_steps(2);
     let app = harness.state_mut();
     app.run("app.qat", json!({"remove": "view.pane", "params": {"pane": "selection"}})).unwrap();
-    assert_eq!(app.ui.qat.len(), 6);
+    assert_eq!(app.ui.qat.len(), 4);
     app.run("app.qat", json!({"reset": true})).unwrap();
-    assert_eq!(ids(app), ["app.home", "file.save", "app.exportDialog", "edit.undo", "edit.redo", "show.fromStart"]);
-    // Alt+1 runs position 0 (app.home) when on Windows/Linux, opening Backstage.
+    assert_eq!(ids(app), ["file.save", "edit.undo", "edit.redo", "show.fromStart"]);
+    // Home, added back from the Customize menu, goes last: Alt+5 on Windows/Linux opens Backstage.
+    app.run("app.qat", json!({"add": "app.home"})).unwrap();
     app.session.mac_keys = false;
     assert!(!app.backstage_open());
-    assert!(crate::menus::ui_shortcut(app, egui::Key::Num1, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
+    assert!(crate::menus::ui_shortcut(app, egui::Key::Num5, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
     assert!(app.backstage_open());
     // Disabled while Backstage is open.
-    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num1, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
+    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num5, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
     app.close_backstage();
-    // Alt+9 is unassigned when there are only 6 items.
+    // Alt+9 is unassigned when there are only 5 items.
     assert!(!crate::menus::ui_shortcut(app, egui::Key::Num9, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
     // Disabled on macOS so Option+digit types characters.
     app.session.mac_keys = true;
-    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num1, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
+    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num5, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
     app.session.mac_keys = false;
     // Disabled when text is being edited.
     let shape_id = deckcraft_model::ShapeId(app.session.active().unwrap().selection.shapes.first().map(|s| s.0).unwrap_or(0));
     app.session.active_mut().unwrap().selection.text = Some(deckcraft_engine::TextSel { shape: shape_id, ..Default::default() });
-    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num1, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
+    assert!(!crate::menus::ui_shortcut(app, egui::Key::Num5, deckcraft_engine::Mods { shift: false, alt: true, cmd: false }));
     app.session.active_mut().unwrap().selection.text = None;
     // Disabled QAT items (e.g. edit.undo when stack is empty) cannot run.
-    assert!(!crate::qat::run_index(app, 3));
+    assert!(!crate::qat::run_index(app, 1));
     // An older settings file without the toolbar gets the defaults.
     let old: UiState = serde_json::from_value(json!({"tab": "Home"})).unwrap();
-    assert_eq!(old.qat.len(), 6);
+    assert_eq!(old.qat.len(), 4);
+}
+
+/// A toolbar saved with the old default buttons (Home, Save, Export, Undo, Redo, Start from
+/// Beginning) moves to the KrubOffice layout; one the user changed stays as it is.
+#[test]
+fn an_untouched_old_toolbar_moves_to_the_shared_layout() {
+    let saved = |ids: &[&str]| -> UiState {
+        let qat: Vec<_> = ids.iter().map(|id| json!({"id": id, "label": id, "icon": "more"})).collect();
+        serde_json::from_value::<UiState>(json!({"qat": qat})).unwrap().sanitized()
+    };
+    let ids = |s: &UiState| s.qat.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&saved(&crate::qat::OLD_DEFAULTS)), ["file.save", "edit.undo", "edit.redo", "show.fromStart"]);
+    let mine = ["app.home", "file.save", "app.exportDialog", "edit.undo"];
+    assert_eq!(ids(&saved(&mine)), mine);
 }
 
 #[test]
@@ -380,7 +396,7 @@ fn ctrl_word_keys_edit_text() {
     assert!(size(&mut harness).unwrap_or(f64::MAX) < after, "Ctrl+[ shrinks");
 }
 
-/// Export… had no visible control: only the command palette reached it.
+/// Export… on the Quick Access Toolbar opens the Export dialog.
 #[test]
 fn title_bar_export_opens_the_export_dialog() {
     let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
@@ -392,9 +408,16 @@ fn title_bar_export_opens_the_export_dialog() {
     );
     harness.run_steps(2);
     assert!(harness.state().dialog.is_none());
-    // Quick access: Home, Save, Export, each a small ribbon button wide, from x = 10.
+    // Export is in the File menu; added to the toolbar from the Customize menu, it goes first here.
+    let ids: Vec<String> = harness.state().ui.qat.iter().map(|q| q.id.clone()).collect();
+    for id in &ids {
+        harness.state_mut().run("app.qat", json!({"remove": id})).unwrap();
+    }
+    harness.state_mut().run("app.qat", json!({"add": "app.exportDialog"})).unwrap();
+    harness.run_steps(2);
+    // Quick access: Export alone, a small ribbon button wide, from x = 10.
     let w = crate::ribbon_layout::SMALL_W;
-    let pos = egui::pos2(10.0 + 2.0 * w + w / 2.0, ribbon::TITLE_H / 2.0);
+    let pos = egui::pos2(10.0 + w / 2.0, ribbon::TITLE_H / 2.0);
     harness.hover_at(pos);
     harness.run_steps(1);
     harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
@@ -697,7 +720,10 @@ fn preferences_cancel_restores_the_settings_done_keeps_them() {
     let change = |harness: &mut egui_kittest::Harness<'static, SlideApp>| {
         harness.state_mut().run("app.preferences", json!({})).unwrap();
         harness.run_steps(2);
-        for label in ["Dark appearance", "Show smart guides", "Snap objects to grid"] {
+        crate::dialogs::preferences_tests::pick(harness, "Interface theme:", "Dark");
+        harness.get_by_role_and_label(egui::accesskit::Role::Tab, "Advanced").click();
+        harness.run_steps(2);
+        for label in ["Show smart guides", "Snap objects to grid"] {
             harness
                 .query_all_by_role_and_label(egui::accesskit::Role::CheckBox, label)
                 .next()
@@ -842,6 +868,10 @@ fn off_slide_objects_show_on_the_pasteboard_and_can_be_selected_and_moved() {
     harness.run_steps(2);
     assert_eq!(selected(harness.state()), vec![off]);
 
+    // Selecting it opened the Shape pane, so the slide moved over: find the shape again.
+    harness.run_steps(2);
+    let (slide, k) = (harness.state().slide_rect.unwrap(), harness.state().canvas_scale);
+    let centre = slide.min + egui::vec2(1060.0 * k, 140.0 * k);
     // Drag moves it, further off the slide.
     let to = centre + egui::vec2(40.0, 0.0);
     harness.hover_at(centre);
@@ -1365,6 +1395,10 @@ fn animation_preview_plays_on_the_canvas_then_stops() {
         .as_u64()
         .unwrap();
     harness.state_mut().session.execute("animation.set", &json!({"effect": "fade", "duration": 400})).unwrap();
+    // The new shape is selected; its pane's first layout takes an extra pass, which this test of
+    // the preview's first-frame clock isn't about.
+    crate::panes::close_object_pane(&harness.ctx, "shape");
+    harness.run_steps(2);
     let started = harness.state_mut().run("animation.preview", json!({})).unwrap();
     assert_eq!(started["playing"], true);
     assert!(harness.state().show.is_none(), "preview stays on the editor canvas");
@@ -1691,10 +1725,10 @@ fn the_pen_ignores_a_swipe_during_the_show() {
     assert_eq!(harness.state().show.as_ref().map(|s| s.state.slide), Some(0));
 }
 
-/// Preferences › Interface size (#767): dragging the slider leaves the interface size alone
-/// until the pointer lets go, so the slider doesn't grow under the pointer mid-drag.
+/// Preferences › General › Interface size: a dropdown of sizes (a slider used to rescale under
+/// the pointer mid-drag, #767). The size applies as it is chosen and Preferences stays open.
 #[test]
-fn interface_size_applies_when_the_slider_is_let_go() {
+fn interface_size_applies_as_it_is_chosen() {
     let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
         |ui, app: &mut SlideApp| {
             app.logic(ui.ctx());
@@ -1703,24 +1737,10 @@ fn interface_size_applies_when_the_slider_is_let_go() {
         SlideApp::new(Session::with_new(), Services::default()),
     );
     harness.run_steps(2);
-    harness.state_mut().run("app.preferences", json!({})).unwrap();
+    harness.state_mut().run("app.preferences", json!({"pane": "general"})).unwrap();
     harness.run_steps(4);
-    let before = harness.state().ui.ui_scale;
-    let rect = harness.query_all_by_role_and_label(egui::accesskit::Role::Slider, "Interface size").next().expect("the Interface size slider").rect();
-    let (from, to) = (rect.left_center() + egui::vec2(4.0, 0.0), rect.right_center() - egui::vec2(4.0, 0.0));
-    harness.hover_at(from);
-    harness.run_steps(1);
-    harness.drag_at(from);
-    harness.run_steps(1);
-    for k in 1..=8 {
-        harness.hover_at(from.lerp(to, k as f32 / 8.0));
-        harness.run_steps(1);
-    }
-    assert_eq!(harness.state().ui.ui_scale, before, "nothing rescales while the slider is held");
-    harness.drop_at(to);
-    harness.run_steps(2);
-    let after = harness.state().ui.ui_scale;
-    assert!(after > before + 0.3, "letting go applies the size dragged to: {before} -> {after}");
+    crate::dialogs::preferences_tests::pick(&mut harness, "Interface size:", "150%");
+    assert!((harness.state().ui.ui_scale - 1.5).abs() < 1e-3, "{}", harness.state().ui.ui_scale);
     assert!(harness.state().dialog.is_some(), "Preferences stays open");
 }
 /// The status bar's zoom slider has no room for a visible label; it still needs an accessible
@@ -1993,6 +2013,9 @@ fn synthetic_click_is_consumed_on_its_old_target_before_logic_changes_the_docume
     pass(&mut app, 1.0);
     app.run("shape.insert", json!({"preset": "rect", "rect": [100.0, 100.0, 200.0, 100.0]})).unwrap();
     assert!(!app.session.active().unwrap().selection.shapes.is_empty(), "the old document has a selection to clear");
+    // The Shape pane would close when the press deselects, and the canvas would change size
+    // under the click: this test is about the click's document, so keep the canvas still.
+    crate::panes::close_object_pane(&ctx, "shape");
     pass(&mut app, 2.0);
     let old = app.session.active().unwrap().uid;
     let slide = app.slide_rect.expect("the canvas has been laid out");
@@ -2460,7 +2483,8 @@ fn comments_pane_keeps_its_width_and_resizes() {
 
     // Drag the pane's left edge: right narrows it, left widens it.
     let drag = |h: &mut egui_kittest::Harness<'_, SlideApp>, dx: f32| {
-        let start = egui::pos2(1200.0 - h.state().ui.pane_width - 1.0, 500.0);
+        // The pane's inner edge: the window's right edge, less the dock's strip and the pane.
+        let start = egui::pos2(1200.0 - crate::panes::STRIP_W - h.state().ui.pane_width - 1.0, 500.0);
         let end = start + egui::vec2(dx, 0.0);
         h.event(egui::Event::PointerMoved(start));
         h.run_steps(1);
@@ -2477,4 +2501,49 @@ fn comments_pane_keeps_its_width_and_resizes() {
     assert!(narrow < width - 40.0, "dragging right narrows the pane: {width} -> {narrow}");
     let wide = drag(&mut h, -150.0);
     assert!(wide > narrow + 140.0, "dragging left widens the pane: {narrow} -> {wide}");
+}
+
+/// Cmd+D (Ctrl+D on Windows and Linux) duplicates the slide when nothing on it is selected, and
+/// the selected shapes when there are some, as in PowerPoint.
+#[test]
+fn cmd_d_duplicates_the_slide_or_the_selected_shapes() {
+    let mut app = SlideApp::new(Session::with_new(), Services::default());
+    let d = deckcraft_engine::Mods { shift: false, alt: false, cmd: true };
+    let slides = |app: &SlideApp| app.session.active().unwrap().doc.slides.len();
+    let shapes = |app: &SlideApp| {
+        let st = app.session.active().unwrap();
+        st.doc.slides[st.selection.slide].shapes.len()
+    };
+    app.session.active_mut().unwrap().selection.shapes.clear();
+    let before = slides(&app);
+    assert!(crate::menus::ui_shortcut(&mut app, egui::Key::D, d));
+    assert_eq!(slides(&app), before + 1, "no shape selected: the slide is duplicated");
+
+    let id = app.run("shape.insert", json!({"preset": "rect", "rect": [80.0, 80.0, 200.0, 120.0]})).unwrap();
+    let id = id.get("id").and_then(serde_json::Value::as_u64).unwrap();
+    app.run("edit.select", json!({"ids": [id]})).unwrap();
+    let (slides_before, shapes_before) = (slides(&app), shapes(&app));
+    // Not taken by the slide rule, so the engine's own Cmd+D (`edit.duplicate`) runs.
+    assert!(!crate::menus::ui_shortcut(&mut app, egui::Key::D, d));
+    app.session.key(crate::key_name(egui::Key::D), d).unwrap();
+    assert_eq!((slides(&app), shapes(&app)), (slides_before, shapes_before + 1), "a selected shape is duplicated");
+}
+
+/// The tab strip and the ribbon are the KrubOffice height (`krub_icons::chrome`), the same in
+/// all three apps: 100 points.
+#[test]
+fn the_ribbon_is_the_krub_office_height() {
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
+        |ui, app: &mut SlideApp| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        },
+        SlideApp::new(Session::with_new(), Services::default()),
+    );
+    h.run_steps(3);
+    let top = h.state().canvas_rect.expect("the slide area").top();
+    let title = if h.state().integrated_titlebar { krub_icons::chrome::MAC_TITLE_H } else { krub_icons::chrome::TITLE_H };
+    // The slide area keeps its own 8-point margin under the ribbon (154 = 38 + 108 + 8 before).
+    assert_eq!(top - title - 8.0, krub_icons::chrome::TABS_AND_RIBBON_H, "slide area at {top}, title bar {title}");
+    assert_eq!(krub_icons::chrome::TABS_AND_RIBBON_H, 100.0);
 }

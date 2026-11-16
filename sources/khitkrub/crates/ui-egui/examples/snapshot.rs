@@ -2,7 +2,7 @@
 //!
 //! `cargo run --release -p gridcraft-ui-egui --example snapshot -- [--sample sales] [--in file.xlsx]
 //!  [--size 1440x900] [--scale 2] [--cmd 'id={json}']... [--tab Insert] [--dark] [--language en|es|zh|ja|ko|ru|pt|de|cs|fr|tr]
-//!  [--pane name] [--object id] [--dialog 'name={json}'] [--refedit key=A1:B2] [--hf-edit header|footer] out.png`
+//!  [--ui 'ui.backstage={"page":"options"}'] [--pane name] [--object id] [--dialog 'name={json}'] [--refedit key=A1:B2] [--hf-edit header|footer] out.png`
 //!
 //! `--refedit key=range` collapses the open dialog to its reference box `key`, then selects
 //! `range` on the grid, as a person picking a range for that box does.
@@ -18,6 +18,8 @@ fn main() {
     let mut size = (1440.0f32, 900.0f32);
     let mut scale = 2.0f32;
     let mut cmds: Vec<String> = vec![];
+    // Interface commands (`ui.*`), run through the app once it is built.
+    let mut ui_cmds: Vec<String> = vec![];
     let mut tab = None;
     let mut dark = false;
     let mut pane: Option<String> = None;
@@ -52,6 +54,12 @@ fn main() {
                 i += 1;
                 if let Some(c) = args.get(i) {
                     cmds.push(c.clone());
+                }
+            }
+            "--ui" => {
+                i += 1;
+                if let Some(c) = args.get(i) {
+                    ui_cmds.push(c.clone());
                 }
             }
             "--tab" => {
@@ -141,6 +149,12 @@ fn main() {
         );
     // The workbook's installed fonts bind once the font scan is done; frames past the first few
     // apply them, so the snapshot shows them as the app does.
+    for c in &ui_cmds {
+        let (id, p) = c.split_once('=').map(|(a, b)| (a.to_string(), serde_json::from_str(b).unwrap_or(json!({})))).unwrap_or((c.clone(), json!({})));
+        if let Err(e) = harness.state_mut().run(&id, p) {
+            eprintln!("{id}: {e}");
+        }
+    }
     harness.run_steps(14);
     if let Some((key, range)) = refedit.as_deref().and_then(|r| r.split_once('=')) {
         let app = harness.state_mut();

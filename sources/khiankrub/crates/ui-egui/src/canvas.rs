@@ -1063,7 +1063,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let out = scroll_area.show_viewport(&mut ui_area, |ui, viewport| {
         origin = ui.min_rect().min - viewport.min.to_vec2();
         let content = Rect::from_min_size(ui.min_rect().min, geo.size);
-        let resp = ui.allocate_rect(content, Sense::click_and_drag());
+        // A fixed id: an auto id would change whenever a side pane opens or closes before the page
+        // is drawn (selecting a table, shape or chart opens one), and the page would lose the
+        // keyboard with it.
+        ui.allocate_rect(content, Sense::hover());
+        let resp = ui.interact(content, egui::Id::new("krub_document_page"), Sense::click_and_drag());
         if let Some(tr) = scroll_target {
             ui.scroll_to_rect(Rect::from_min_size(ui.min_rect().min + tr.min.to_vec2(), tr.size()), None);
         }
@@ -2810,7 +2814,7 @@ fn margin_handle(app: &mut WordApp, ui: &Ui, edge: MarginEdge, zone: Rect, to_pt
 /// Convert a page position (points) to screen coordinates (for agents and tests).
 /// Paint the selection with the Format Painter's formatting, when it is armed and something is
 /// selected.
-fn apply_format_painter(app: &mut WordApp) {
+pub(crate) fn apply_format_painter(app: &mut WordApp) {
     if app.session.painter.is_some() && !app.session.sel.is_collapsed() {
         let _ = app.run("edit.pasteFormat", json!({}));
     }
@@ -2979,6 +2983,7 @@ fn context_menu_icon(id: &str, params: &serde_json::Value) -> &'static str {
         "table.textDirection" => "textDirection",
         "references.caption" => "caption",
         "hf.hidePageNumber" => "pageNumber",
+        "format.arabicDigits" => "arabicDigits",
         _ => "properties",
     }
 }
@@ -3055,6 +3060,10 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     item(ui, app, "Copy", "edit.copy", json!({}));
     item(ui, app, "Paste", "edit.paste", json!({}));
     ui.separator();
+    // After Thai Digits, the selected text that must stay Arabic goes back to 0–9.
+    if wordcraft_engine::cmd::format::selection_has_thai_digits(&app.session) {
+        item(ui, app, "Change to Arabic Digits", "format.arabicDigits", json!({}));
+    }
     if let Some(syn) = app.canvas.context_synonyms.clone().and_then(|v| v.as_array().cloned()).filter(|a| !a.is_empty()) {
         context_submenu(ui, "thesaurus", tl!("Synonyms"), |ui| {
             for w in syn.iter().filter_map(|x| x.as_str()) {
@@ -3070,7 +3079,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             }
         });
     }
-    item(ui, app, "Font…", "ui.dialog", json!({"name": "font"}));
+    item(ui, app, "Character…", "ui.dialog", json!({"name": "font"}));
     if crate::number_select::active(app).is_some() {
         item(ui, app, "Continue Numbering", "para.continueNumbering", json!({}));
         item(ui, app, "Restart at 1", "para.restartNumbering", json!({}));
@@ -4017,6 +4026,9 @@ mod tests {
         h.step();
         let picked = wordcraft_engine::cmd::objects::object_selection(&h.state().session).map(|(p, _)| p);
         assert_eq!(picked, Some(pos.clone()), "the right-click selected the picture");
+        // The Picture pane has its own Wrap Text: hide it for this context-menu test.
+        crate::object_pane::close_picture(&h.ctx);
+        h.step();
         h.get_by_label_contains("Wrap Text").hover();
         for _ in 0..3 {
             h.step();
@@ -4071,6 +4083,53 @@ mod tests {
         }
         let text = h.state().session.doc.plain_text(StoryRef::Body);
         assert_eq!(text.matches("Fresh heading").count(), 2, "the new heading is listed in the table: {text}");
+    }
+
+    /// After Thai Digits, right-clicking selected Thai digits offers Change to Arabic Digits, which
+    /// puts only the selection back to 0–9; without Thai digits in the selection it isn't offered.
+    #[test]
+    fn context_menu_puts_selected_thai_digits_back_to_arabic() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Order 123 and 45 of 6")), Default::default());
+        a.run("select.all", json!({})).unwrap();
+        a.run("format.font", json!({"name": "Sarabun"})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        a.run("format.thaiDigits", json!({})).unwrap();
+        a.run("select.text", json!({"text": "๔๕"})).unwrap();
+        let (from, _) = a.session.sel.ordered();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let c = h.state_mut().session.layout().caret(&Pos { off: from.off + 1, ..from }).expect("the digits are laid out");
+        let at = page_to_screen(h.state_mut(), c.page, c.x, c.top + c.height / 2.0).expect("on screen");
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        h.step();
+        assert!(h.query_all_by_label_contains("Paste").next().is_some(), "the context menu is open");
+        h.get_by_label_contains("Change to Arabic Digits").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "Order ๑๒๓ and 45 of ๖");
+        // Now the selection has no Thai digits: the menu leaves the item out.
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        h.step();
+        assert!(h.query_all_by_label_contains("Paste").next().is_some(), "the context menu is open again");
+        assert!(h.query_all_by_label_contains("Change to Arabic Digits").next().is_none());
     }
 
     /// Right-clicking a page's footer offers to hide that page's number; picking it hides the
@@ -4236,7 +4295,6 @@ mod tests {
             // The top edge crosses the document's first text line, so Behind Text must still be
             // draggable where its pixels overlap body text. Stay away from resize handles.
             let from = pos2(frame.left() + frame.width() * 0.25, frame.top() + 5.0 * scale);
-            let to = from + vec2(50.0, 40.0);
             let button = |at, pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
             if wrap == "behindText" {
                 // A click without drag threshold still reaches the text above the picture.
@@ -4256,6 +4314,12 @@ mod tests {
                     h.step();
                 }
             }
+            // The page may have moved since (a picture's pane opens and closes with its
+            // selection), so find the picture again.
+            let page = h.state().canvas.page_rects[0];
+            let frame = crate::frame::to_screen(page, scale, before);
+            let from = pos2(frame.left() + frame.width() * 0.25, frame.top() + 5.0 * scale);
+            let to = from + vec2(50.0, 40.0);
             h.event(Event::PointerMoved(from));
             h.event(button(from, true));
             h.step();

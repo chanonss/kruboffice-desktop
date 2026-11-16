@@ -1,5 +1,6 @@
 use super::{
-    Align2, Backstage, Icon, Json, Outcome, Rect, Sense, SheetApp, Stroke, StrokeKind, Tokens, Ui, dim, json, pos2, square_button, theme, vec2,
+    Align2, Backstage, Icon, Json, Outcome, PrintWhat, Rect, Sense, SheetApp, Stroke, StrokeKind, Tokens, Ui, dim, json, pos2, square_button, theme,
+    vec2,
 };
 
 /// Builds the print scope and fit-to-page parameters, caches `file.printPreview` per document revision/options, and draws page thumbnails with navigation plus the print settings and Print action.
@@ -10,11 +11,15 @@ pub(super) fn print(app: &mut SheetApp, ui: &mut Ui, bs: &mut Backstage, out: &m
         dim(ui, lang.tr("No workbook is open."));
         return;
     };
-    let mut params = json!({"sheets": if bs.print_all { "all" } else { "active" }});
+    let mut params = json!({"sheets": if bs.print_what == PrintWhat::EntireWorkbook { "all" } else { "active" }});
+    let selection = if bs.print_what == PrintWhat::Selection { super::selected_print_range(app).unwrap_or_default() } else { String::new() };
+    if !selection.is_empty() {
+        params["range"] = json!(selection);
+    }
     if bs.fit_to_page {
         params["fitToPage"] = json!(true);
     }
-    let key = (uid, revision, bs.print_all, bs.fit_to_page);
+    let key = (uid, revision, bs.print_what, bs.fit_to_page, selection);
     if bs.preview.as_ref().is_none_or(|(k, _)| *k != key) {
         let preview = app.session.run("file.printPreview", params.clone()).unwrap_or(Json::Null);
         bs.preview = Some((key, preview));
@@ -34,14 +39,13 @@ pub(super) fn print(app: &mut SheetApp, ui: &mut Ui, bs: &mut Backstage, out: &m
                 out.close = app.services.print_native.is_none();
             }
             ui.add_space(16.0);
-            let scope = if bs.print_all { "Print Entire Workbook" } else { "Print Active Sheets" };
             craft_ui::ComboBox::from_id_salt("backstage_print_scope")
                 .width(230.0)
-                .selected_text(lang.tr(scope))
+                .selected_text(lang.tr(bs.print_what.label()))
                 .show_ui(ui, |ui| {
-                    for (all, label) in [(false, "Print Active Sheets"), (true, "Print Entire Workbook")] {
-                        if ui.selectable_label(bs.print_all == all, lang.tr(label)).clicked() {
-                            bs.print_all = all;
+                    for what in PrintWhat::ALL {
+                        if ui.selectable_label(bs.print_what == what, lang.tr(what.label())).clicked() {
+                            bs.print_what = what;
                             bs.preview_page = 0;
                         }
                     }

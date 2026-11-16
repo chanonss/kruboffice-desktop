@@ -92,76 +92,45 @@ pub const UNITS: [(Unit, &str); 5] = [
     (Unit::Picas, "Picas"),
 ];
 
-/// The pane names, in [`PANES`] order.
-fn pane_label(id: &str) -> &'static str {
-    match id {
-        "display" => "Display",
-        "proofing" => "Proofing",
-        "save" => "Save",
-        "language" => "Language",
-        "accessibility" => "Accessibility",
-        "advanced" => "Advanced",
-        "agents" => "Agents",
-        _ => "General",
-    }
-}
-
-/// The Options page.
+/// The Options page: the shared KrubOffice layout (`krub_icons::options`), categories on the
+/// left and the chosen one's settings on the right.
 pub fn page(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     ui.label(RichText::new(tl!("Options")).font(semibold(26.0)));
     ui.add_space(16.0);
-    let current = if PANES.contains(&app.ui.options_pane.as_str()) { app.ui.options_pane.clone() } else { "general".to_string() };
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(170.0);
-            for id in PANES.into_iter().filter(|id| *id != "agents") {
-                let label = tl!(pane_label(id));
-                let active = current == id;
-                let (r, resp) = ui.allocate_exact_size(vec2(170.0, 30.0), egui::Sense::click());
-                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, label));
-                if active {
-                    ui.painter().rect_filled(r, 4.0, t.checked);
-                } else if resp.hovered() {
-                    ui.painter().rect_filled(r, 4.0, t.hover);
-                }
-                let icon = match id {
-                    "display" => "optionsDisplay",
-                    "proofing" => "optionsProofing",
-                    "save" => "optionsSave",
-                    "language" => "optionsLanguage",
-                    "accessibility" => "optionsAccessibility",
-                    "advanced" => "optionsAdvanced",
-                    _ => "optionsGeneral",
-                };
-                let icon_rect = egui::Rect::from_center_size(egui::pos2(r.min.x + 19.0, r.center().y), vec2(18.0, 18.0));
-                crate::icons::paint(ui.painter(), icon_rect, icon, t.icon, t.accent);
-                let font = if active { semibold(14.0) } else { crate::theme::regular(14.0) };
-                // Long translations stay inside the row; WidgetInfo above keeps the full name.
-                ui.painter().with_clip_rect(r).text(egui::pos2(r.min.x + 34.0, r.center().y), egui::Align2::LEFT_CENTER, label, font, t.text);
-                if resp.clicked() {
-                    app.ui.options_pane = id.to_string();
-                }
-            }
-        });
-        ui.add_space(12.0);
-        let (line, _) = ui.allocate_exact_size(vec2(1.0, 420.0), egui::Sense::hover());
-        ui.painter().rect_filled(line, 0.0, t.border);
-        ui.add_space(20.0);
-        ui.vertical(|ui| {
-            ui.set_max_width(640.0);
-            match current.as_str() {
-                "display" => display(app, ui),
-                "proofing" => proofing(app, ui),
-                "save" => save(app, ui),
-                "language" => language(app, ui),
-                "accessibility" => accessibility(app, ui),
-                "advanced" => advanced(app, ui),
-                "agents" => agents(ui),
-                _ => general(app, ui),
-            }
-        });
-    });
+    let style = krub_icons::options::Style {
+        text: t.text,
+        icon: t.icon,
+        selected: t.checked,
+        hover: t.hover,
+        border: t.border,
+        regular: crate::theme::regular(14.0),
+        semibold: semibold(14.0),
+        announce: |resp, active, label| resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, label)),
+    };
+    // Agents is reachable by command only (`file.options` with the pane), not from the list.
+    if app.ui.options_pane == "agents" {
+        agents(ui);
+        return;
+    }
+    let mut current = app.ui.options_pane.clone();
+    krub_icons::options::page(
+        ui,
+        &style,
+        &PANES,
+        |name| tl!(name).to_string(),
+        &mut current,
+        |ui, id| match id {
+            "display" => display(app, ui),
+            "proofing" => proofing(app, ui),
+            "save" => save(app, ui),
+            "language" => language(app, ui),
+            "accessibility" => accessibility(app, ui),
+            "advanced" => advanced(app, ui),
+            _ => general(app, ui),
+        },
+    );
+    app.ui.options_pane = current;
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -464,6 +433,41 @@ fn save(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     note(ui, "The document you are editing keeps the names and dates; only the saved file leaves them out.");
+    ui.add_space(8.0);
+    // The open document's `file.embedFonts`: saved with it, honoured when it is saved as .docx.
+    section(ui, "Preserve fidelity when sharing this document");
+    let settings = &app.session.doc.settings;
+    let (embed, subset, system) = (settings.embed_fonts, settings.embed_subset, settings.embed_system_fonts);
+    let mut v = embed;
+    if ui.checkbox(&mut v, tl!("Embed fonts in the file")).changed()
+        && let Err(e) = app.run("file.embedFonts", json!({"embed": v}))
+    {
+        app.status(e);
+    }
+    ui.indent("embed_fonts_options", |ui| {
+        let mut v = subset;
+        if ui
+            .add_enabled(embed, egui::Checkbox::new(&mut v, tl!("Embed only the characters used in the document (best for reducing file size)")))
+            .changed()
+            && let Err(e) = app.run("file.embedFonts", json!({"subset": v}))
+        {
+            app.status(e);
+        }
+        // Shown the way Word asks it: checked leaves the common system fonts out.
+        let mut leave_out = !system;
+        if ui.add_enabled(embed, egui::Checkbox::new(&mut leave_out, tl!("Do not embed common system fonts"))).changed()
+            && let Err(e) = app.run("file.embedFonts", json!({"systemFonts": !leave_out}))
+        {
+            app.status(e);
+        }
+    });
+    note(
+        ui,
+        "People who open the document see its text in the fonts you used, even without them installed. A font whose licence doesn't allow embedding is left out.",
+    );
+    if cfg!(target_arch = "wasm32") {
+        note(ui, "In the browser, only the fonts that come with KhianKrub and fonts embedded in documents you opened can be embedded.");
+    }
 }
 
 fn language(app: &mut WordApp, ui: &mut Ui) {

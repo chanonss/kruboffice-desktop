@@ -1,6 +1,6 @@
 //! The web start screen (nothing open yet): a top bar (PhutKrub, Open file, Options, the KrubOffice
-//! apps), a greeting, the themes and starter decks, then the drafts kept in this browser. Choosing a
-//! tile or a draft opens it in a new tab (`./?theme=…`, `./?template=…`, `./?draft=…`), so this
+//! apps), a greeting, the themes (each with its starter deck, if it has one, as a link under it), then
+//! the drafts kept in this browser. Choosing a tile, link or draft opens it in a new tab (`./?theme=…`, `./?template=…`, `./?draft=…`), so this
 //! page stays where it is. File › Home inside the editor stays as it is.
 
 use super::files::tile;
@@ -128,49 +128,70 @@ pub(super) fn web_home(app: &mut SlideApp, ui: &mut Ui) {
                     ui.add_space(28.0);
                     drafts_list(app, ui);
                     ui.add_space(28.0);
-                    starter_tiles(ui);
-                    ui.add_space(28.0);
                 });
             });
         });
     });
 }
 
-/// Blank and the built-in themes; each opens in a new tab.
+/// Blank and the built-in themes, one card each; each opens in a new tab. A theme with a starter deck
+/// (and Blank, whose theme the sample deck uses) has a small link under its card that opens the same
+/// theme with example slides, so a theme never shows up twice on this page.
 fn theme_tiles(ui: &mut Ui) {
+    let starters = deckcraft_engine::templates::matching("");
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
-        if tile(ui, tl!("Blank Presentation"), None, false).clicked() {
+        let sample =
+            (tl!("Example slides: Northern Lights").to_string(), crate::i18n::fmtp(tl!("{} slides"), &[&deckcraft_engine::sample::SLIDE_COUNT]));
+        let (card, link) = theme_card(ui, tl!("Blank Presentation"), None, Some(&sample));
+        if card {
             open_in_new_tab(ui, "new", "blank");
+        }
+        if link {
+            open_in_new_tab(ui, "sample", "");
         }
         // The default theme is already offered as Blank Presentation.
         for th in deckcraft_model::theme::builtin_themes().iter().filter(|th| th.name != "DeckCraft") {
-            if tile(ui, &th.name, Some(th), false).clicked() {
+            let starter = starters.iter().find(|st| st.theme == th.name);
+            let extra = starter.map(|st| {
+                (
+                    crate::i18n::fmtp(tl!("Example slides: {}"), &[&st.name]),
+                    crate::i18n::fmtp(tl!("{} slides"), &[&st.slides.len()]) + " · " + st.summary,
+                )
+            });
+            let (card, link) = theme_card(ui, &th.name, Some(th), extra.as_ref());
+            if card {
                 open_in_new_tab(ui, "theme", &th.name);
+            }
+            if link && let Some(st) = starter {
+                open_in_new_tab(ui, "template", st.name);
             }
         }
     });
 }
 
-/// The starter decks and the sample deck; each opens in a new tab.
-fn starter_tiles(ui: &mut Ui) {
-    let themes = deckcraft_model::theme::builtin_themes();
-    let t = Tokens::get(ui.ctx());
-    ui.label(RichText::new(tl!("Starter decks")).font(theme::bold(16.0)).color(t.text));
-    ui.add_space(6.0);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
-        for starter in deckcraft_engine::templates::matching("") {
-            let theme = themes.iter().find(|th| th.name == starter.theme);
-            if tile(ui, starter.name, theme, false).on_hover_text(starter.summary).clicked() {
-                open_in_new_tab(ui, "template", starter.name);
+/// A theme tile with, when `example` is given, a link under it (its text and hover text); the same
+/// height either way, so the rows line up. Returns (card clicked, link clicked).
+fn theme_card(ui: &mut Ui, label: &str, th: Option<&deckcraft_model::Theme>, example: Option<&(String, String)>) -> (bool, bool) {
+    let mut out = (false, false);
+    // A fixed size up front (the tile is 176 × 134), so `horizontal_wrapped` knows when to wrap.
+    let w = 176.0;
+    let size = vec2(w, 134.0 + 20.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)), |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        out.0 = tile(ui, label, th, false).clicked();
+        ui.allocate_ui_with_layout(vec2(w, 20.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.set_min_size(vec2(w, 20.0));
+            if let Some((text, hover)) = example {
+                let t = Tokens::get(ui.ctx());
+                let link = egui::Label::new(RichText::new(format!("+ {text}")).font(theme::font(11.5)).color(t.accent)).sense(Sense::click());
+                let resp = ui.add(link).on_hover_text(hover.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                out.1 = resp.clicked();
             }
-        }
-        let theme = themes.iter().find(|th| th.name == "DeckCraft");
-        if tile(ui, tl!("Sample deck: Northern Lights"), theme, false).clicked() {
-            open_in_new_tab(ui, "sample", "");
-        }
+        });
     });
+    out
 }
 
 /// The suite's app switcher in the top bar: a 3 x 3 dot button that opens a menu of the KrubOffice

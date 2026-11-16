@@ -1369,3 +1369,37 @@ fn transition_preview_for_first_slide_transitions_from_black() {
     assert_eq!(tr.from, None, "slide 0 transitions from black (None)");
     assert_eq!(tr.dur, 0.5);
 }
+
+/// #433: while the show window is hidden for a moment (on macOS, whenever it enters or leaves full
+/// screen) Presenter View is still drawn. A pass without it closed the window, and egui opened it
+/// again where it first opened, undoing Swap Displays.
+#[test]
+fn a_hidden_show_window_still_draws_presenter_view() {
+    let raw = |time: f64, occluded: bool| {
+        let mut raw = egui::RawInput { time: Some(time), ..Default::default() };
+        raw.viewports.insert(
+            egui::ViewportId::ROOT,
+            egui::ViewportInfo { occluded: Some(occluded), native_pixels_per_point: Some(1.0), ..Default::default() },
+        );
+        raw
+    };
+    let mut app = SlideApp::new(deckcraft_engine::Session::with_new(), crate::Services::default());
+    app.session.execute("slide.new", &json!({})).unwrap();
+    app.ui.presenter_view = true;
+    app.start_show(0, false);
+    let ctx = egui::Context::default();
+    ctx.run_ui(raw(1.0, false), |ui| {
+        app.logic(ui.ctx());
+        app.ui(ui);
+    })
+    .drop_without_applying_deltas();
+    assert!(app.show.as_ref().expect("show started").presenter);
+    app.show.as_mut().unwrap().presenter_cmds.push(egui::ViewportCommand::Focus);
+    ctx.run_ui(raw(1.1, true), |ui| {
+        app.logic(ui.ctx());
+        app.ui(ui);
+    })
+    .drop_without_applying_deltas();
+    let show = app.show.as_ref().expect("the show goes on while hidden");
+    assert!(show.presenter_cmds.is_empty(), "Presenter View was drawn in the hidden pass");
+}

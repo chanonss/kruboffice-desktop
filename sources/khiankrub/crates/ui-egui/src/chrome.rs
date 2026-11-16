@@ -9,7 +9,7 @@ use crate::{WordApp, icons};
 
 fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, enabled: bool) -> egui::Response {
     let t = Tokens::of(ui);
-    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(krub_icons::qat::BUTTON, Sense::click());
     if resp.hovered() && enabled {
         ui.painter().rect_filled(r, 4.0, t.hover);
     }
@@ -63,12 +63,8 @@ fn quick_access(ui: &mut Ui, app: &mut WordApp) {
         }
     }
     let t = Tokens::of(ui);
-    let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
-    let resp = ui.interact(r, qat_menu_button_id(), Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, 4.0, t.hover);
-    }
-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), "more", t.icon, t.accent);
+    let resp = krub_icons::qat::customize_button(ui, qat_menu_button_id(), t.icon, t.hover);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Customize Quick Access Toolbar")));
     let resp = resp.on_hover_text(tl!("Customize Quick Access Toolbar"));
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(220.0);
@@ -103,13 +99,7 @@ pub(crate) fn undo_list_footer(n: usize) -> String {
 /// The small arrow beside Undo: opens the list of steps to undo several at once.
 fn undo_list_button(ui: &mut Ui, app: &mut WordApp, enabled: bool) {
     let t = Tokens::of(ui);
-    let (r, _) = ui.allocate_exact_size(vec2(12.0, 24.0), Sense::hover());
-    let resp = ui.interact(r, undo_list_button_id(), if enabled { Sense::click() } else { Sense::hover() });
-    if resp.hovered() && enabled {
-        ui.painter().rect_filled(r, 4.0, t.hover);
-    }
-    let c = if enabled { t.icon } else { t.text_disabled };
-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(9.0, 9.0)), "dropdown", c, c);
+    let resp = krub_icons::qat::history_arrow(ui, undo_list_button_id(), enabled, t.icon, t.text_disabled, t.hover);
     let resp = resp.on_hover_text(tl!("Undo History"));
     egui::Popup::menu(&resp).show(|ui| undo_list(ui, app));
 }
@@ -155,7 +145,7 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
     }
 }
 
-/// The Quick Access Toolbar's menu button (…), which opens [`qat_menu`].
+/// The Quick Access Toolbar's Customize button (⌄), which opens [`qat_menu`].
 pub(crate) fn qat_menu_button_id() -> egui::Id {
     egui::Id::new("qat_menu_button")
 }
@@ -233,7 +223,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { bar.height } else { 38.0 })
+        .exact_size(if mac { bar.height } else { krub_icons::chrome::TITLE_H })
         // One navy band with the tab strip: no dividing line between them.
         .show_separator_line(false)
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
@@ -258,7 +248,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
             let mut qat_end = full.min.x;
             let mut right_start = full.max.x;
             ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+                ui.spacing_mut().item_spacing = vec2(krub_icons::qat::GAP, 0.0);
                 // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
                 // cover the document (#196, #176); clicking it then offers Save As where that helps.
                 let block = app.autosave_block();
@@ -289,7 +279,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         Some(b) => app.status(b.reason()),
                     }
                 }
-                ui.add_space(8.0);
+                ui.add_space(krub_icons::qat::AFTER_AUTOSAVE);
                 quick_access(ui, app);
                 qat_end = ui.min_rect().max.x;
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

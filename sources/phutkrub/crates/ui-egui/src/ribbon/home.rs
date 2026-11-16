@@ -182,21 +182,42 @@ fn font_group(app: &mut SlideApp, ui: &mut Ui, st: &Value) {
                 let size = st.get("size").and_then(Value::as_f64);
                 let fams = font_families(app);
                 let theme_fonts: Vec<String> = fams.iter().take(2).cloned().collect();
-                dropdown(ui, "font", &font, 150.0, en, |ui| {
-                    for (k, f) in fams.iter().enumerate() {
-                        let label = if k == 0 && theme_fonts.len() == 2 {
-                            format!("{f} (Headings)")
-                        } else if k == 1 && theme_fonts.len() == 2 {
-                            format!("{f} (Body)")
-                        } else {
-                            f.clone()
-                        };
-                        if ui.button(egui::RichText::new(label)).clicked() {
+                // Theme fonts, then the pinned fonts and every font ([`krub_icons::fonts`]); the list
+                // stays open while fonts are pinned in it.
+                widgets::dropdown_closing(ui, "font", &font, 150.0, en, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                    let themed = if theme_fonts.len() == 2 { 2 } else { 0 };
+                    let style = widgets::pin_style(ui);
+                    let pins = krub_icons::fonts::pinned(ui.ctx());
+                    let list_id = ui.scope_id().with("font_pins");
+                    let mut pick = |ui: &mut Ui, label: String, f: &str, k: usize, pinned: bool| {
+                        let b = ui.button(egui::RichText::new(label));
+                        let pin = krub_icons::fonts::pin_button(ui, list_id.with(k), b.rect, f, pinned, &style);
+                        if b.clicked() && !pin {
                             run(app, "format.font", json!({"family": f}));
                             ui.close();
                         }
-                        if k == 1 {
-                            ui.separator();
+                    };
+                    for (k, f) in fams.iter().take(themed).enumerate() {
+                        let label = if k == 0 { format!("{f} (Headings)") } else { format!("{f} (Body)") };
+                        pick(ui, label, f, k, krub_icons::fonts::is_pinned(&pins, f));
+                    }
+                    if themed > 0 {
+                        ui.separator();
+                    }
+                    let all = fams.get(themed..).unwrap_or_default();
+                    for (k, row) in krub_icons::fonts::rows(all, &pins).into_iter().enumerate() {
+                        match row {
+                            krub_icons::fonts::Row::Heading(h) => {
+                                if h == krub_icons::fonts::ALL_FONTS {
+                                    ui.separator();
+                                }
+                                widgets::font_heading(ui, h);
+                            }
+                            krub_icons::fonts::Row::Font { index, pinned } => {
+                                if let Some(f) = all.get(index) {
+                                    pick(ui, f.clone(), f, themed + k, pinned);
+                                }
+                            }
                         }
                     }
                     ui.separator();

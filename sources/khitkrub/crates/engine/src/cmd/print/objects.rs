@@ -189,7 +189,7 @@ fn draw_shape(pg: &mut Page, wb: &Workbook, shp: &gridcraft_model::Shape, b: &Bl
     let color = fm.text_color.and_then(|c| rgb_of(c, wb)).unwrap_or([0, 0, 0]);
     let align = fm.align.unwrap_or(if text_box { ShapeTextAlign::Left } else { ShapeTextAlign::Center });
     let anchor = fm.anchor.unwrap_or(if text_box { ShapeTextAnchor::Top } else { ShapeTextAnchor::Middle });
-    let lines = wrap_lines(&shp.text, font, size, (w - 4.0 * b.k).max(size));
+    let lines = wrap_lines(&shp.text, font, None, size, (w - 4.0 * b.k).max(size));
     let block_h = lines.len().min(500) as f32 * size * 1.2;
     let mut yy = match anchor {
         ShapeTextAnchor::Top => y + 2.0 * b.k,

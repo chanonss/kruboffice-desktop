@@ -94,10 +94,9 @@ pub fn tab_letter(tab: &str) -> &'static str {
 
 /// The tabs that carry a badge, in display order.
 pub fn badge_tabs(app: &WordApp) -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = TAB_LETTERS.iter().filter(|(_, l)| !l.is_empty()).map(|(t, _)| *t).collect();
-    if crate::ribbon::in_table_public(app) {
-        v.extend_from_slice(&["Table Design", "Table Layout"]);
-    }
+    let v: Vec<&'static str> = TAB_LETTERS.iter().filter(|(_, l)| !l.is_empty()).map(|(t, _)| *t).collect();
+    // A table's commands are in the Table pane, which has no tab to badge.
+    let _ = app;
     v
 }
 
@@ -179,7 +178,6 @@ fn controls(tab: &str) -> Vec<Control> {
             c("Find", "edit.find"),
             d("Replace", "replace"),
             m("Select", "select.all"),
-            c("Dictate", "tools.dictate"),
             c("Editor", "review.spelling"),
         ],
         "Insert" => vec![
@@ -1012,36 +1010,14 @@ mod tests {
         assert_eq!(a.ui.tab, "Review");
     }
 
-    /// Word's contextual table tabs take two letters (#1183): Alt, J, T is Table Design and
-    /// Alt, J, L is Table Layout. J alone waits for the second letter.
+    /// A table's commands are in the Table pane, so no table tab is badged in a table.
     #[test]
-    fn alt_j_t_and_alt_j_l_open_the_table_tabs() {
+    fn a_table_badges_no_table_tabs() {
         let mut a = app();
         a.run("insert.table", serde_json::json!({"rows": 2, "cols": 2})).unwrap();
         assert!(crate::ribbon::in_table_public(&a));
-        for (second, tab) in [(egui::Key::T, "Table Design"), (egui::Key::L, "Table Layout")] {
-            a.run("ui.tab", serde_json::json!({"tab": "Home"})).unwrap();
-            activate(&mut a);
-            assert!(handle_key(&mut a, egui::Key::J));
-            assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Tabs), "J waits for the second letter");
-            assert!(handle_key(&mut a, second));
-            assert_eq!((a.ui.tab.as_str(), a.ui.keytips), (tab, Phase::Commands));
-            assert!(a.ui.keytip_prefix.is_empty());
-            assert!(!letters_for(&a, tab).is_empty(), "{tab} badges its controls");
-            a.ui.keytips = Phase::Off;
-        }
-        // J then a letter no table tab uses ends keytips without switching tabs.
-        a.run("ui.tab", serde_json::json!({"tab": "Home"})).unwrap();
-        activate(&mut a);
-        handle_key(&mut a, egui::Key::J);
-        handle_key(&mut a, egui::Key::X);
-        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Off));
-        assert!(a.ui.keytip_prefix.is_empty());
-        // Outside a table there is no J tab.
-        let mut b = app();
-        activate(&mut b);
-        handle_key(&mut b, egui::Key::J);
-        assert_eq!(b.ui.keytips, Phase::Off);
+        let tabs = badge_tabs(&a);
+        assert!(!tabs.contains(&"Table Design") && !tabs.contains(&"Table Layout"), "{tabs:?}");
     }
 
     #[test]

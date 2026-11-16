@@ -1,6 +1,4 @@
-use super::{
-    Icon, ShapeId, SlideApp, Ui, big, big_button, big_button_ex, enabled, group, json, menu_item, rows, run, small_button_ex, theme, widgets,
-};
+use super::{Icon, ShapeId, SlideApp, Ui, big, big_button, big_button_ex, enabled, json, menu_item, rows, run, small_button_ex, theme, widgets};
 
 pub fn arrange_menu(app: &mut SlideApp, ui: &mut Ui) {
     ui.label(egui::RichText::new(tl!("Order Objects")).font(theme::bold(12.0)));
@@ -61,7 +59,7 @@ pub fn align_menu(app: &mut SlideApp, ui: &mut Ui) {
 
 /// Align to Slide or to the selected objects, as in PowerPoint: one object aligns to the slide and
 /// several to each other, unless the other choice was ticked for this same selection.
-fn align_to_slide(choice: Option<&(Vec<ShapeId>, bool)>, selection: &[ShapeId]) -> bool {
+pub fn align_to_slide(choice: Option<&(Vec<ShapeId>, bool)>, selection: &[ShapeId]) -> bool {
     match choice {
         Some((ids, to_slide)) if ids.as_slice() == selection => *to_slide,
         _ => selection.len() < 2,
@@ -70,7 +68,7 @@ fn align_to_slide(choice: Option<&(Vec<ShapeId>, bool)>, selection: &[ShapeId]) 
 
 /// Render ordering, align, group/ungroup, and rotate controls for the current selection.
 pub(super) fn arrange_group(app: &mut SlideApp, ui: &mut Ui) {
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Arrange", |ui| {
         let sel = enabled(app, "arrange.bringForward");
         let (m, a) = big_button_ex(ui, Icon::BringForward, tl!("Bring\nForward"), sel, true, false);
         if m.clicked() {
@@ -129,7 +127,7 @@ pub(super) fn size_group(app: &mut SlideApp, ui: &mut Ui) {
         .session
         .active()
         .and_then(|d| d.selection.shapes.first().and_then(|id| d.shape(*id).map(|s| deckcraft_engine::cmd::xfrm_of(&d.doc, &d.selection, s))));
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Size", |ui| {
         rows(ui, |ui| {
             let Some(x) = bx else {
                 ui.label(tl!("Height:"));

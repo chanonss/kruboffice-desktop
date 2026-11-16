@@ -21,8 +21,11 @@ fn harness(tab: &str) -> (Harness<'static, SlideApp>, [ShapeId; 2]) {
         ids[i] = ShapeId(r["id"].as_u64().unwrap() as u32);
     }
     s.execute("selection.select", &json!({"ids": [ids[0].0, ids[1].0]})).unwrap();
+    // "Shape Format" is the Shape pane now (the View tab shows no shape controls of its own);
+    // for "Home" the Shape pane is closed, so each control named here is the ribbon's.
+    let in_pane = tab == "Shape Format";
     let mut app = SlideApp::new(s, Services::default());
-    app.ui.tab = tab.into();
+    app.ui.tab = if in_pane { "View".into() } else { tab.into() };
     let mut h = Harness::builder().with_size(egui::vec2(1800.0, 900.0)).build_ui_state(
         |ui, app: &mut SlideApp| {
             app.logic(ui.ctx());
@@ -30,12 +33,18 @@ fn harness(tab: &str) -> (Harness<'static, SlideApp>, [ShapeId; 2]) {
         },
         app,
     );
+    if !in_pane {
+        crate::panes::close_object_pane(&h.ctx, "shape");
+    }
     h.run_steps(3);
     (h, ids)
 }
 
 /// Click the accessible button or chevron with the given name and run three harness steps.
 fn click(h: &mut Harness<'static, SlideApp>, name: &str) {
+    // A control low in the Shape pane is scrolled into view first; the scroll glides.
+    h.get_by_role_and_label(Role::Button, name).scroll_to_me();
+    h.run_steps(12);
     h.get_by_role_and_label(Role::Button, name).click();
     h.run_steps(3);
 }
@@ -93,44 +102,15 @@ fn home_section_menu_enters_wraps_and_closes_from_either_keyboard_trigger() {
     }
 }
 
-/// Main and chevron halves of Shape Effects open the same effects menu on Home and Shape
-/// Format.
+/// Main and chevron halves of Shape Effects open the same effects menu on Home (the Shape pane
+/// has its own Effect section).
 #[test]
-fn shape_effects_opens_the_effects_menu_from_its_label_and_arrow_on_both_tabs() {
+fn shape_effects_opens_the_effects_menu_from_its_label_and_arrow_on_home() {
     both_halves_open_same_menu("Home", "Shape Effects", "Format Shape…");
-    both_halves_open_same_menu("Shape Format", "Shape Effects", "Format Shape…");
 }
 
 /// Text Fill's label and chevron both open its colour menu.
 #[test]
 fn shape_format_text_fill_opens_its_colour_menu_from_its_label_and_arrow() {
     both_halves_open_same_menu("Shape Format", "Text Fill", "More Colors… #");
-}
-
-/// The Group main area executes grouping while only its chevron opens the group menu.
-#[test]
-fn shape_format_group_main_groups_and_its_arrow_opens_the_group_menu() {
-    let (mut h, _) = harness("Shape Format");
-    click(&mut h, "Group");
-    {
-        let d = h.state().session.active().unwrap();
-        assert_eq!(d.selection.shapes.len(), 1, "the main half grouped the two selected shapes");
-        let grouped = d.shape(d.selection.shapes[0]).unwrap();
-        assert!(grouped.is_group(), "the result is a group, not a menu choice");
-    }
-    click(&mut h, "Group options");
-    assert!(h.query_by_label("Ungroup").is_some(), "the arrow opens the Group actions");
-}
-
-/// The Rotate main area rotates while its chevron opens the rotate menu.
-#[test]
-fn shape_format_rotate_main_rotates_and_its_arrow_opens_the_rotate_menu() {
-    let (mut h, ids) = harness("Shape Format");
-    h.state_mut().session.execute("selection.select", &json!({"ids": [ids[0].0]})).unwrap();
-    h.run_steps(2);
-    click(&mut h, "Rotate");
-    let rot = h.state().session.active().unwrap().shape(ids[0]).unwrap().xfrm.unwrap().rot;
-    assert!((rot - 90.0).abs() < 1e-9, "the main half rotates right: {rot}");
-    click(&mut h, "Rotate options");
-    assert!(h.query_by_label("Rotate Left 90°").is_some(), "the arrow opens the Rotate actions");
 }

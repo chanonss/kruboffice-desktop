@@ -25,6 +25,7 @@ impl SlideApp {
                 if let Some(drive) = &self.services.google_drive {
                     (drive.save_over)(uid, revision, bytes);
                 }
+                self.report_unembedded_fonts();
             }
             Err(e) => self.set_status(e.to_string()),
         }
@@ -38,6 +39,7 @@ impl SlideApp {
                 if let Some(drive) = &self.services.google_drive {
                     (drive.save_copy)(format!("{title}.{DRIVE_FORMAT}"), bytes);
                 }
+                self.report_unembedded_fonts();
             }
             Err(e) => self.set_status(e.to_string()),
         }

@@ -838,6 +838,13 @@ pub(crate) fn last_resort_face() -> Arc<FontFace> {
     .clone()
 }
 
+/// A face read from `bytes` (the first face), outside the database: for tests of code that
+/// takes a face.
+#[cfg(test)]
+pub(crate) fn face_for_tests(bytes: Vec<u8>) -> Option<FontFace> {
+    make_face(FontBytes::Owned(Arc::new(bytes)), 0, "Test Face".into(), "Regular".into(), "Test Face".into(), Vec::new())
+}
+
 fn make_face(bytes: FontBytes, index: u32, family: String, style: String, legacy_family: String, coords: Vec<([u8; 4], f32)>) -> Option<FontFace> {
     let data: &[u8] = match &bytes {
         FontBytes::Static(b) => b,

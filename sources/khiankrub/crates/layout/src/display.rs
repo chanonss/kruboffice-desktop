@@ -21,6 +21,29 @@ pub enum Stroke {
     Wave,
 }
 
+/// How a shape's fill and outline are painted beyond their colours: opacity (0–1) and the
+/// outline's dash. The default is opaque and solid.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShapeLook {
+    pub fill_alpha: f32,
+    pub stroke_alpha: f32,
+    pub dash: wordcraft_doc::connector::LineDash,
+}
+
+impl Default for ShapeLook {
+    fn default() -> Self {
+        ShapeLook { fill_alpha: 1.0, stroke_alpha: 1.0, dash: wordcraft_doc::connector::LineDash::Solid }
+    }
+}
+
+impl ShapeLook {
+    /// A shape's look from its extra properties.
+    pub fn of(extra: &wordcraft_doc::connector::ShapeExtra) -> ShapeLook {
+        let a = |t: f32| if t.is_finite() { 1.0 - t.clamp(0.0, 100.0) / 100.0 } else { 1.0 };
+        ShapeLook { fill_alpha: a(extra.fill_transparency), stroke_alpha: a(extra.line_transparency), dash: extra.dash }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Draw {
     Glyphs {
@@ -81,12 +104,14 @@ pub enum Draw {
         effects: wordcraft_doc::effects::ShapeEffects,
         /// A rounded rectangle's corner ([`wordcraft_doc::connector::ShapeExtra::corner`]).
         corner: Option<u32>,
+        /// Fill and outline opacity and the outline's dash.
+        look: ShapeLook,
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
     /// wide, in `color` at opacity `alpha`.
     Ink { pts: Vec<(f32, f32)>, color: Rgb, width: f32, alpha: f32 },
     /// A vector path (a chart's or diagram's polygons, slices, lines): filled, then stroked.
-    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32 },
+    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32, look: ShapeLook },
     /// An inline chart or diagram's draws, as one figure with its alt text (for tagged PDF).
     Figure { alt: String, kind: GraphicKind, draws: Vec<Draw> },
     /// A formatting mark (¶ · → ↵) in the UI's mark colour, or in `color` (a tracked
@@ -1144,6 +1169,7 @@ fn lines(
                 stroke_width: e.stroke,
                 effects: Default::default(),
                 corner: None,
+                look: ShapeLook::default(),
             });
         }
         // Ruby (Phonetic Guide) text over its base text, in runs of one style.
@@ -1382,10 +1408,11 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
                 stroke_width: stroke_width * k,
                 effects: Default::default(),
                 corner: None,
+                look: ShapeLook::default(),
             }),
             GraphicItem::Path { segs, fill, stroke, stroke_width } => {
                 let segs = page_segs(segs, |x, y| (rect.x + x * sx, rect.y + y * sy));
-                out.push(Draw::Path { segs, fill: *fill, stroke: *stroke, stroke_width: stroke_width * k })
+                out.push(Draw::Path { segs, fill: *fill, stroke: *stroke, stroke_width: stroke_width * k, look: ShapeLook::default() })
             }
             GraphicItem::Text { rect: r, .. } => out.extend(text_glyphs(doc, inside(r), it, alpha, k)),
             GraphicItem::Image { rect: r, media } => {
@@ -1461,7 +1488,7 @@ fn shape_draws(
         return;
     }
     let Some(f) = freeform.filter(|_| kind == ShapeKind::Freeform) else {
-        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner });
+        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner, look: ShapeLook::of(extra) });
         return;
     };
     if f.is_ink() && opts.hide_ink {
@@ -1492,7 +1519,7 @@ fn shape_draws(
         if closed {
             segs.push(PathSeg::Close);
         }
-        out.push(Draw::Path { segs, fill: if closed { fill } else { None }, stroke, stroke_width: width });
+        out.push(Draw::Path { segs, fill: if closed { fill } else { None }, stroke, stroke_width: width, look: ShapeLook::of(extra) });
         if !closed
             && extra.arrow_end
             && let Some(color) = stroke
@@ -1520,7 +1547,7 @@ fn path_arrowhead(points: &[(f32, f32)], color: Rgb, stroke_width: f32) -> Optio
     let (bx, by) = (tip.0 - dx * len, tip.1 - dy * len);
     let (nx, ny) = (-dy * len * 0.45, dx * len * 0.45);
     let segs = vec![PathSeg::Move(tip.0, tip.1), PathSeg::Line(bx + nx, by + ny), PathSeg::Line(bx - nx, by - ny), PathSeg::Close];
-    Some(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0 })
+    Some(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0, look: ShapeLook::default() })
 }
 
 /// A line or connector at `rect` (its unflipped frame: flips are the frame's turn), with its
@@ -1546,9 +1573,9 @@ fn line_draws(
                     PathSeg::Close => PathSeg::Close,
                 })
                 .collect();
-            out.push(Draw::Path { segs, fill: None, stroke, stroke_width });
+            out.push(Draw::Path { segs, fill: None, stroke, stroke_width, look: ShapeLook::of(extra) });
         }
-        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None }),
+        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None, look: ShapeLook::of(extra) }),
     }
     let Some(color) = stroke else { return };
     // Our line runs from the bottom-left corner to the top-right; connectors from the top-left
@@ -1565,7 +1592,15 @@ fn line_draws(
         let (bx, by) = (tip.0 - dx * len, tip.1 - dy * len);
         let (nx, ny) = (-dy * len * 0.45, dx * len * 0.45);
         let segs = vec![PathSeg::Move(tip.0, tip.1), PathSeg::Line(bx + nx, by + ny), PathSeg::Line(bx - nx, by - ny), PathSeg::Close];
-        out.push(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0 });
+        // The arrowhead is as see-through as the line, and solid.
+        let alpha = ShapeLook::of(extra).stroke_alpha;
+        out.push(Draw::Path {
+            segs,
+            fill: Some(color),
+            stroke: None,
+            stroke_width: 0.0,
+            look: ShapeLook { fill_alpha: alpha, ..ShapeLook::default() },
+        });
     }
 }
 
@@ -1735,6 +1770,7 @@ fn canvas_background(rect: Rect, c: &wordcraft_doc::para::CanvasStyle) -> Draw {
         stroke_width: c.stroke_width,
         effects: Default::default(),
         corner: None,
+        look: ShapeLook::default(),
     }
 }
 

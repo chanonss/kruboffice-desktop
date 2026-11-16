@@ -362,35 +362,76 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"index"?: n}"#)
         .pure(),
         CommandSpec::new("shape.fill", "Shape Fill", "Shape Format › Shape Styles", |s, v| {
+            // `color` absent: the colour stays (to change only the transparency).
+            let set_color = v.get("color").is_some();
             let c = p::str(v, "color").and_then(Rgb::parse);
+            let t = p::f32(v, "transparency").map(|t| t.clamp(0.0, 100.0));
             with_obj(s, |o| {
-                if let InlineObject::Shape { fill, .. } = o {
-                    *fill = c;
-                } else if let Some(style) = super::canvas::style_mut(o) {
+                if let InlineObject::Shape { fill, extra, .. } = o {
+                    if set_color {
+                        *fill = c;
+                    }
+                    if let Some(t) = t {
+                        extra.fill_transparency = t;
+                    }
+                } else if let Some(style) = super::canvas::style_mut(o)
+                    && set_color
+                {
                     style.fill = c;
                 }
             })
         })
-        .params(r#"{"color": "RRGGBB" | null}  (a selected drawing canvas: its background)"#)
+        .params(r#"{"color"?: "RRGGBB" | null, "transparency"?: %}  (a selected drawing canvas: its background)"#)
         .when(has_shape_or_canvas),
         CommandSpec::new("shape.outline", "Shape Outline", "Shape Format › Shape Styles", |s, v| {
+            // `color` absent: the colour stays (to change only the width, dash, transparency or arrows).
+            let set_color = v.get("color").is_some();
             let c = p::str(v, "color").and_then(Rgb::parse);
             let w = p::f32(v, "width").map(|w| w.clamp(0.0, 72.0));
+            let t = p::f32(v, "transparency").map(|t| t.clamp(0.0, 100.0));
+            let dash = match p::str(v, "dash") {
+                Some(d) => Some(
+                    wordcraft_doc::connector::LineDash::ALL
+                        .into_iter()
+                        .find(|x| serde_json::to_value(x).ok().and_then(|j| j.as_str().map(|j| j == d)).unwrap_or(false))
+                        .ok_or_else(|| CmdError::Params(format!("`dash`: solid, dot, dash, longDash or dashDot, not `{d}`")))?,
+                ),
+                None => None,
+            };
+            let (arrow_start, arrow_end) = (p::bool(v, "arrowStart"), p::bool(v, "arrowEnd"));
             with_obj(s, |o| {
-                if let InlineObject::Shape { stroke, stroke_width, .. } = o {
-                    *stroke = c;
+                if let InlineObject::Shape { stroke, stroke_width, extra, .. } = o {
+                    if set_color {
+                        *stroke = c;
+                    }
                     if let Some(w) = w {
                         *stroke_width = w;
                     }
+                    if let Some(t) = t {
+                        extra.line_transparency = t;
+                    }
+                    if let Some(d) = dash {
+                        extra.dash = d;
+                    }
+                    if let Some(a) = arrow_start {
+                        extra.arrow_start = a;
+                    }
+                    if let Some(a) = arrow_end {
+                        extra.arrow_end = a;
+                    }
                 } else if let Some(style) = super::canvas::style_mut(o) {
-                    style.stroke = c;
+                    if set_color {
+                        style.stroke = c;
+                    }
                     if let Some(w) = w {
                         style.stroke_width = w;
                     }
                 }
             })
         })
-        .params(r#"{"color": "RRGGBB" | null, "width"?: pt}  (a selected drawing canvas: its border)"#)
+        .params(
+            r#"{"color"?: "RRGGBB" | null, "width"?: pt, "transparency"?: %, "dash"?: "solid|dot|dash|longDash|dashDot", "arrowStart"?: bool, "arrowEnd"?: bool}  (a selected drawing canvas: its border's colour and width)"#,
+        )
         .when(has_shape_or_canvas),
         CommandSpec::new("shape.effects", "Shape Effects", "Shape Format › Shape Styles", shape_effects)
             .params(
@@ -1464,6 +1505,28 @@ fn objects_list(s: &mut Session, _: &Value) -> CmdResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Shape pane's Area and Line: transparency, dash and arrowheads change on their own,
+    /// keeping the colours (an absent `color` used to clear them).
+    #[test]
+    fn fill_and_outline_options_keep_the_colours() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        s.run("shape.fill", &json!({"color": "4472C4"})).unwrap();
+        s.run("shape.outline", &json!({"color": "1F3864", "width": 2})).unwrap();
+        s.run("shape.fill", &json!({"transparency": 40})).unwrap();
+        s.run("shape.outline", &json!({"transparency": 25, "dash": "dashDot", "arrowEnd": true})).unwrap();
+        let Some((_, InlineObject::Shape { fill, stroke, stroke_width, extra, .. })) = selected(&s) else { panic!("no shape") };
+        assert_eq!(fill.map(|c| c.hex()).as_deref(), Some("4472C4"));
+        assert_eq!(stroke.map(|c| c.hex()).as_deref(), Some("1F3864"));
+        assert_eq!(stroke_width, 2.0);
+        assert_eq!((extra.fill_transparency, extra.line_transparency), (40.0, 25.0));
+        assert_eq!(extra.dash, wordcraft_doc::connector::LineDash::DashDot);
+        assert!(extra.arrow_end && !extra.arrow_start);
+        assert!(s.run("shape.outline", &json!({"dash": "zigzag"})).is_err(), "an unknown dash is refused");
+        s.run("shape.fill", &json!({"color": null})).unwrap();
+        assert!(matches!(selected(&s), Some((_, InlineObject::Shape { fill: None, .. }))), "color null still clears");
+    }
 
     fn png(w: u32, h: u32) -> Vec<u8> {
         let img = image::RgbaImage::from_fn(w, h, |x, y| {

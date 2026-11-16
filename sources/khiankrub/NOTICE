@@ -15,6 +15,10 @@ Third-party material
 This product bundles third-party material under its own licenses, listed below. The per-file
 list (author, source, license) is in ATTRIBUTION.md.
 
+- Tabler Icons 3.50.0 (https://tabler.io/icons) — MIT License, Copyright (c) 2020-2026 Paweł Kuna. Most
+  ribbon, toolbar and menu icons are drawn from its outline icons, converted into Rust geometry
+  (crates/krub-icons/src/tabler.rs). See crates/krub-icons/LICENSE-tabler.txt; the apps also show it
+  in Help › About.
 - Source Sans 3 and Source Serif 4 (assets/fonts/Source*) — SIL Open Font License 1.1. See assets/fonts/OFL-SourceSans3.txt, OFL-SourceSerif4.txt.
 - Inter (assets/fonts/Inter-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-Inter.txt.
 - JetBrains Mono (assets/fonts/JetBrainsMono-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-JetBrainsMono.txt.
@@ -163,3 +167,29 @@ distributed beside the fonts.
 All font files are separate, unmodified build inputs. The web fonts/ directory
 contains their exact copyright/licence notices, full GPL text and checksums.
 These files are not embedded into the native desktop binaries by this change.
+
+
+Tabler Icons (crates/krub-icons/src/tabler.rs). The following text is reproduced verbatim from
+crates/krub-icons/LICENSE-tabler.txt (Tabler Icons 3.50.0, https://github.com/tabler/tabler-icons):
+
+MIT License
+
+Copyright (c) 2020-2026 Paweł Kuna
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -38,7 +38,7 @@ const PAGES: [(&str, &str, &str); 14] = [
 ];
 
 /// Underline styles offered: (OOXML name, label).
-const UNDERLINES: [(&str, &str); 9] = [
+pub(crate) const UNDERLINES: [(&str, &str); 9] = [
     ("none", "(none)"),
     ("single", "Single"),
     ("words", "Words only"),
@@ -62,7 +62,7 @@ const TAB_LEADERS: [(TabLeader, &str); 5] = [
 ];
 
 /// Border line styles offered: (OOXML name, label).
-const LINES: [(&str, &str); 6] =
+pub(crate) const LINES: [(&str, &str); 6] =
     [("single", "Single"), ("double", "Double"), ("dotted", "Dotted"), ("dashed", "Dashed"), ("thick", "Thick"), ("dotDash", "Dot dash")];
 
 /// New multilevel lists a style can be numbered with: (`list.kind`, sample).
@@ -657,7 +657,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) -> bool {
     ok || cancel
 }
 
-fn heading(ui: &mut Ui, s: &str) {
+pub(crate) fn heading(ui: &mut Ui, s: &str) {
     ui.add_space(4.0);
     ui.label(egui::RichText::new(tl!(s)).font(semibold(12.5)));
 }

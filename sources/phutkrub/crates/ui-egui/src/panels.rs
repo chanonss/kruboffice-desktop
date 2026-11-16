@@ -14,8 +14,11 @@ mod animation;
 mod background;
 mod comments;
 mod designer;
+#[cfg(test)]
+mod dock_tests;
 mod effect_presets;
 mod format_shape;
+mod shape_pane;
 mod smartart;
 mod thesaurus;
 
@@ -27,12 +30,197 @@ use format_shape::format_shape;
 pub(crate) use format_shape::text_transparency_slider;
 #[cfg(test)]
 use format_shape::{fill_transparency_to_apply, solid_fill_transparency_percent};
+pub(crate) use shape_pane::shape_pane;
 use smartart::smartart;
 use thesaurus::thesaurus;
 
+/// A pane the right-hand dock can show: a task pane (Format Shape, Comments…) or an object pane
+/// that follows the selection (Table, Picture, SmartArt, Chart, Shape).
+fn title(id: &str) -> &'static str {
+    match id {
+        "format" => "Format Shape",
+        "background" => "Format Background",
+        "animation" => "Animation Pane",
+        "selection" => "Selection",
+        "comments" => "Comments",
+        "designer" => "Design Ideas",
+        "smartart" => "Text Pane",
+        "thesaurus" => "Thesaurus",
+        "revisions" => "Revisions",
+        "obj:table" => "Table",
+        "obj:picture" => "Picture",
+        "obj:smartart" => "SmartArt",
+        "obj:chart" => "Chart",
+        "obj:shape" => "Shape",
+        "obj:idle" => "Format",
+        _ => "Pane",
+    }
+}
+
+/// The strip button's icon for a pane.
+fn strip_icon(id: &str) -> Icon {
+    match id {
+        "obj:table" => Icon::Table,
+        "obj:picture" => Icon::Picture,
+        "obj:smartart" | "smartart" => Icon::SmartArt,
+        "obj:chart" => Icon::Chart,
+        "obj:shape" | "obj:idle" => Icon::Shapes,
+        "comments" | "revisions" => Icon::Comment,
+        "animation" => Icon::AnimationPane,
+        "selection" => Icon::SelectionPane,
+        "designer" => Icon::DesignIdeas,
+        "background" => Icon::FormatBackground,
+        "thesaurus" => Icon::Thesaurus,
+        _ => Icon::ShapeFill,
+    }
+}
+
+/// The width of the strip of pane buttons on the dock's outer edge.
+pub const STRIP_W: f32 = 36.0;
+
+/// Whether an object pane shows: while the selection asks for it, unless its × closed it (until
+/// the selection no longer asks). While a mouse button is held, and on the frame it is released,
+/// it stays as it was, so pressing or dragging a shape doesn't move the slide under the pointer.
+fn follow(ctx: &egui::Context, id: &'static str, active: bool) -> bool {
+    let (closed, shown) = (egui::Id::unique(("pane_closed", id)), egui::Id::unique(("pane_shown", id)));
+    let held = ctx.input(|i| i.pointer.any_down() || i.pointer.any_released());
+    let before = ctx.data(|d| d.get_temp::<bool>(shown).unwrap_or(false));
+    let show = if held && before != active {
+        before
+    } else if active {
+        !ctx.data(|d| d.get_temp::<bool>(closed).unwrap_or(false))
+    } else {
+        ctx.data_mut(|d| d.remove::<bool>(closed));
+        false
+    };
+    ctx.data_mut(|d| d.insert_temp(shown, show));
+    show
+}
+
+/// Hide the object pane `id` (`"table"`, `"shape"`…) until the selection no longer asks for it.
+/// The dock doesn't stay open for it either ([`open_panes`]'s placeholder).
+pub fn close_object_pane(ctx: &egui::Context, id: &str) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::unique(("pane_closed", id)), true);
+        d.insert_temp(egui::Id::unique("dock_sticky"), false);
+    });
+}
+
+/// The panes open now: the object panes the selection asks for, then the task pane.
+pub fn open_panes(app: &SlideApp, ctx: &egui::Context) -> Vec<&'static str> {
+    let wanted = crate::ribbon::object_panes(app);
+    let mut v: Vec<&'static str> = ["table", "picture", "smartart", "chart", "shape"]
+        .into_iter()
+        .filter(|id| follow(ctx, id, wanted.contains(id)))
+        .map(|id| match id {
+            "table" => "obj:table",
+            "picture" => "obj:picture",
+            "smartart" => "obj:smartart",
+            "chart" => "obj:chart",
+            _ => "obj:shape",
+        })
+        .collect();
+    // Once an object pane has been open, the dock stays open (owner, 2026-11-16): with nothing
+    // selected it shows a placeholder at the same width, so the slide doesn't move each time the
+    // selection comes and goes. Its × closes the dock until an object is chosen again.
+    let sticky = egui::Id::unique("dock_sticky");
+    if !v.is_empty() {
+        ctx.data_mut(|d| d.insert_temp(sticky, true));
+    } else if app.ui.pane.is_none() && ctx.data(|d| d.get_temp::<bool>(sticky).unwrap_or(false)) {
+        v.push("obj:idle");
+    }
+    if let Some(p) = app.ui.pane.as_deref() {
+        let id = ["format", "background", "animation", "selection", "comments", "designer", "smartart", "thesaurus", "revisions"]
+            .into_iter()
+            .find(|k| *k == p);
+        v.extend(id);
+    }
+    v
+}
+
+/// The pane the dock shows now (`"obj:table"`, `"comments"`…), if any.
+pub fn active_pane(ctx: &egui::Context) -> Option<&'static str> {
+    ctx.data(|d| d.get_temp::<Option<&'static str>>(egui::Id::unique("dock_active"))).flatten()
+}
+
+/// The right-hand dock (owner, 2026-11-16): one pane at a time at one width, with a strip of
+/// buttons on its outer edge for every pane that is open. A pane that opens (an object selected,
+/// a task pane turned on) comes to the front, but an object pane never covers a task pane; a
+/// strip button brings its pane back; closing the front pane shows the one used before it.
 pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    let Some(pane) = app.ui.pane.clone() else { return };
+    let ctx = ui.ctx().clone();
+    let (order_id, prev_id) = (egui::Id::unique("dock_order"), egui::Id::unique("dock_prev"));
+    let open = open_panes(app, &ctx);
+    let prev: Vec<&'static str> = ctx.data(|d| d.get_temp(prev_id)).unwrap_or_default();
+    let mut order: Vec<&'static str> = ctx.data(|d| d.get_temp(order_id)).unwrap_or_default();
+    let front = |order: &mut Vec<&'static str>, id: &'static str| {
+        order.retain(|o| *o != id);
+        order.insert(0, id);
+    };
+    // A pane that opens comes to the front, except that an object pane never covers an open task
+    // pane (the Selection pane, Format Shape…, where choosing a shape is part of the work): it
+    // waits in the strip. Of object panes that open together, the most particular (Table,
+    // Picture, SmartArt, Chart) ends in front of the general Shape pane.
+    let task_open = open.iter().any(|id| !id.starts_with("obj:"));
+    for id in open.iter().rev().filter(|id| id.starts_with("obj:") && !prev.contains(id)) {
+        if task_open {
+            order.retain(|o| o != id);
+            order.push(id);
+        } else {
+            front(&mut order, id);
+        }
+    }
+    for id in open.iter().filter(|id| !id.starts_with("obj:") && !prev.contains(id)) {
+        front(&mut order, id);
+    }
+    ctx.data_mut(|d| d.insert_temp(prev_id, open.clone()));
+    let mut active = order.iter().copied().find(|id| open.contains(id)).or_else(|| open.first().copied());
+    if open.is_empty() {
+        ctx.data_mut(|d| {
+            d.insert_temp(order_id, order);
+            d.insert_temp::<Option<&'static str>>(egui::Id::unique("dock_active"), None);
+        });
+        return;
+    }
+    egui::Panel::right("task_pane_strip")
+        .exact_size(STRIP_W)
+        .resizable(false)
+        .frame(egui::Frame::NONE.fill(t.card).inner_margin(egui::Margin::symmetric(3, 8)).stroke(Stroke::new(1.0, t.separator)))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            for id in &open {
+                let on = active == Some(*id);
+                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+                let fill = if on {
+                    t.selected
+                } else if resp.hovered() {
+                    t.hover
+                } else {
+                    Color32::TRANSPARENT
+                };
+                ui.painter().rect_filled(r, CornerRadius::same(5), fill);
+                if on {
+                    ui.painter().rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+                }
+                icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(20.0, 20.0)), strip_icon(id), t.text, false);
+                // Named apart from the pane's own heading: "Pane: Comments".
+                let label = crate::i18n::fmtp(tl!("Pane: {}"), &[&tl!(title(id))]);
+                let resp = resp.on_hover_text(tl!(title(id)));
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, &label));
+                if resp.clicked() {
+                    active = Some(*id);
+                }
+            }
+        });
+    if let Some(id) = active {
+        front(&mut order, id);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(order_id, order);
+        d.insert_temp(egui::Id::unique("dock_active"), active);
+    });
+    let Some(pane) = active else { return };
     egui::Panel::right("task_pane")
         .resizable(true)
         .default_size(app.ui.pane_width)
@@ -40,33 +228,26 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
         .frame(egui::Frame::NONE.fill(t.card).inner_margin(egui::Margin::same(10)))
         .show(ui, |ui| {
             app.ui.pane_width = ui.available_width() + 20.0;
-            let title = match pane.as_str() {
-                "format" => "Format Shape",
-                "background" => "Format Background",
-                "animation" => "Animation Pane",
-                "selection" => "Selection",
-                "comments" => "Comments",
-                "designer" => "Design Ideas",
-                "smartart" => "Text Pane",
-                "thesaurus" => "Thesaurus",
-                "revisions" => "Revisions",
-                _ => "Pane",
-            };
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(title).font(theme::bold(16.0)));
+                ui.label(egui::RichText::new(tl!(title(pane))).font(theme::bold(16.0)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
                     if resp.hovered() {
                         ui.painter().rect_filled(r, CornerRadius::same(4), t.hover);
                     }
                     icons::paint(ui.painter(), r.shrink(3.0), Icon::Close, t.text_dim, false);
+                    let resp = resp.on_hover_text(tl!("Close"));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Close")));
                     if resp.clicked() {
-                        app.ui.pane = None;
+                        match pane.strip_prefix("obj:") {
+                            Some(obj) => close_object_pane(ui.ctx(), obj),
+                            None => app.ui.pane = None,
+                        }
                     }
                 });
             });
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match pane.as_str() {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("task_pane_scroll", pane)).show(ui, |ui| match pane {
                 "format" => format_shape(app, ui),
                 "background" => background(app, ui),
                 "animation" => animation(app, ui),
@@ -76,7 +257,18 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 "smartart" => smartart(app, ui),
                 "thesaurus" => thesaurus(app, ui),
                 "revisions" => revisions(app, ui),
-                _ => {}
+                "obj:idle" => {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(tl!("Choose a shape, picture, table, chart or SmartArt graphic on the slide to see its commands here."))
+                            .color(t.text_dim),
+                    );
+                }
+                obj => {
+                    if let Some(obj) = obj.strip_prefix("obj:") {
+                        crate::ribbon::object_pane(app, ui, obj);
+                    }
+                }
             });
         });
 }
@@ -98,11 +290,11 @@ fn color_button(
 ) {
     let sc = scheme(app);
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.label(tl!(label));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let r = widgets::drop_button(ui, tl!("Color"), vec2(70.0, 22.0), true);
             widgets::color_popup(&r).show(|ui| {
-                if let Some(c) = widgets::color_grid(ui, &sc, none_label) {
+                if let Some(c) = widgets::color_grid(ui, &sc, none_label.map(|l| tl!(l))) {
                     let (id, p) = on_pick(c);
                     run(app, &id, p);
                 }

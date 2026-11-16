@@ -121,6 +121,11 @@ pub fn can_encrypt(name: &str) -> bool {
 /// [`crate::cmd::references::refresh_date_fields`]).
 fn opened(doc: &mut Document) {
     doc.ensure_nonempty();
+    // A file that embeds fonts without Word's flag for it (other producers): the option shows
+    // what the file does, and saving keeps embedding them.
+    if crate::embed_fonts::file_embeds_fonts(doc) {
+        doc.settings.embed_fonts = true;
+    }
     crate::cmd::references::refresh_date_fields(doc);
 }
 

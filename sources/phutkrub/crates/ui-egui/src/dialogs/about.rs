@@ -24,6 +24,8 @@ pub fn about(_app: &mut SlideApp, ui: &mut Ui) {
     ui.add_space(6.0);
     project_links(ui);
     ui.add_space(6.0);
+    krub_icons::tabler_credit(ui, tl!("Icons from Tabler Icons by Paweł Kuna (MIT License)"), tl!("Tabler Icons license"));
+    ui.add_space(6.0);
     ui.label(
         egui::RichText::new(tl!(
             "MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the DeckCraft contributors. Modifications copyright (c) 2026 Chanon Sarasuk."

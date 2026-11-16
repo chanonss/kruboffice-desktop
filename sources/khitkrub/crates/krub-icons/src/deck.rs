@@ -353,6 +353,9 @@ pub fn paint_ex(painter: &egui::Painter, rect: egui::Rect, icon: Icon, ink: egui
         crate::thai::paint(painter, rect, if disabled { ink.gamma_multiply(0.35) } else { ink }, flat || disabled);
         return;
     }
+    if crate::tabler::paint(painter, rect, icon.name(), ink, disabled) {
+        return;
+    }
     // The line set's drawing (KhianKrub's for the same command, else PhutKrub's own).
     if crate::line::deck::paint(painter, rect, icon.name(), ink, disabled, flat) {
         return;

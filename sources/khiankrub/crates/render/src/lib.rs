@@ -849,21 +849,21 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 ctx.pop_layer();
             }
         }
-        Draw::Path { segs, fill, stroke, stroke_width } => {
+        Draw::Path { segs, fill, stroke, stroke_width, look } => {
             let path = wordcraft_layout::display::seg_path(segs);
             if path.elements().is_empty() {
                 return;
             }
             ctx.set_transform(view);
             if let Some(f) = fill {
-                ctx.set_paint(color(opts.ink(*f), 1.0));
+                ctx.set_paint(color(opts.ink(*f), look.fill_alpha));
                 ctx.fill_path(&path);
             }
             if let Some(s) = stroke {
                 // Width 0 (or none) is a hairline.
                 let w = if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 };
-                ctx.set_paint(color(opts.ink(*s), 1.0));
-                ctx.set_stroke(kurbo::Stroke::new(w as f64));
+                ctx.set_paint(color(opts.ink(*s), look.stroke_alpha));
+                ctx.set_stroke(dashed(kurbo::Stroke::new(w as f64), w, look.dash));
                 ctx.stroke_path(&path);
             }
         }
@@ -904,7 +904,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(kurbo::Stroke::new(w as f64).with_caps(kurbo::Cap::Round).with_join(kurbo::Join::Round));
             ctx.stroke_path(&path);
         }
-        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner } => {
+        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner, look } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             let path = shape_path(*kind, r, *corner);
             ctx.set_transform(view);
@@ -943,7 +943,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             // Soft edges: the fill fades out toward the outline (which fades with it).
             if let (Some(rad), Some(f), true) = (fx.soft_edge, fill, can_fill) {
                 let rad = rad.min(rect.w.min(rect.h) / 2.0).max(0.0);
-                for (g, a) in wordcraft_doc::effects::bands(-rad, 0.0, 1.0) {
+                for (g, a) in wordcraft_doc::effects::bands(-rad, 0.0, look.fill_alpha) {
                     let rr = r.inflate(g as f64, g as f64);
                     if rr.width() > 0.0 && rr.height() > 0.0 {
                         ctx.set_paint(color(opts.ink(*f), a));
@@ -953,12 +953,13 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 return;
             }
             if let Some(f) = fill {
-                ctx.set_paint(color(opts.ink(*f), 1.0));
+                ctx.set_paint(color(opts.ink(*f), look.fill_alpha));
                 ctx.fill_path(&path);
             }
             if let Some(s) = stroke {
-                ctx.set_paint(color(opts.ink(*s), 1.0));
-                ctx.set_stroke(kurbo::Stroke::new(stroke_width.max(0.25) as f64));
+                let w = stroke_width.max(0.25);
+                ctx.set_paint(color(opts.ink(*s), look.stroke_alpha));
+                ctx.set_stroke(dashed(kurbo::Stroke::new(w as f64), w, look.dash));
                 ctx.stroke_path(&path);
             }
         }
@@ -1174,6 +1175,7 @@ mod tests {
             stroke_width: 0.0,
             effects: Default::default(),
             corner: None,
+            look: Default::default(),
         };
         let at = |x: f32, y: f32| {
             let mut bg = [255.0; 3];
@@ -1706,5 +1708,15 @@ mod tests {
 
 #[cfg(test)]
 mod cache_tests;
+/// `stroke` with `dash`'s pattern, scaled to the line width `w` (solid: unchanged).
+fn dashed(stroke: kurbo::Stroke, w: f32, dash: wordcraft_doc::connector::LineDash) -> kurbo::Stroke {
+    let pattern = dash.pattern();
+    if pattern.is_empty() {
+        return stroke;
+    }
+    let w = f64::from(w.max(0.25));
+    stroke.with_dashes(0.0, pattern.iter().map(|p| f64::from(*p) * w))
+}
+
 #[cfg(test)]
 mod tests_color_glyphs;

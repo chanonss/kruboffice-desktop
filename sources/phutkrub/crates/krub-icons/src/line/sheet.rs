@@ -170,6 +170,9 @@ pub(crate) const OWN: &[&str] = &[
 /// Draw `icon` in the line style: the shared drawing [`line_name`] names, else KhitKrub's own.
 /// `false` when neither has it, so the caller keeps the older drawing.
 pub(crate) fn paint(p: &Painter, r: Rect, icon: Icon, ink: Color32, flat: bool) -> bool {
+    if crate::tabler::paint(p, r, icon.name(), ink, false) {
+        return true;
+    }
     if let Some(name) = line_name(icon.name())
         && super::paint_ex(p, r, name, ink, false, flat)
     {

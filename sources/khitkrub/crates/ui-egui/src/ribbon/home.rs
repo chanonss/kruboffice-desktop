@@ -4,8 +4,8 @@ use super::controls::{
 };
 use super::galleries::{cell_style_gallery, table_gallery};
 use super::{
-    HAlign, Icon, Key, Modifiers, Rect, SheetApp, Style, Tokens, Ui, VAlign, big_button, color_palette, icon_button, json, keytip_table,
-    small_button, small_split_button, split_button, theme, toggle_button, vec2,
+    HAlign, Icon, Key, Modifiers, Rect, SheetApp, Style, Tokens, Ui, VAlign, big_button, big_split_button, color_palette, icon_button, json,
+    keytip_table, small_button, small_split_button, split_button, theme, toggle_button, vec2,
 };
 use crate::widgets::{ROW_GAP, ribbon_icon_button};
 
@@ -29,41 +29,21 @@ pub(super) fn home(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let st = active_style(app);
     // Clipboard
-    let paste = big_button(ui, Icon::Paste, "Paste", "Paste", true);
-    paste.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Paste"));
+    // A split button, as in the other KrubOffice apps: the icon pastes, the label row opens the
+    // Paste menu. A right-click on either half and the H, V keytips open the same menu.
+    let (paste, paste_arrow) = big_split_button(ui, Icon::Paste, "Paste", "Paste");
+    let paste_rect = paste.rect.union(paste_arrow.rect);
     for sequence in
         keytip_table::group_extension(app.keytips.prefix().unwrap_or_default(), &["edit.paste", "edit.pasteSpecial", "dialog:pasteSpecial"])
     {
-        keytip(app, ui, sequence, paste.rect.center_bottom());
+        keytip(app, ui, sequence, paste_rect.center_bottom());
     }
     if paste.clicked() {
         app.paste_from_clipboard();
     }
     let paste_keys = matches!(app.keytips.prefix(), Some("HV" | "E"));
-    // Keep a keyboard-opened menu anchored to the button when a pointer click
-    // cancels keytips, so its items remain in place and can still be clicked.
-    let anchor_id = paste.id.with("keytip_anchor");
-    // Query response state before taking the egui context write lock.
-    // Calling secondary_clicked() inside data_mut can deadlock.
-    let paste_secondary_clicked = paste.secondary_clicked();
-    let anchored = ui.ctx().data_mut(|data| {
-        let anchored = if paste_keys {
-            true
-        } else if paste_secondary_clicked {
-            false
-        } else {
-            data.get_temp::<bool>(anchor_id).unwrap_or(false)
-        };
-        data.insert_temp(anchor_id, anchored);
-        anchored
-    });
-    let mut paste_popup = egui::Popup::context_menu(&paste);
-    if anchored {
-        paste_popup = paste_popup.anchor(&paste);
-    }
-    if paste_keys {
-        paste_popup = paste_popup.open_memory(egui::SetOpenCommand::Bool(true));
-    }
+    let open = paste_keys || paste.secondary_clicked() || paste_arrow.secondary_clicked();
+    let paste_popup = egui::Popup::menu(&paste_arrow).open_memory(popup_command(open, paste_arrow.clicked()));
     paste_popup.show(|ui| {
         icon_menu_items(
             app,
@@ -599,7 +579,8 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
     // The standard names, then the fonts installed on this computer (the web has none to add).
     let families = crate::fonts::families();
     let items: Vec<(&str, String)> = families.iter().map(|f| (f.as_str(), f.clone())).collect();
-    if let ComboResult::Picked(value) = editable_combo(ui, &resp, "font", &name, &items, forced) {
+    let pins = super::controls::FontPins::new(ui, app.ui.language);
+    if let ComboResult::Picked(value) = super::controls::font_editable_combo(ui, &resp, "font", &name, &items, forced, pins) {
         act(app, "home.fontName", json!({"name": value}));
     }
 }

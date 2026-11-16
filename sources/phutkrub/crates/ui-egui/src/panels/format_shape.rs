@@ -34,7 +34,7 @@ fn format_tabs(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
             ("text", Icon::TextBox, "Text Options"),
         ] {
             let on = app.ui.format_tab == tab;
-            if widgets::icon_toggle(ui, icon, tip, true, on).clicked() {
+            if widgets::icon_toggle(ui, icon, tl!(tip), true, on).clicked() {
                 app.ui.format_tab = tab.into();
             }
         }
@@ -125,7 +125,7 @@ fn effects_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
     if let Some(r) = effect_presets::soft_edge_row(ui, s) {
         run(app, "shape.effects", json!({"softEdges": r}));
     }
-    if ui.add(egui::Slider::new(&mut s, 0.0..=50.0).text("size (pt)")).drag_stopped() {
+    if ui.add(egui::Slider::new(&mut s, 0.0..=50.0).text(tl!("size (pt)"))).drag_stopped() {
         run(app, "shape.effects", json!({"softEdges": s}));
     }
     let raw3d = sh.effects.as_ref().and_then(|e| e.raw3d.clone());
@@ -178,7 +178,7 @@ fn size_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, x: dec
     let mut fields = |ui: &mut Ui, label: &str, id: &str, v: f64, key: &str, cmd: &str, angle: bool| {
         let (unit, suffix) = if angle { (1.0, "°") } else { (len.points_per_unit(), len.suffix()) };
         ui.horizontal(|ui| {
-            ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+            ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
             if let Some(nv) = widgets::spinner(ui, id, label, v / unit, 0.1, suffix, 70.0) {
                 let mut p = json!({key: nv * unit});
                 if cmd == "shape.resize" && locked {
@@ -188,14 +188,14 @@ fn size_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, x: dec
             }
         });
     };
-    ui.label(egui::RichText::new("Size").font(theme::bold(13.0)));
+    ui.label(egui::RichText::new(tl!("Size")).font(theme::bold(13.0)));
     fields(ui, "Height", "fh", x.h, "h", "shape.resize", false);
     fields(ui, "Width", "fw", x.w, "w", "shape.resize", false);
     fields(ui, "Rotation", "fr", x.rot, "deg", "shape.rotate", true);
     for (label, id, cur, base, key) in [("Scale Height", "fsh", x.h, base_h, "h"), ("Scale Width", "fsw", x.w, base_w, "w")] {
         ui.add_enabled_ui(single, |ui| {
             ui.horizontal(|ui| {
-                ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+                ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
                 let pct = if base > 0.0 { cur / base * 100.0 } else { 100.0 };
                 if let Some(nv) = widgets::spinner(ui, id, label, pct, 1.0, "%", 70.0)
                     && nv > 0.0
@@ -209,14 +209,14 @@ fn size_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, x: dec
             })
         });
     }
-    if ui.checkbox(&mut lock, "Lock aspect ratio").changed() {
+    if ui.checkbox(&mut lock, tl!("Lock aspect ratio")).changed() {
         ui.data_mut(|d| d.insert_temp(lock_id, lock));
     }
     ui.add_space(6.0);
-    ui.label(egui::RichText::new("Position").font(theme::bold(13.0)));
+    ui.label(egui::RichText::new(tl!("Position")).font(theme::bold(13.0)));
     ui.add_enabled_ui(single, |ui| {
         ui.horizontal(|ui| {
-            ui.add_sized(vec2(90.0, 20.0), egui::Label::new("From"));
+            ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!("From")));
             let combo =
                 craft_ui::ComboBox::from_id_salt("fmt-origin").selected_text(if center { "Center" } else { "Top Left Corner" }).show_ui(ui, |ui| {
                     ui.selectable_value(&mut center, false, "Top Left Corner");
@@ -234,7 +234,7 @@ fn size_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, x: dec
     let (px, py) = (x.x + dx, x.y + dy);
     let mut pos = |ui: &mut Ui, label: &str, id: &str, v: f64, off: f64, key: &str| {
         ui.horizontal(|ui| {
-            ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+            ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
             if let Some(nv) = widgets::spinner(ui, id, label, v / len.points_per_unit(), 0.1, len.suffix(), 70.0) {
                 run(app, "shape.move", json!({key: nv * len.points_per_unit() - off}));
             }
@@ -243,7 +243,7 @@ fn size_tab(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, x: dec
     pos(ui, "Horizontal", "fx", px, dx, "x");
     pos(ui, "Vertical", "fy", py, dy, "y");
     ui.add_space(6.0);
-    ui.label(egui::RichText::new("Alt Text").font(theme::bold(13.0)));
+    ui.label(egui::RichText::new(tl!("Alt Text")).font(theme::bold(13.0)));
     let id = ui.scope_id().with(("alt", uid, sh.id.0));
     let stored: Option<(String, String)> = ui.data_mut(|d| d.get_temp(id));
     let mut alt = widgets::text_draft(stored, &sh.descr);
@@ -309,7 +309,7 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
                 ("Bottom", "bottom", b.inset_b.unwrap_or(3.6)),
             ] {
                 ui.horizontal(|ui| {
-                    ui.add_sized(vec2(60.0, 20.0), egui::Label::new(l));
+                    ui.add_sized(vec2(60.0, 20.0), egui::Label::new(tl!(l)));
                     if let Some(nv) = widgets::spinner(ui, &format!("m{k}"), l, v, 1.0, " pt", 60.0) {
                         run(app, "format.margins", json!({k: nv.max(0.0)}));
                     }
@@ -330,20 +330,20 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
         "picture" => {
             let adj = if let ShapeKind::Picture { fill } = &sh.kind { fill.adjust.clone() } else { Default::default() };
             let mut b = adj.brightness as f32;
-            if ui.add(egui::Slider::new(&mut b, -1.0..=1.0).text("Brightness")).drag_stopped() {
+            if ui.add(egui::Slider::new(&mut b, -1.0..=1.0).text(tl!("Brightness"))).drag_stopped() {
                 run(app, "picture.adjust", json!({"brightness": b}));
             }
             let mut c = adj.contrast as f32;
-            if ui.add(egui::Slider::new(&mut c, -1.0..=1.0).text("Contrast")).drag_stopped() {
+            if ui.add(egui::Slider::new(&mut c, -1.0..=1.0).text(tl!("Contrast"))).drag_stopped() {
                 run(app, "picture.adjust", json!({"contrast": c}));
             }
             let mut s = adj.saturation.unwrap_or(1.0) as f32;
-            if ui.add(egui::Slider::new(&mut s, 0.0..=4.0).text("Saturation")).drag_stopped() {
+            if ui.add(egui::Slider::new(&mut s, 0.0..=4.0).text(tl!("Saturation"))).drag_stopped() {
                 run(app, "picture.adjust", json!({"saturation": s}));
             }
             let alpha = if let ShapeKind::Picture { fill } = &sh.kind { fill.alpha.unwrap_or(1.0) } else { 1.0 };
             let mut tr = (1.0 - alpha) as f32;
-            if ui.add(egui::Slider::new(&mut tr, 0.0..=1.0).text("Transparency")).drag_stopped() {
+            if ui.add(egui::Slider::new(&mut tr, 0.0..=1.0).text(tl!("Transparency"))).drag_stopped() {
                 run(app, "picture.adjust", json!({"transparency": tr}));
             }
             if ui.button(tl!("Reset Picture")).clicked() {
@@ -378,7 +378,7 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
                 if k == "background" && !background_ok {
                     continue;
                 }
-                if ui.radio(kind == k, l).clicked() {
+                if ui.radio(kind == k, tl!(l)).clicked() {
                     match k {
                         "none" => run(app, "shape.fill", json!({"none": true})),
                         "solid" => run(app, "shape.fill", json!({"color": "accent1"})),
@@ -454,13 +454,13 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
             ui.add_space(8.0);
             ui.label(egui::RichText::new(tl!("Line")).font(theme::bold(13.0)));
             let none = matches!(sh.line.as_ref().and_then(|l| l.fill.as_ref()), Some(Fill::None));
-            if ui.radio(none, "No line").clicked() {
+            if ui.radio(none, tl!("No line")).clicked() {
                 run(app, "shape.line", json!({"none": true}));
             }
-            if ui.radio(!none && sh.line.is_some(), "Solid line").clicked() {
+            if ui.radio(!none && sh.line.is_some(), tl!("Solid line")).clicked() {
                 run(app, "shape.line", json!({"color": "tx1", "width": 1}));
             }
-            if ui.radio(sh.line.is_none(), "Automatic").clicked() {
+            if ui.radio(sh.line.is_none(), tl!("Automatic")).clicked() {
                 run(app, "shape.line", json!({"reset": true}));
             }
             color_button(app, ui, "Color", Some("No Outline"), |c| match c {
@@ -491,11 +491,11 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
 /// `shape.line` with `{key: value}`.
 fn line_choice(app: &mut SlideApp, ui: &mut Ui, label: &str, key: &str, current: &str, items: &[(&str, &str)]) {
     ui.horizontal(|ui| {
-        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
         let shown = items.iter().find(|(_, v)| *v == current).map_or(current, |(l, _)| *l);
-        let combo = craft_ui::ComboBox::from_id_salt(("fmt-line", key)).selected_text(shown).width(120.0).show_ui(ui, |ui| {
+        let combo = craft_ui::ComboBox::from_id_salt(("fmt-line", key)).selected_text(tl!(shown)).width(120.0).show_ui(ui, |ui| {
             for (l, v) in items {
-                if ui.selectable_label(*v == current, *l).clicked() {
+                if ui.selectable_label(*v == current, tl!(l)).clicked() {
                     run(app, "shape.line", json!({key: v}));
                 }
             }
@@ -551,7 +551,7 @@ fn line_details(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
 /// A slider for one property of a shape effect: shows `value` (in display units), and when the
 /// drag ends runs `shape.effects` with `{key: {prop: shown × scale}}`.
 #[allow(clippy::too_many_arguments)]
-fn fx_slider(
+pub(super) fn fx_slider(
     app: &mut SlideApp,
     ui: &mut Ui,
     id: (&str, u32, &str),
@@ -564,7 +564,7 @@ fn fx_slider(
     scale: f64,
 ) {
     ui.horizontal(|ui| {
-        let label = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let label = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
         // Hold the value while dragging; otherwise follow the shape.
         let sid = ui.scope_id().with(id);
         let mut v: f64 = ui.data_mut(|d| d.get_temp(sid)).unwrap_or(value);
@@ -609,7 +609,7 @@ fn pick_fill_picture(app: &mut SlideApp) {
 /// when it changes.
 fn pic_drag(app: &mut SlideApp, ui: &mut Ui, label: &str, value: f64, suffix: &str, key: &str, scale: f64) {
     ui.horizontal(|ui| {
-        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
         let mut v = value;
         let r = ui.add(egui::DragValue::new(&mut v).suffix(suffix).max_decimals(1)).labelled_by(field.id);
         if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged()) {
@@ -651,9 +651,9 @@ fn picture_fill_options(app: &mut SlideApp, ui: &mut Ui, id: u32, pf: &deckcraft
             let mirrors = [("none", "None"), ("x", "Horizontal"), ("y", "Vertical"), ("xy", "Both")];
             for (label, key, opts, cur) in [("Alignment", "align", &aligns[..], align), ("Mirror type", "mirror", &mirrors[..], flip)] {
                 ui.horizontal(|ui| {
-                    let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+                    let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
                     let shown = opts.iter().find(|(k, _)| k == cur).map_or(opts[0].1, |(_, l)| *l);
-                    let combo = craft_ui::ComboBox::from_id_salt(("picfill", id, key)).selected_text(shown).show_ui(ui, |ui| {
+                    let combo = craft_ui::ComboBox::from_id_salt(("picfill", id, key)).selected_text(tl!(shown)).show_ui(ui, |ui| {
                         for (k, l) in opts {
                             if ui.selectable_label(*k == cur.as_str(), *l).clicked() {
                                 run(app, "shape.fill", json!({"pictureProps": {key: k}}));
@@ -667,7 +667,7 @@ fn picture_fill_options(app: &mut SlideApp, ui: &mut Ui, id: u32, pf: &deckcraft
         PictureMode::Stretch { fill_rect } => {
             for (i, label) in ["Offset left", "Offset top", "Offset right", "Offset bottom"].into_iter().enumerate() {
                 ui.horizontal(|ui| {
-                    let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+                    let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
                     let mut v = fill_rect[i] * 100.0;
                     let r = ui.add(egui::DragValue::new(&mut v).suffix("%").max_decimals(0)).labelled_by(field.id);
                     if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged()) {
@@ -704,7 +704,7 @@ fn preset_label(name: &str) -> String {
 /// A drop-down of `options`; picking one runs `shape.effects` with `{threeD: {key: option}}`.
 fn three_d_combo(app: &mut SlideApp, ui: &mut Ui, id: u32, label: &str, key: &str, cur: &str, options: &[&str]) {
     ui.horizontal(|ui| {
-        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
         let combo = craft_ui::ComboBox::from_id_salt(("3d", id, key)).selected_text(preset_label(cur)).width(170.0).show_ui(ui, |ui| {
             for o in options {
                 if ui.selectable_label(*o == cur, preset_label(o)).clicked() {
@@ -719,7 +719,7 @@ fn three_d_combo(app: &mut SlideApp, ui: &mut Ui, id: u32, label: &str, key: &st
 /// A number field running `shape.effects` with `{threeD: {key: value}}` when it changes.
 fn three_d_drag(app: &mut SlideApp, ui: &mut Ui, label: &str, value: f64, suffix: &str, key: &str) {
     ui.horizontal(|ui| {
-        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
         let mut v = value;
         let r = ui.add(egui::DragValue::new(&mut v).suffix(suffix).max_decimals(1)).labelled_by(field.id);
         if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged()) {
@@ -754,7 +754,7 @@ fn three_d_options(app: &mut SlideApp, ui: &mut Ui, id: u32, raw: Option<&str>) 
     three_d_drag(app, ui, "Y Rotation", ry, "°", "rotY");
     three_d_drag(app, ui, "Z Rotation", rz, "°", "rotZ");
     three_d_drag(app, ui, "Distance from ground", s3.z, " pt", "z");
-    if ui.add_enabled(raw.is_some(), egui::Button::new("Reset 3-D")).clicked() {
+    if ui.add_enabled(raw.is_some(), egui::Button::new(tl!("Reset 3-D"))).clicked() {
         run(app, "shape.effects", json!({"threeD": {"reset": true}}));
     }
 }

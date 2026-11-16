@@ -56,6 +56,9 @@ pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool) -> 
 // One flat table of drawings, one arm per name: long, but each arm is simple.
 #[allow(clippy::cognitive_complexity)]
 pub fn paint_ex(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool, flat: bool) -> bool {
+    if crate::tabler::paint(p, r, name, ink, disabled) {
+        return true;
+    }
     if !matches!(
         name,
         "paste"
@@ -66,6 +69,7 @@ pub fn paint_ex(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool, 
             | "optionsLanguage"
             | "optionsAccessibility"
             | "optionsAdvanced"
+            | "optionsFormulas"
             | "picCorrections"
             | "picColor"
             | "picTransparency"
@@ -607,6 +611,11 @@ pub fn paint_ex(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool, 
             pen.circle(10.0, 13.0, 1.5);
             pen.line(&[(7.0, 17.0), (17.0, 17.0)]);
             pen.circle(14.0, 17.0, 1.5);
+        }
+        "optionsFormulas" => {
+            pen.rect(3.0, 4.0, 18.0, 16.0);
+            pen.fill(5.0, 6.0, 14.0, 3.0);
+            pen.text(12.0, 14.0, 11.5, "fx");
         }
         "picCorrections" | "picColor" | "picTransparency" | "picChange" | "picReset" | "picStyles" | "picBorder" => {
             pen.rect(3.0, 4.0, 15.0, 14.0);

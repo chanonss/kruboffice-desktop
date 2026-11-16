@@ -24,8 +24,11 @@ fn harness(tab: &str) -> (Harness<'static, SlideApp>, [ShapeId; 2]) {
     s.execute("shape.fill", &json!({"color": "#FF0000"})).unwrap();
     s.execute("shape.line", &json!({"color": "#0000FF", "width": 3})).unwrap();
     s.execute("selection.select", &json!({"ids": [ids[0].0]})).unwrap();
+    // "Shape Format" is the Shape pane now (the View tab shows no shape controls of its own);
+    // for "Home" the Shape pane is closed, so each control named here is the ribbon's.
+    let in_pane = tab == "Shape Format";
     let mut app = SlideApp::new(s, Services::default());
-    app.ui.tab = tab.into();
+    app.ui.tab = if in_pane { "View".into() } else { tab.into() };
     let mut h = Harness::builder().with_size(egui::vec2(1800.0, 900.0)).build_ui_state(
         |ui, app: &mut SlideApp| {
             app.logic(ui.ctx());
@@ -33,6 +36,9 @@ fn harness(tab: &str) -> (Harness<'static, SlideApp>, [ShapeId; 2]) {
         },
         app,
     );
+    if !in_pane {
+        crate::panes::close_object_pane(&h.ctx, "shape");
+    }
     h.run_steps(3);
     (h, ids)
 }
@@ -123,18 +129,8 @@ fn home_shape_fill_button_reapplies_the_last_colour() {
 }
 
 #[test]
-fn shape_format_shape_fill_button_reapplies_the_last_colour() {
-    fill_reapplies("Shape Format");
-}
-
-#[test]
 fn home_shape_outline_button_reapplies_the_last_colour() {
     outline_reapplies("Home");
-}
-
-#[test]
-fn shape_format_shape_outline_button_reapplies_the_last_colour() {
-    outline_reapplies("Shape Format");
 }
 
 #[test]

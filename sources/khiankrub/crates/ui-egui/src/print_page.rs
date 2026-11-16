@@ -315,7 +315,27 @@ pub fn show_full_preview(app: &mut WordApp, ui: &mut Ui) {
     let lay = layout_of(app, &ctx);
     let total = lay.pages.len();
     app.ui.print.preview = app.ui.print.preview.min(total.saturating_sub(1));
-    egui::Panel::top("full_print_preview_toolbar").show(ui, |ui| {
+    // macOS (no title bar): the toolbar is the window's top band, so it starts after the traffic
+    // lights, as the title bar does, and its empty part drags the window.
+    let mac = app.integrated_titlebar;
+    let bar = app.mac_titlebar;
+    let mut toolbar = egui::Panel::top("full_print_preview_toolbar");
+    if mac {
+        let left = bar.content_left as i8;
+        toolbar = toolbar.min_size(bar.height).frame(egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
+            left,
+            right: 8,
+            top: 3,
+            bottom: 3,
+        }));
+    }
+    toolbar.show(ui, |ui| {
+        if mac {
+            let drag = ui.interact(ui.max_rect(), ui.id().with("preview_window_drag"), Sense::click_and_drag());
+            if drag.drag_started() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+        }
         ui.horizontal_wrapped(|ui| {
             if ui.button(tl!("Close Preview")).clicked() {
                 let _ = app.run("ui.printPreview", json!({"value": false}));
@@ -657,5 +677,31 @@ mod full_preview_tests {
         h.get_by_label("Close Preview").click();
         h.run_steps(2);
         assert!(!h.state().ui.backstage);
+    }
+
+    /// macOS, no title bar: the preview's toolbar is the window's top band, so its first button
+    /// starts after the traffic lights (they covered Close Preview), as the title bar's content does.
+    #[test]
+    fn the_preview_toolbar_clears_the_macos_window_buttons() {
+        for mac in [true, false] {
+            let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            app.integrated_titlebar = mac;
+            app.run("ui.printPreview", json!({"value": true})).unwrap();
+            let left = app.mac_titlebar.content_left;
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 800.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                },
+                app,
+            );
+            h.run_steps(5);
+            let x = h.get_by_label("Close Preview").rect().min.x;
+            if mac {
+                assert!(x >= left, "Close Preview at {x}, the traffic lights end before {left}");
+            } else {
+                assert!(x < left, "no inset without the macOS title bar: {x}");
+            }
+        }
     }
 }

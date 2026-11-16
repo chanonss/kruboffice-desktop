@@ -29,6 +29,74 @@ pub(super) fn tile(ui: &mut Ui, label: &str, theme: Option<&deckcraft_model::The
     resp
 }
 
+/// A starter-deck tile: a small stack of slides in the deck's theme, its first slide's title and
+/// text lines on top, and how many slides it has. A theme tile ("Aa" over the colours) opens an
+/// empty presentation; this one opens slides already written, so the two never look the same.
+/// The theme it is built on shows under its name, so a starter is not mistaken for a copy of a theme.
+pub(super) fn starter_tile(ui: &mut Ui, starter: &deckcraft_engine::templates::Starter) -> egui::Response {
+    let title = starter.slides.first().map_or(starter.name, |s| s.title);
+    deck_tile(ui, starter.name, Some(starter.theme), title, starter.slides.len())
+}
+
+/// The sample deck drawn like a starter deck, since it opens written slides too.
+pub(super) fn sample_tile(ui: &mut Ui) -> egui::Response {
+    deck_tile(ui, tl!("Sample deck: Northern Lights"), None, "Northern Lights", deckcraft_engine::sample::SLIDE_COUNT)
+}
+
+/// A stack of slides in `theme` (the default theme when `None`) with `title` on the front slide,
+/// a slide-count badge, `label` underneath and, when given, the theme's name under that.
+fn deck_tile(ui: &mut Ui, label: &str, theme_name: Option<&str>, title: &str, slides: usize) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let thumb_w = 160.0;
+    let extra = if theme_name.is_some() { 14.0 } else { 0.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(thumb_w + 16.0, thumb_w * 9.0 / 16.0 + 44.0 + extra), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(4), t.hover);
+    }
+    let thumb = Rect::from_min_size(rect.min + vec2(8.0, 10.0), vec2(thumb_w, thumb_w * 9.0 / 16.0));
+    let wanted = theme_name.unwrap_or("DeckCraft");
+    let th = deckcraft_model::theme::builtin_themes().into_iter().find(|th| th.name == wanted);
+    let color = |slot| th.as_ref().map(|th| theme::to_color32(th.colors.get(slot)));
+    let bg = color(deckcraft_color::SchemeSlot::Lt1).unwrap_or(Color32::WHITE);
+    let fg = color(deckcraft_color::SchemeSlot::Dk1).unwrap_or(Color32::from_gray(40));
+    let accent = color(deckcraft_color::SchemeSlot::Accent1).unwrap_or(t.accent);
+    let edge = Stroke::new(1.0, Color32::from_gray(190));
+    // Two slides behind the first, up and to the right.
+    let front = Rect::from_min_max(thumb.min + vec2(0.0, 8.0), thumb.max - vec2(8.0, 0.0));
+    for k in [2.0, 1.0] {
+        let back = front.translate(vec2(4.0 * k, -4.0 * k));
+        p.rect(back, CornerRadius::same(2), bg.gamma_multiply(0.92), edge, StrokeKind::Inside);
+    }
+    p.rect(front, CornerRadius::same(2), bg, edge, StrokeKind::Inside);
+    p.rect_filled(Rect::from_min_size(front.min + vec2(8.0, 10.0), vec2(3.0, 16.0)), CornerRadius::ZERO, accent);
+    let inner = front.shrink2(vec2(8.0, 0.0));
+    p.with_clip_rect(inner).text(front.min + vec2(15.0, 18.0), Align2::LEFT_CENTER, title, theme::bold(11.0), fg);
+    for (k, w) in [0.78_f32, 0.62, 0.70].into_iter().enumerate() {
+        let y = front.min.y + 38.0 + k as f32 * 9.0;
+        let line = Rect::from_min_size(pos2(front.min.x + 15.0, y), vec2((front.width() - 30.0) * w, 3.0));
+        p.rect_filled(line, CornerRadius::same(1), fg.gamma_multiply(0.28));
+    }
+    let count = crate::i18n::fmtp(tl!("{} slides"), &[&slides]);
+    let badge = p.layout_no_wrap(count, theme::font(10.0), fg);
+    let at = pos2(front.max.x - badge.size().x - 8.0, front.max.y - badge.size().y - 5.0);
+    p.rect_filled(Rect::from_min_size(at - vec2(4.0, 1.0), badge.size() + vec2(8.0, 2.0)), CornerRadius::same(6), accent.gamma_multiply(0.18));
+    p.galley(at, badge, fg);
+    if resp.hovered() {
+        p.rect_stroke(front, CornerRadius::same(2), Stroke::new(2.0, t.accent), StrokeKind::Outside);
+    }
+    let galley = p.layout(label.to_string(), theme::font(12.0), t.text, rect.width() - 8.0);
+    let below = thumb.bottom() + 8.0 + galley.size().y;
+    p.galley(pos2(rect.center().x - galley.size().x / 2.0, thumb.bottom() + 8.0), galley, t.text);
+    if let Some(name) = theme_name {
+        let line = crate::i18n::fmtp(tl!("Theme: {}"), &[&name]);
+        let galley = p.layout(line, theme::font(10.5), t.text_dim, rect.width() - 8.0);
+        p.galley(pos2(rect.center().x - galley.size().x / 2.0, below + 1.0), galley, t.text_dim);
+    }
+    resp
+}
+
 /// The built-in themes and the sample deck, filtered by `query` (after a blank presentation when
 /// `blank`); at most `limit` theme tiles. False when nothing matched.
 fn new_tiles(app: &mut SlideApp, ui: &mut Ui, query: &str, limit: usize, blank: bool) -> bool {
@@ -56,13 +124,12 @@ fn new_tiles(app: &mut SlideApp, ui: &mut Ui, query: &str, limit: usize, blank: 
             }
             shown += 1;
         }
-        if sample && shown < limit {
-            let th = deckcraft_model::theme::builtin_themes().into_iter().find(|t| t.name == "DeckCraft");
-            if tile(ui, "Sample deck: Northern Lights", th.as_ref(), false).clicked()
-                && let Err(e) = deckcraft_engine::sample::open_sample(&mut app.session)
-            {
-                app.set_status(e.to_string());
-            }
+        if sample
+            && shown < limit
+            && sample_tile(ui).clicked()
+            && let Err(e) = deckcraft_engine::sample::open_sample(&mut app.session)
+        {
+            app.set_status(e.to_string());
         }
     });
     true
@@ -77,8 +144,7 @@ fn template_tiles(app: &mut SlideApp, ui: &mut Ui, query: &str, limit: usize) ->
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
         for starter in list.into_iter().take(limit) {
-            let theme = deckcraft_model::theme::builtin_themes().into_iter().find(|th| th.name == starter.theme);
-            if tile(ui, starter.name, theme.as_ref(), false).on_hover_text(starter.summary).clicked() {
+            if starter_tile(ui, starter).on_hover_text(starter.summary).clicked() {
                 let _ = app.run("file.new", json!({"template": starter.name}));
             }
         }

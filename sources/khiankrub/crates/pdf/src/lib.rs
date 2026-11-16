@@ -1031,15 +1031,18 @@ impl Exporter<'_> {
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
             Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
-            Draw::Path { segs, fill: f, stroke, stroke_width } => {
+            Draw::Path { segs, fill: f, stroke, stroke_width, look } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
                 let Some(p) = pb.finish() else { return };
-                s.set_fill(f.map(|c| fill(c, 1.0)));
+                s.set_fill(f.map(|c| fill(c, look.fill_alpha)));
+                // Width 0 (or none) is a hairline.
+                let w = if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 };
                 s.set_stroke(stroke.map(|c| Stroke {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
-                    // Width 0 (or none) is a hairline.
-                    width: if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
+                    width: w,
+                    opacity: norm(look.stroke_alpha),
+                    dash: dash_of(look.dash, w),
                     ..Default::default()
                 }));
                 if f.is_some() || stroke.is_some() {
@@ -1078,7 +1081,7 @@ impl Exporter<'_> {
                 s.draw_path(&p);
                 s.set_stroke(None);
             }
-            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner } => {
+            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, look } => {
                 let Some(p) = shape_path(*kind, rect, *corner) else { return };
                 let can_fill = *kind != ShapeKind::Line;
                 let fx = effects.sanitized();
@@ -1089,7 +1092,7 @@ impl Exporter<'_> {
                 if let (Some(rad), Some(c), true) = (fx.soft_edge, f, can_fill) {
                     let rad = rad.min(rect.w.min(rect.h) / 2.0).max(0.0);
                     s.set_stroke(None);
-                    for (g, a) in wordcraft_doc::effects::bands(-rad, 0.0, 1.0) {
+                    for (g, a) in wordcraft_doc::effects::bands(-rad, 0.0, look.fill_alpha) {
                         if let Some(p) = shape_path(*kind, &grown(rect, g, 0.0, 0.0), *corner) {
                             s.set_fill(Some(fill(*c, a)));
                             s.draw_path(&p);
@@ -1098,10 +1101,13 @@ impl Exporter<'_> {
                     s.set_fill(None);
                     return;
                 }
-                s.set_fill(f.filter(|_| can_fill).map(|c| fill(c, 1.0)));
+                s.set_fill(f.filter(|_| can_fill).map(|c| fill(c, look.fill_alpha)));
+                let w = if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 };
                 s.set_stroke(stroke.map(|c| Stroke {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
-                    width: if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
+                    width: w,
+                    opacity: norm(look.stroke_alpha),
+                    dash: dash_of(look.dash, w),
                     ..Default::default()
                 }));
                 if f.is_some() && can_fill || stroke.is_some() {
@@ -1785,6 +1791,12 @@ fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
     Some(Image::from_rgba8(dec.to_rgba8().into_raw(), w, h))
+}
+
+/// A shape outline's dash in PDF terms, scaled to the line width `w` (solid: none).
+fn dash_of(dash: wordcraft_doc::connector::LineDash, w: f32) -> Option<StrokeDash> {
+    let pattern = dash.pattern();
+    (!pattern.is_empty()).then(|| StrokeDash { array: pattern.iter().map(|p| p * w.max(0.25)).collect(), offset: 0.0 })
 }
 
 #[cfg(test)]

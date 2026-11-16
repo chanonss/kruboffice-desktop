@@ -14,6 +14,25 @@ pub(crate) fn paint_digits(p: &Painter, rect: Rect, ink: Color32, flat: bool) {
     paint_framed(p, rect, ink, flat, DIGIT_BANDS, DIGIT_CONTOURS);
 }
 
+/// Arabic Digits (Thai digits back to 0–9): the Thai Digits square, smaller, with a red cross over
+/// its lower right corner. Flat drawing (selected or disabled) draws the cross in the ink.
+pub(crate) fn paint_arabic_digits(p: &Painter, rect: Rect, ink: Color32, flat: bool) {
+    let size = rect.width().min(rect.height());
+    if !size.is_finite() || size <= 0.5 || !rect.center().is_finite() {
+        return;
+    }
+    let scale = size / 24.0;
+    let origin = rect.center() - vec2(size * 0.5, size * 0.5);
+    let point = |x: f32, y: f32| origin + vec2(x, y) * scale;
+    // The square lands on 2.4–16.8 of the 24-unit grid.
+    paint_framed(p, Rect::from_min_size(origin, vec2(size * 0.8, size * 0.8)), ink, flat, DIGIT_BANDS, DIGIT_CONTOURS);
+    let red = if flat { ink } else { crate::deck::RED.gamma_multiply(f32::from(ink.a()) / 255.0) };
+    let stroke = Stroke::new((2.4 * scale).max(1.2), red);
+    let (c, arm) = (18.0, 4.0);
+    p.line_segment([point(c - arm, c - arm), point(c + arm, c + arm)], stroke);
+    p.line_segment([point(c + arm, c - arm), point(c - arm, c + arm)], stroke);
+}
+
 /// A square with a Thai letter or digit: its filled bands (see [`GLYPH_BANDS`]) and contours.
 fn paint_framed(p: &Painter, rect: Rect, ink: Color32, flat: bool, bands: &[(f32, f32, f32, f32, f32, f32)], contours: &[&[(f32, f32)]]) {
     let size = rect.width().min(rect.height());

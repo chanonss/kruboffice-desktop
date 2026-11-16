@@ -132,6 +132,14 @@ impl SlideApp {
         self.status = Some((msg.into(), now_ms()));
     }
 
+    /// After a save that didn't go through `file.save`: say which fonts it couldn't embed
+    /// (File › Options › Save › Embed fonts in the file), if any.
+    pub fn report_unembedded_fonts(&mut self) {
+        if let Some(report) = deckcraft_engine::embed_fonts::take_report() {
+            self.set_status(report);
+        }
+    }
+
     /// Turn on the automatic check for a newer release at start-up (desktop shell only; tests and
     /// the web build never touch the network on their own).
     #[cfg(not(target_arch = "wasm32"))]
@@ -279,6 +287,8 @@ impl SlideApp {
             log::debug!("ignoring SlideApp::ui for render-only viewport {:?}", ctx.viewport_id());
             return;
         }
+        // Fonts pinned or unpinned in a font list last frame, and the list for this frame's.
+        krub_icons::fonts::sync(&ctx, &mut self.ui.pinned_fonts);
         self.ui_inner(ui);
         // The last writer (all panels, dialogs, the custom producer and deferred child windows)
         // has run. Observe the actual custom descriptor for this pass, then reconcile the reset
@@ -343,9 +353,8 @@ impl SlideApp {
                 ViewMode::Sorter => sorter::show(self, ui),
                 ViewMode::NotesPage => sorter::notes_page(self, ui),
                 ViewMode::Outline | ViewMode::Normal | ViewMode::Reading => {
-                    if self.ui.pane.is_some() {
-                        panes::show(self, ui);
-                    }
+                    // The right-hand dock: the task pane and the panes that follow the selection.
+                    panes::show(self, ui);
                     if self.ui.view == ViewMode::Outline {
                         sorter::outline_pane(self, ui);
                     } else {

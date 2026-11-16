@@ -1,8 +1,8 @@
 use super::arrange::arrange_group;
 use super::galleries::cref_param;
 use super::{
-    Color32, CornerRadius, Icon, Rect, Sense, ShapeKind, SlideApp, Stroke, Ui, Value, big, big_button, big_button_ex, color_split, group, json,
-    menu_item, pos2, rows, run, scheme, small, theme, toggle, vec2, widgets,
+    Color32, CornerRadius, Icon, Rect, Sense, ShapeKind, SlideApp, Stroke, Ui, Value, big, big_button, big_button_ex, color_split, json, menu_item,
+    pos2, rows, run, scheme, small, theme, toggle, vec2, widgets,
 };
 
 pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
@@ -10,7 +10,7 @@ pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
         .session
         .active()
         .and_then(|d| d.selected_shapes().into_iter().find_map(|s| if let ShapeKind::Table(t) = &s.kind { Some(t.clone()) } else { None }));
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Table Style Options", |ui| {
         rows(ui, |ui| {
             let flags = tbl.as_ref().map(|t| (t.first_row, t.last_row, t.band_row, t.first_col, t.last_col, t.band_col)).unwrap_or_default();
             // Two rows, as the two-size ribbon's: the rows' options, then the columns', in aligned
@@ -31,7 +31,7 @@ pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Table Styles", |ui| {
         let styles = deckcraft_model::table::table_styles();
         let quick: Vec<_> = styles.iter().filter(|(id, _)| id.starts_with("medium2") || id == "none" || id == "grid").take(8).collect();
         let cur = tbl.as_ref().map(|t| t.style.clone()).unwrap_or_default();
@@ -66,7 +66,7 @@ pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Cell Shading", |ui| {
         let sc = scheme(app);
         let (m, a) = color_split(ui, Icon::Shading, tl!("Shading"), Color32::from_rgb(0x2E, 0x6F, 0xD8), true);
         if m.clicked() {
@@ -81,7 +81,7 @@ pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
             }
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Cell Borders", |ui| {
         let r = big_button(ui, Icon::Borders, tl!("Borders"), true);
         egui::Popup::menu(&r).show(|ui| {
             let pen = app.table_pen.clone();
@@ -133,7 +133,7 @@ pub(super) fn table_design(app: &mut SlideApp, ui: &mut Ui) {
         });
     });
     // Draw Borders: the pencil splits cells along a line, the eraser merges across a border.
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Draw Borders", |ui| {
         use deckcraft_engine::ToolKind;
         use deckcraft_engine::tools::{DRAW_TABLE, TABLE_ERASER};
         let cur = app.session.tool.kind.clone();
@@ -179,7 +179,7 @@ pub fn paint_table_style(p: &egui::Painter, r: Rect, id: &str, sc: &deckcraft_co
 }
 
 pub(super) fn table_layout(app: &mut SlideApp, ui: &mut Ui) {
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Rows & Columns", |ui| {
         let r = big_button(ui, Icon::DeleteTable, tl!("Delete"), true);
         egui::Popup::menu(&r).show(|ui| {
             menu_item(app, ui, Icon::DeleteTable, tl!("Delete Columns"), "table.deleteColumn", json!({}));
@@ -191,17 +191,17 @@ pub(super) fn table_layout(app: &mut SlideApp, ui: &mut Ui) {
         big(app, ui, Icon::InsertLeft, tl!("Insert\nLeft"), "table.insertColumnLeft", json!({}));
         big(app, ui, Icon::InsertRight, tl!("Insert\nRight"), "table.insertColumnRight", json!({}));
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Merge", |ui| {
         big(app, ui, Icon::MergeCells, tl!("Merge\nCells"), "table.merge", json!({}));
         big(app, ui, Icon::SplitCells, tl!("Split\nCells"), "table.split", json!({}));
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Cell Size", |ui| {
         rows(ui, |ui| {
             small(app, ui, Icon::DistributeV, tl!("Distribute Rows"), "table.distributeRows", json!({}));
             small(app, ui, Icon::DistributeH, tl!("Distribute Columns"), "table.distributeColumns", json!({}));
         });
     });
-    group(ui, |ui| {
+    crate::widgets::group_named(ui, "Alignment", |ui| {
         rows(ui, |ui| {
             ui.horizontal(|ui| {
                 toggle(app, ui, Icon::AlignLeft, tl!("Align Left"), "format.alignLeft", false);

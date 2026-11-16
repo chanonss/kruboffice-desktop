@@ -106,9 +106,18 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
     let yellow = pal.cat(Cat::Amber);
     match icon {
         // Not workbook artwork: drawn by the shared set.
-        Icon::FnBook(_) | Icon::Equation | Icon::Button | Icon::Slider | Icon::Spin | Icon::InsertIcons | Icon::MoreCharts => {
-            krub_icons::sheet::paint(p, rect, icon, c)
-        }
+        Icon::FnBook(_)
+        | Icon::Equation
+        | Icon::Button
+        | Icon::Slider
+        | Icon::Spin
+        | Icon::InsertIcons
+        | Icon::MoreCharts
+        | Icon::Agent
+        | Icon::Journal
+        | Icon::Updates
+        | Icon::ZoomReset
+        | Icon::ZoomSelection => krub_icons::sheet::paint(p, rect, icon, c),
         Icon::Paste => {
             g.rect(3.0, 2.5, 9.0, 12.0, Some(yellow), None);
             g.rect(5.0, 1.5, 5.0, 2.5, Some(pal.cat(Cat::Slate)), None);

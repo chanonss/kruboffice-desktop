@@ -20,7 +20,8 @@ pub struct Entry {
 /// The contexts a catalog entry may name, and where each applies.
 /// - `template`: the name of a built-in presentation template or theme, which may need other
 ///   wording than the same English word elsewhere; it falls back to the plain entry.
-pub const CONTEXTS: &[&str] = &["template"];
+/// - `shapes`: a group heading of the Shapes menu (`Lines` there are not only straight ones).
+pub const CONTEXTS: &[&str] = &["template", "shapes"];
 
 /// A parsed catalog. Values are owned for the life of the process (catalogs are built once).
 #[derive(Debug, Default)]

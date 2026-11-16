@@ -8,9 +8,9 @@ use crate::{WordApp, icons};
 
 /// Height of the ribbon content area (without group labels): two rows of small buttons, or one
 /// large button as tall as both (owner's two-size ribbon, 2026-11-13).
-pub const CONTENT_H: f32 = 60.0;
+pub const CONTENT_H: f32 = krub_icons::chrome::CONTENT_H;
 /// Height of the group title row under the content.
-pub const LABEL_H: f32 = 18.0;
+pub const LABEL_H: f32 = krub_icons::chrome::GROUP_NAMES_H;
 /// Large buttons: centre of the [`BIG_ICON`] icon, top of the first label line, and the pitch and
 /// height of a label line (`regular(11.5)`; a test checks the font's real line height).
 pub const BIG_ICON: f32 = 24.0;
@@ -249,6 +249,66 @@ pub fn small(ui: &mut Ui, app: &mut WordApp, icon: &str, label: Option<&str>, ti
     small_with_width(ui, app, icon, label, tip, id, params, checked, 0.0)
 }
 
+/// A small button with its name after the icon (References › Captions' Insert Table of Figures
+/// and Insert Table of Tables): the icon keeps the small button's size and place, the text
+/// follows on the right. `min_width` lines up buttons stacked in one column
+/// ([`small_labeled_width`]).
+pub fn small_labeled(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, params: Value, min_width: f32) -> Response {
+    labeled_button(ui, app, icon, label, id, Some(params), false, false, min_width)
+}
+
+/// The button [`small_labeled`] draws. `run`: the parameters `id` runs with on a click (`None`:
+/// the caller opens a menu from the response); `checked` draws the toggled state; `dropdown`
+/// adds a menu marker after the text.
+#[allow(clippy::too_many_arguments)]
+pub fn labeled_button(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    icon: &str,
+    label: &str,
+    id: &str,
+    run: Option<Value>,
+    checked: bool,
+    dropdown: bool,
+    min_width: f32,
+) -> Response {
+    let label = tl!(label);
+    let t = Tokens::get(ui.ctx());
+    let on = if run.is_some() { enabled(app, id) } else { menu_enabled(app, id) };
+    let color = if on { t.text } else { t.text_disabled };
+    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(11.5), color);
+    let marker = if dropdown { DROPDOWN + 4.0 } else { 0.0 };
+    let (r, resp) = ui.allocate_exact_size(vec2((SMALL_W + galley.size().x + 8.0 + marker).max(min_width), SMALL_H), Sense::click());
+    keytip_badge(ui, r, id, label);
+    ribbon_control_bg(ui, r, &resp, checked, &t);
+    let ic = Rect::from_center_size(pos2(r.min.x + SMALL_W / 2.0, r.center().y), vec2(SMALL_ICON, SMALL_ICON));
+    let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
+    icons::paint(ui.painter(), ic, icon, c, a);
+    let text_x = r.min.x + SMALL_W;
+    let text_w = galley.size().x;
+    ui.painter().galley(pos2(text_x, r.center().y - galley.size().y / 2.0), galley, color);
+    if dropdown {
+        let mc = pos2(text_x + text_w + 3.0 + DROPDOWN / 2.0, r.center().y);
+        icons::paint(ui.painter(), Rect::from_center_size(mc, vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
+    }
+    let resp = tooltip(app, resp, label, id);
+    command_menu(&resp, app, id);
+    if let Some(params) = run
+        && resp.clicked()
+        && on
+    {
+        run_from_ribbon(app, id, params);
+    }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on && ui.is_enabled(), label));
+    resp
+}
+
+/// The width of the widest of these [`small_labeled`] buttons.
+pub fn small_labeled_width(ui: &Ui, labels: &[&str]) -> f32 {
+    let t = Tokens::get(ui.ctx());
+    labels.iter().map(|l| ui.painter().layout_no_wrap(tl!(l).to_string(), regular(11.5), t.text).size().x).fold(0.0, f32::max) + SMALL_W + 8.0
+}
+
 /// A small control that can expand to fill its share of an aligned row.
 pub fn small_with_width(
     ui: &mut Ui,
@@ -405,6 +465,66 @@ pub fn menu_button(
         return;
     }
     egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(200.0);
+        menu(ui, app);
+    });
+}
+
+/// Width of the dropdown target at the right end of a large split button's label row. It is
+/// reserved beside the label, so no visible text opens the menu (the KrubOffice split button,
+/// shared with KhitKrub and PhutKrub).
+pub const SPLIT_ARROW_W: f32 = 18.0;
+
+/// A large split button (Home › Paste): the icon and the label text run `id`; only the
+/// drop-down strip at the right end of the label row opens the menu filled by `menu`. The two
+/// parts are named "<label>" and "<label> options" for screen readers and UI tests.
+pub fn big_split(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    icon: &str,
+    label: &str,
+    tip: &str,
+    id: &str,
+    params: Value,
+    menu: impl FnOnce(&mut Ui, &mut WordApp),
+) {
+    let (label, tip) = (tl!(label), tl!(tip));
+    let t = Tokens::get(ui.ctx());
+    let on = enabled(app, id);
+    let (c, a, text) = if on { (t.icon, t.accent, t.text) } else { (t.text_disabled, t.text_disabled, t.text_disabled) };
+    let galley_w =
+        label.split('\n').map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x)).fold(0.0, f32::max);
+    let w = (galley_w + 12.0 + SPLIT_ARROW_W).max(44.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(w, CONTENT_H), if on { Sense::click() } else { Sense::hover() });
+    let ar = Rect::from_min_max(pos2(r.max.x - SPLIT_ARROW_W, r.min.y + BIG_LABEL_Y - 2.0), r.max);
+    // Added after the main part, so it wins the pointer inside its strip. The menu stays
+    // reachable while the command is off (its other items have their own state).
+    let aresp = ui.interact(ar, resp.id.with("split-arrow"), Sense::click());
+    keytip_badge(ui, r, id, tip);
+    ribbon_control_bg(ui, r, &resp, false, &t);
+    if aresp.hovered() || aresp.is_pointer_button_down_on() {
+        bg(ui, ar, &aresp, false, &t);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + BIG_ICON_Y), vec2(BIG_ICON, BIG_ICON)), icon, c, a);
+    let lines: Vec<&str> = label.split('\n').collect();
+    let label_cx = (r.min.x + ar.min.x) / 2.0;
+    let mut y = r.min.y + BIG_LABEL_Y;
+    for l in &lines {
+        label_line(ui, label_cx, y, l, regular(11.5), text, false);
+        y += LABEL_PITCH;
+    }
+    let last_y = r.min.y + BIG_LABEL_Y + LABEL_PITCH * lines.len().saturating_sub(1) as f32;
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(ar.center().x, last_y + 7.0), vec2(DROPDOWN, DROPDOWN)), "dropdown", text, text);
+    let name = label.replace('\n', " ");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &name));
+    aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} options")));
+    let resp = tooltip(app, resp, tip, id);
+    let aresp = aresp.on_hover_text(tip);
+    command_menu(&resp, app, id);
+    if on && resp.clicked() {
+        run_from_ribbon(app, id, params);
+    }
+    egui::Popup::menu(&aresp).show(|ui| {
         ui.set_min_width(200.0);
         menu(ui, app);
     });
@@ -810,8 +930,11 @@ fn combo_impl(
         ui.painter().set(arrow_bg, arrow_box);
         icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(DROPDOWN, DROPDOWN)), "dropdown", t.icon, t.accent);
         // The list drops from the box's left edge, as in Word, not from the arrow (#535).
-        egui::Popup::menu(&aresp).anchor(resp.rect.union(ar)).show(|ui| {
-            if let Some(v) = combo_list(ui, width, current, items, preview) {
+        // A font list stays open while fonts are pinned in it; a pick closes it.
+        let close = if search { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
+        egui::Popup::menu(&aresp).anchor(resp.rect.union(ar)).close_behavior(close).show(|ui| {
+            let picked = if search { font_list(ui, width, current, items, preview) } else { combo_list(ui, width, current, items, preview) };
+            if let Some(v) = picked {
                 out = Some(v);
                 ui.close();
             }
@@ -877,6 +1000,71 @@ pub const COMBO_PREVIEW_ROW_H: f32 = 24.0;
 /// (gigabytes on large font collections) and froze the app (#121).
 pub fn combo_list(ui: &mut Ui, width: f32, current: &str, items: &[String], preview: Option<&dyn Fn(&mut Ui, &str) -> Response>) -> Option<String> {
     list_rows(ui, width, current, items.len(), &|k| items.get(k), None, None, preview).0
+}
+
+/// The look of the pins in a font list.
+pub fn pin_style(ui: &Ui) -> krub_icons::fonts::PinStyle {
+    let t = Tokens::get(ui.ctx());
+    krub_icons::fonts::PinStyle {
+        ink: t.icon,
+        hover: t.hover,
+        pin: tl!("Pin to Top").to_string(),
+        unpin: tl!("Unpin").to_string(),
+        announce: |resp, label| resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)),
+    }
+}
+
+/// A font box's list ([`combo_list`] for fonts): the pinned fonts under Pinned Fonts, then every
+/// font under All Fonts, each row with a pin at its right end that pins or unpins the font
+/// ([`krub_icons::fonts`]). Virtualised like [`combo_list`].
+pub fn font_list(ui: &mut Ui, width: f32, current: &str, items: &[String], preview: Option<&dyn Fn(&mut Ui, &str) -> Response>) -> Option<String> {
+    use krub_icons::fonts::Row;
+    let pins = krub_icons::fonts::pinned(ui.ctx());
+    let rows = krub_icons::fonts::rows(items, &pins);
+    let style = pin_style(ui);
+    let t = Tokens::get(ui.ctx());
+    let row_h = if preview.is_some() { COMBO_PREVIEW_ROW_H } else { ui.spacing().interact_size.y };
+    let list_id = ui.id().with("font_list");
+    // Room for the pin after each name, clear of the scroll bar.
+    let pin_room = krub_icons::fonts::BUTTON + 6.0 + ui.spacing().scroll.bar_width;
+    let mut out = None;
+    egui::ScrollArea::vertical().max_height(420.0).show_rows(ui, row_h, rows.len(), |ui, range| {
+        ui.set_min_width(width + 60.0);
+        let mut drawn = Vec::new();
+        for k in range {
+            match rows.get(k) {
+                Some(Row::Heading(h)) => {
+                    krub_icons::fonts::heading(ui, width + 60.0, row_h, crate::i18n::t(h), t.text_dim, crate::theme::semibold(11.0));
+                }
+                Some(&Row::Font { index, pinned }) => {
+                    let Some(it) = items.get(index) else { continue };
+                    let resp = ui
+                        .horizontal(|ui| {
+                            let resp = match preview {
+                                Some(p) => p(ui, it),
+                                None => ui.steady_label(it == current, it.as_str()),
+                            };
+                            ui.add_space(pin_room);
+                            resp
+                        })
+                        .inner;
+                    drawn.push((k, it, pinned, resp));
+                }
+                None => {}
+            }
+        }
+        // The pins line up at the end of the widest row drawn (the list is as wide as that), so
+        // they are placed once every row is.
+        let right = ui.min_rect().right() - ui.spacing().scroll.bar_width;
+        for (k, it, pinned, resp) in drawn {
+            let row = Rect::from_min_max(resp.rect.min, pos2(right.max(resp.rect.right() + krub_icons::fonts::BUTTON), resp.rect.bottom()));
+            let pin_clicked = krub_icons::fonts::pin_button(ui, list_id.with(k), row, it, pinned, &style);
+            if resp.clicked() && !pin_clicked {
+                out = Some(it.clone());
+            }
+        }
+    });
+    out
 }
 
 /// The rows of [`combo_list`], virtualised, for `n` items fetched by index. With a `highlight`
@@ -1114,6 +1302,80 @@ impl SteadyUi for egui::Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The font list's pins: a click pins a font (it then heads the list), a second click on
+    /// either of its rows unpins it, and a click on the name still picks the font.
+    #[test]
+    fn fonts_pin_from_the_font_list() {
+        use egui_kittest::kittest::Queryable;
+        let items: Vec<String> = ["Arial", "Sarabun", "Tahoma"].iter().map(|s| s.to_string()).collect();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui_state(
+            |ui, (pins, picked): &mut (Vec<String>, Option<String>)| {
+                // The app's fonts (the headings are semibold) take effect from the next frame.
+                if !ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("fonts_set")).unwrap_or(false)) {
+                    ui.ctx().set_fonts(crate::theme::font_definitions(false, false));
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("fonts_set"), true));
+                    return;
+                }
+                krub_icons::fonts::sync(ui.ctx(), pins);
+                if let Some(f) = font_list(ui, 150.0, "Arial", &items, None) {
+                    *picked = Some(f);
+                }
+            },
+            (Vec::new(), None),
+        );
+        h.run();
+        h.get_by_label("Pin to Top: Tahoma").click();
+        h.run();
+        assert_eq!(h.state().0, vec!["Tahoma".to_string()]);
+        // Pinned: two rows for Tahoma, both offering Unpin.
+        assert_eq!(h.get_all_by_label("Unpin: Tahoma").count(), 2);
+        assert_eq!(h.get_all_by_label("Tahoma").count(), 2);
+        h.get_all_by_label("Unpin: Tahoma").last().unwrap().click();
+        h.run();
+        assert!(h.state().0.is_empty());
+        h.get_by_label("Sarabun").click();
+        h.run();
+        assert_eq!(h.state().1.as_deref(), Some("Sarabun"));
+        assert!(h.state().0.is_empty(), "picking a font doesn't pin it");
+    }
+
+    /// The pins line up at the list's right end, past the longest name, however wide the list
+    /// grows (installed fonts can have long names).
+    #[test]
+    fn the_pins_sit_at_the_end_of_a_wide_font_list() {
+        use egui_kittest::kittest::Queryable;
+        let long = "A Font Family With A Rather Long Name Indeed";
+        let items: Vec<String> = ["Arial", long, "Tahoma"].iter().map(|s| s.to_string()).collect();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(900.0, 400.0)).build_ui_state(
+            |ui, pins: &mut Vec<String>| {
+                if !ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("fonts_set")).unwrap_or(false)) {
+                    ui.ctx().set_fonts(crate::theme::font_definitions(false, false));
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("fonts_set"), true));
+                    return;
+                }
+                krub_icons::fonts::sync(ui.ctx(), pins);
+                // Sized to its content, as the font box's popup is.
+                egui::Area::new(egui::Id::new("list")).fixed_pos(pos2(10.0, 10.0)).show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| font_list(ui, 150.0, "Arial", &items, None));
+                });
+            },
+            vec!["Tahoma".to_string()],
+        );
+        h.run();
+        let width_once = h.get_by_label("Pin to Top: Arial").rect().right();
+        for _ in 0..20 {
+            h.step();
+        }
+        let name_end = h.get_by_label(long).rect().right();
+        assert_eq!(h.get_by_label("Pin to Top: Arial").rect().right(), width_once, "the list doesn't keep growing");
+        assert!(width_once <= name_end + 60.0, "the list is no wider than its longest row and a pin");
+        let pins: Vec<Rect> = ["Arial", long].iter().map(|f| h.get_by_label(&format!("Pin to Top: {f}")).rect()).collect();
+        for p in &pins {
+            assert!(p.left() >= name_end - 1.0, "pin {p:?} overlaps the longest name ending at {name_end}");
+            assert!((p.right() - pins[0].right()).abs() < 0.5, "the pins line up");
+        }
+    }
 
     /// #653: a large button's label line is no taller than `LABEL_LINE_H` in the interface font, so
     /// two lines (checked at compile time) end above the group title row.

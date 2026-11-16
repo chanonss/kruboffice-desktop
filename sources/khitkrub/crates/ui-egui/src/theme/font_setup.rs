@@ -512,6 +512,8 @@ fn fallback_key(face: HostFace) -> String {
 }
 
 static HOST_FACES: std::sync::Mutex<Vec<(HostFace, Arc<FontData>)>> = std::sync::Mutex::new(Vec::new());
+/// The host's font files, for the PDF writer ([`sync_pdf_faces`]).
+static HOST_PDF_FACES: std::sync::Mutex<Vec<(HostFace, Arc<[u8]>)>> = std::sync::Mutex::new(Vec::new());
 /// Bumped whenever the registered faces change, so a font set built earlier is rebuilt ([`FontKey`]).
 static HOST_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -533,8 +535,39 @@ fn readable(faces: Vec<(HostFace, Vec<u8>)>) -> Vec<(HostFace, Arc<FontData>)> {
 
 /// Registers the faces the host loaded. Replaces any earlier registration.
 pub fn set_host_faces(faces: Vec<(HostFace, Vec<u8>)>) {
+    *HOST_PDF_FACES.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        faces.iter().filter(|(h, _)| !h.is_system()).map(|(h, b)| (*h, Arc::<[u8]>::from(b.as_slice()))).collect();
     *HOST_FACES.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = readable(faces);
     HOST_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    sync_pdf_faces();
+}
+
+/// Hands the PDF writer the Thai TrueType faces to embed, so exported and printed Thai text is
+/// drawn in a Thai font (without one, the writer's predefined CID font is Chinese and viewers
+/// showed Chinese glyphs).
+///
+/// - Named families, so a cell set in one prints in it (Latin and digits too), as on screen:
+///   `TH Sarabun New` (its four styles) and `Sarabun` (Sarabun and SemiBold as its bold), when
+///   the host loaded them (the web).
+/// - The fallback for Thai in any other font: Sarabun when loaded, otherwise the craft-fonts face
+///   meant for Thai (native builds with `CRAFT_FONTS_DIR`).
+///
+/// Returns whether a fallback face was registered.
+pub fn sync_pdf_faces() -> bool {
+    use HostFace::{Sarabun, SarabunBold, ThSarabunNew, ThSarabunNewBold, ThSarabunNewBoldItalic, ThSarabunNewItalic};
+    let host = HOST_PDF_FACES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let get = |face: HostFace| host.iter().find(|(h, _)| *h == face).map(|(_, b)| Arc::clone(b));
+    gridcraft_pdf::set_font_family(
+        "TH Sarabun New",
+        [get(ThSarabunNew), get(ThSarabunNewBold), get(ThSarabunNewItalic), get(ThSarabunNewBoldItalic)],
+    );
+    gridcraft_pdf::set_font_family("Sarabun", [get(Sarabun), get(SarabunBold), None, None]);
+    let (regular, bold) = (get(Sarabun), get(SarabunBold));
+    if (regular.is_some() || bold.is_some()) && gridcraft_pdf::set_fallback_faces(regular, bold) {
+        return true;
+    }
+    let thai = craft_fonts::CRAFT_FONTS.iter().find(|f| f.scripts.contains(&"Thai") && !crate::craft_fonts_policy::barred(f.family));
+    gridcraft_pdf::set_fallback_faces(thai.map(|f| Arc::from(f.bytes)), None)
 }
 
 /// Adds faces to the registered ones (a face already there is replaced). The interface fonts are
@@ -743,6 +776,9 @@ pub fn font_definitions_with(language: crate::i18n::Language, used: &[String]) -
 
 /// Builds the role font chains, script fallbacks, installed workbook fonts and optional craft-font faces, drops unparseable data and records which families were bound.
 fn font_definitions_impl(language: crate::i18n::Language, used: &[String], system: bool) -> FontDefinitions {
+    if !gridcraft_pdf::has_fallback_faces() {
+        sync_pdf_faces();
+    }
     let mut fonts = FontDefinitions::default();
     let base_prop: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     let base_mono: Vec<String> = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();

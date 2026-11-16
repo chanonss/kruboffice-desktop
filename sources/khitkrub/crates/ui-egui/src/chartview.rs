@@ -291,13 +291,74 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
         }
         let start = p.add(egui::Shape::Noop);
         let mut label = true;
-        let fill = sp.fill.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::TRANSPARENT);
-        let line =
-            if sp.format.no_line { Color32::TRANSPARENT } else { sp.line.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::DARK_GRAY) };
+        let f = &sp.format;
+        // Transparency (percent) as the colour's alpha.
+        let alpha = |c: Color32, t: f32| c.gamma_multiply((1.0 - t / 100.0).clamp(0.0, 1.0));
+        let base_fill = if f.no_fill {
+            Color32::TRANSPARENT
+        } else {
+            alpha(sp.fill.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::TRANSPARENT), f.fill_transparency)
+        };
+        // Soft edges fade the fill out towards the edge (painted in layers below), outline and all.
+        let soft = f.soft_edge > 0.0
+            && base_fill != Color32::TRANSPARENT
+            && matches!(sp.kind, ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::RoundedRectangle | ShapeKind::Ellipse | ShapeKind::Triangle);
+        let fill = if soft { Color32::TRANSPARENT } else { base_fill };
+        let line = if f.no_line || soft {
+            Color32::TRANSPARENT
+        } else {
+            alpha(sp.line.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::DARK_GRAY), f.line_transparency)
+        };
+        // Outline width: points to sheet pixels (96 to the inch), at the zoom; 1 px by default.
+        let lw = f.line_width.map_or(1.0, |w| w * 96.0 / 72.0 * geo.z);
+        let stroke = Stroke::new(lw, line);
+        // Flips mirror about the box's centre, then the rotation turns it clockwise.
+        let (c, (sin, cos)) = (r.center(), f.rotation.to_radians().sin_cos());
+        let place = |q: Pos2| {
+            let mut v = q - c;
+            if f.flip_h {
+                v.x = -v.x;
+            }
+            if f.flip_v {
+                v.y = -v.y;
+            }
+            c + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
+        };
+        let turned = f.rotation.rem_euclid(360.0) != 0.0;
+        let dashed = f.line_dash != gridcraft_engine::model::LineDash::Solid;
+        // An outline along `pts` (closed when `closed`), dashed when asked.
+        let outline = |p: &Painter, pts: &[Pos2], closed: bool| {
+            if line == Color32::TRANSPARENT || pts.len() < 2 {
+                return;
+            }
+            let mut path = pts.to_vec();
+            if closed {
+                path.push(pts[0]);
+            }
+            if dashed {
+                let (dash, gap) = dash_pattern(f.line_dash, lw.max(1.0));
+                p.extend(egui::Shape::dashed_line(&path, stroke, dash, gap));
+            } else {
+                p.add(PathShape::line(path, PathStroke::new(lw, line)));
+            }
+        };
+        let polygon = |p: &Painter, pts: Vec<Pos2>| {
+            let pts: Vec<Pos2> = pts.into_iter().map(place).collect();
+            p.add(PathShape::convex_polygon(pts.clone(), fill, Stroke::NONE));
+            outline(p, &pts, true);
+        };
+        // Effects: the shadow and glow go under the shape, which covers their inner part.
+        paint_effects(p, wb, sp, r, geo.z, base_fill, lw, soft, &place);
         match sp.kind {
+            ShapeKind::Rectangle | ShapeKind::TextBox if turned || dashed || f.line_width.is_some() => {
+                polygon(p, vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()]);
+            }
             ShapeKind::Rectangle | ShapeKind::TextBox => {
                 p.rect_filled(r, 0.0, fill);
                 p.rect_stroke(r, 0.0, Stroke::new(1.0, line), StrokeKind::Inside);
+            }
+            ShapeKind::RoundedRectangle if turned || dashed || f.line_width.is_some() => {
+                polygon(p, rounded_rect_points(r, 10.0 * geo.z));
             }
             ShapeKind::RoundedRectangle => {
                 p.rect_filled(r, 10.0 * geo.z, fill);
@@ -310,10 +371,10 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
                         pos2(r.center().x + r.width() / 2.0 * a.cos(), r.center().y + r.height() / 2.0 * a.sin())
                     })
                     .collect();
-                p.add(PathShape::convex_polygon(pts, fill, Stroke::new(1.0, line)));
+                polygon(p, pts);
             }
             ShapeKind::Triangle => {
-                p.add(PathShape::convex_polygon(vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()], fill, Stroke::new(1.0, line)));
+                polygon(p, vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()]);
             }
             ShapeKind::Ink => {
                 let pt = gridcraft_engine::cmd::draw::ink_width(sp);
@@ -338,12 +399,26 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
                 label = false;
             }
             ShapeKind::Line | ShapeKind::Arrow => {
-                p.line_segment([r.left_top(), r.right_bottom()], Stroke::new(2.0, line));
-                if sp.kind == ShapeKind::Arrow {
-                    let d = (r.right_bottom() - r.left_top()).normalized();
+                let (a, b) = (place(r.left_top()), place(r.right_bottom()));
+                let w = f.line_width.map_or(2.0, |_| lw);
+                if dashed {
+                    let (dash, gap) = dash_pattern(f.line_dash, w.max(1.0));
+                    p.extend(egui::Shape::dashed_line(&[a, b], Stroke::new(w, line), dash, gap));
+                } else {
+                    p.line_segment([a, b], Stroke::new(w, line));
+                }
+                // A head at the start and at the end; an Arrow shape has one at its end of its own.
+                let head = |from: Pos2, tip: Pos2| {
+                    let d = (tip - from).normalized();
                     let n = vec2(-d.y, d.x);
-                    let tip = r.right_bottom();
-                    p.add(PathShape::convex_polygon(vec![tip, tip - d * 10.0 + n * 5.0, tip - d * 10.0 - n * 5.0], line, Stroke::NONE));
+                    let size = 10.0_f32.max(w * 3.0);
+                    p.add(PathShape::convex_polygon(vec![tip, tip - d * size + n * size / 2.0, tip - d * size - n * size / 2.0], line, Stroke::NONE));
+                };
+                if f.arrow_end || (sp.kind == ShapeKind::Arrow && !f.arrow_start) {
+                    head(a, b);
+                }
+                if f.arrow_start {
+                    head(b, a);
                 }
             }
         }
@@ -580,4 +655,172 @@ pub fn hit(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option<(ObjRef, Re
 /// width in points, so the live pen stroke and the committed ink agree at every zoom.
 pub(crate) fn ink_color(line: Color32, width_pt: f32) -> Color32 {
     if width_pt > 8.0 { line.gamma_multiply(0.45) } else { line }
+}
+
+/// Dash and gap lengths for an outline `width` wide.
+/// A shape's effects: its outer shadow and glow (painted before the shape, which covers their inner
+/// part), and its fill faded towards the edge when it has soft edges (`soft`).
+#[allow(clippy::too_many_arguments)]
+fn paint_effects(
+    p: &Painter,
+    wb: &Workbook,
+    sp: &gridcraft_engine::model::Shape,
+    r: Rect,
+    z: f32,
+    base_fill: Color32,
+    lw: f32,
+    soft: bool,
+    place: &dyn Fn(Pos2) -> Pos2,
+) {
+    let f = &sp.format;
+    let alpha = |c: Color32, t: f32| c.gamma_multiply((1.0 - t / 100.0).clamp(0.0, 1.0));
+    if let Some((pts, closed)) = effect_path(sp.kind, r, z) {
+        let px = |pt: f32| pt * 96.0 / 72.0 * z;
+        let placed: Vec<Pos2> = pts.iter().map(|q| place(*q)).collect();
+        let solid = closed && base_fill != Color32::TRANSPARENT;
+        let width = if closed { 0.0 } else { f.line_width.map_or(2.0, |_| lw) };
+        if let Some(sh) = f.shadow {
+            let a = sh.dir.to_radians();
+            let off = vec2(a.cos(), a.sin()) * px(sh.dist);
+            let moved: Vec<Pos2> = placed.iter().map(|q| *q + off).collect();
+            let black = Color32::BLACK.gamma_multiply((1.0 - sh.transparency / 100.0).clamp(0.0, 1.0));
+            paint_halo(p, &moved, closed, solid, width, px(sh.blur), black);
+        }
+        if f.glow_radius > 0.0 {
+            let c = match f.glow_color {
+                gridcraft_engine::model::Color::Auto => gridcraft_engine::model::Color::Theme(4, 0),
+                c => c,
+            };
+            let c = alpha(c.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::GOLD), f.glow_transparency);
+            paint_halo(p, &placed, closed, false, width, px(f.glow_radius) * 2.0, c);
+        }
+        if soft && closed {
+            // The fill at full strength inside the soft band, fading to nothing at the edge.
+            let (hw, hh) = (r.width() / 2.0, r.height() / 2.0);
+            let edge = px(f.soft_edge).min(hw).min(hh);
+            let (sx, sy) = (((hw - edge) / hw.max(0.01)).max(0.0), ((hh - edge) / hh.max(0.01)).max(0.0));
+            let inner: Vec<Pos2> = pts.iter().map(|q| place(r.center() + vec2((q.x - r.center().x) * sx, (q.y - r.center().y) * sy))).collect();
+            p.add(soft_fill_mesh(&placed, &inner, place(r.center()), base_fill));
+        }
+    }
+}
+
+/// The outline of a shape the effects follow, before rotation and flips: its points and whether
+/// it is closed (a line is not). `None` for kinds without effects (ink, icons, equations).
+fn effect_path(kind: ShapeKind, r: Rect, z: f32) -> Option<(Vec<Pos2>, bool)> {
+    Some(match kind {
+        ShapeKind::Rectangle | ShapeKind::TextBox => (vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], true),
+        ShapeKind::RoundedRectangle => (rounded_rect_points(r, 10.0 * z), true),
+        ShapeKind::Ellipse => (
+            (0..64)
+                .map(|i| {
+                    let a = i as f32 / 64.0 * std::f32::consts::TAU;
+                    pos2(r.center().x + r.width() / 2.0 * a.cos(), r.center().y + r.height() / 2.0 * a.sin())
+                })
+                .collect(),
+            true,
+        ),
+        ShapeKind::Triangle => (vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()], true),
+        ShapeKind::Line | ShapeKind::Arrow => (vec![r.left_top(), r.right_bottom()], false),
+        _ => return None,
+    })
+}
+
+/// A convex fill with soft edges: `color` over the `inner` outline (a fan from `center`), then a
+/// band out to the `outer` outline (point for point) whose colour fades to transparent.
+fn soft_fill_mesh(outer: &[Pos2], inner: &[Pos2], center: Pos2, color: Color32) -> egui::Mesh {
+    let mut mesh = egui::Mesh::default();
+    let n = outer.len().min(inner.len());
+    if n < 3 {
+        return mesh;
+    }
+    let n32 = n as u32;
+    // 0: the centre; 1..=n: the inner outline; n+1..=2n: the outer one.
+    mesh.colored_vertex(center, color);
+    for q in &inner[..n] {
+        mesh.colored_vertex(*q, color);
+    }
+    for q in &outer[..n] {
+        mesh.colored_vertex(*q, Color32::TRANSPARENT);
+    }
+    for i in 0..n32 {
+        let j = (i + 1) % n32;
+        mesh.add_triangle(0, 1 + i, 1 + j);
+        mesh.add_triangle(1 + i, 1 + n32 + i, 1 + n32 + j);
+        mesh.add_triangle(1 + i, 1 + n32 + j, 1 + j);
+    }
+    mesh
+}
+
+/// A soft halo along `pts` (a shadow or a glow): the shape itself when `solid`, then strokes
+/// widening to `spread` pixels whose colour fades out. `width` is an open path's own width.
+fn paint_halo(p: &Painter, pts: &[Pos2], closed: bool, solid: bool, width: f32, spread: f32, color: Color32) {
+    if pts.len() < 2 || color.a() == 0 {
+        return;
+    }
+    let mut path = pts.to_vec();
+    if closed {
+        path.push(pts[0]);
+    }
+    if solid {
+        p.add(PathShape::convex_polygon(pts.to_vec(), color.gamma_multiply(0.6), Stroke::NONE));
+    }
+    const N: usize = 6;
+    for k in (1..=N).rev() {
+        let w = width + spread * k as f32 / N as f32;
+        p.add(PathShape::line(path.clone(), PathStroke::new(w.max(1.0), color.gamma_multiply(0.6 / N as f32))));
+    }
+    if !solid && !closed {
+        p.add(PathShape::line(path, PathStroke::new(width.max(1.0), color.gamma_multiply(0.6))));
+    }
+}
+
+fn dash_pattern(d: gridcraft_engine::model::LineDash, width: f32) -> (f32, f32) {
+    use gridcraft_engine::model::LineDash as D;
+    match d {
+        D::Dot | D::SysDot => (width, width * 2.0),
+        D::LgDash | D::LgDashDot | D::LgDashDotDot => (width * 8.0, width * 3.0),
+        D::DashDot | D::SysDashDot | D::SysDashDotDot => (width * 4.0, width * 2.0),
+        _ => (width * 4.0, width * 3.0),
+    }
+}
+
+/// A rounded rectangle's outline as points (for drawing it turned or with a dashed outline).
+fn rounded_rect_points(r: Rect, radius: f32) -> Vec<Pos2> {
+    let k = radius.min(r.width() / 2.0).min(r.height() / 2.0).max(0.0);
+    let corners = [
+        (r.right() - k, r.top() + k, -90.0_f32),
+        (r.right() - k, r.bottom() - k, 0.0),
+        (r.left() + k, r.bottom() - k, 90.0),
+        (r.left() + k, r.top() + k, 180.0),
+    ];
+    let mut pts = Vec::with_capacity(36);
+    for (cx, cy, start) in corners {
+        for i in 0..=8 {
+            let a = (start + i as f32 * 90.0 / 8.0).to_radians();
+            pts.push(pos2(cx + k * a.cos(), cy + k * a.sin()));
+        }
+    }
+    pts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Soft edges fade an opaque fill too: the edge is transparent, the inside keeps the colour
+    /// (the earlier stacked layers came out solid for an opaque fill, seen in the browser 2026-11-16).
+    #[test]
+    fn soft_edges_fade_an_opaque_fill_to_the_edge() {
+        let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 60.0));
+        let outer = vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()];
+        let inner: Vec<Pos2> = outer.iter().map(|q| r.center() + (*q - r.center()) * 0.8).collect();
+        let blue = Color32::from_rgb(20, 80, 120);
+        let mesh = soft_fill_mesh(&outer, &inner, r.center(), blue);
+        assert_eq!(mesh.vertices.len(), 9);
+        assert_eq!(mesh.indices.len(), 4 * 9);
+        assert!(mesh.vertices[1..5].iter().all(|v| v.color == blue), "the inside is the fill");
+        assert!(mesh.vertices[5..].iter().all(|v| v.color == Color32::TRANSPARENT), "the edge has faded out");
+        assert!(soft_fill_mesh(&outer[..2], &inner[..2], r.center(), blue).is_empty());
+    }
 }

@@ -350,3 +350,75 @@ fn symbol_font_draws_maths_in_its_own_encoding() {
     assert!(Font::TimesRoman.can_encode('x') && !Font::TimesRoman.can_encode('\u{2211}'));
     assert_eq!(text_width(Font::Symbol, 10.0, "\u{2211}"), 7.13);
 }
+
+/// A Thai TrueType face from the craft-fonts checkout (`CRAFT_FONTS_DIR`), when there is one.
+fn thai_font() -> Option<std::sync::Arc<[u8]>> {
+    let dir = std::env::var_os("CRAFT_FONTS_DIR")?;
+    std::fs::read(std::path::Path::new(&dir).join("fonts/noto-sans-thai/NotoSansThai.ttf")).ok().map(Into::into)
+}
+
+#[test]
+fn thai_is_embedded_not_set_in_the_chinese_font() -> Result<(), Box<dyn Error>> {
+    let Some(font) = thai_font() else {
+        eprintln!("skipped: no CRAFT_FONTS_DIR");
+        return Ok(());
+    };
+    let mut d = PdfDoc::with_fallback_faces(Some(font), None);
+    let p = d.add_page(612.0, 792.0);
+    p.text(72.0, 72.0, 12.0, Font::Helvetica, [0, 0, 0], "ชื่อ Name 中");
+    p.text(72.0, 90.0, 12.0, Font::HelveticaBold, [0, 0, 0], "ข้อมูล");
+    let pdf = d.finish();
+    check_xref(&pdf)?;
+    assert!(find(&pdf, b"/CIDFontType2").is_some(), "Thai in an embedded TrueType face");
+    assert!(find(&pdf, b"/FontFile2").is_some());
+    assert!(find(&pdf, b"/Identity-H").is_some());
+    assert!(find(&pdf, b"/ToUnicode").is_some());
+    // ช (U+0E0A) is mapped back to Unicode for copy and search.
+    assert!(find(&pdf, b"<0E0A>").is_some());
+    // The Han character no face here has still uses the predefined CID font.
+    assert!(find(&pdf, b"STSong-Light").is_some());
+    Ok(())
+}
+
+#[test]
+fn without_a_face_thai_falls_back_to_the_cid_font() {
+    let mut d = PdfDoc::with_fallback_faces(None, None);
+    d.add_page(612.0, 792.0).text(72.0, 72.0, 12.0, Font::Helvetica, [0, 0, 0], "ไทย");
+    let pdf = d.finish();
+    assert!(find(&pdf, b"/FontFile2").is_none());
+    assert!(find(&pdf, b"STSong-Light").is_some());
+}
+
+#[test]
+fn unusable_font_bytes_are_ignored() {
+    assert!(embed::EmbeddedFace::parse(std::sync::Arc::from(&b"not a font"[..])).is_none());
+    assert!(embed::EmbeddedFace::parse(std::sync::Arc::from(&b""[..])).is_none());
+}
+
+#[test]
+fn text_in_a_registered_family_is_set_in_it_latin_too() -> Result<(), Box<dyn Error>> {
+    let Some(font) = thai_font() else {
+        eprintln!("skipped: no CRAFT_FONTS_DIR");
+        return Ok(());
+    };
+    let mut d = PdfDoc::with_fallback_faces(None, None);
+    assert!(d.add_font_family("Noto Sans Thai", [Some(font), None, None, None]));
+    let p = d.add_page(612.0, 792.0);
+    p.text_in(72.0, 72.0, 12.0, Styled { font: Font::HelveticaBold, family: "NotoSansThai" }, [0, 0, 0], "ชื่อ Name 12");
+    let pdf = d.finish();
+    check_xref(&pdf)?;
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/E1 12 Tf"), "the whole line in the embedded family (bold falls back to its regular)");
+    assert!(!text.contains("/BaseFont /Helvetica"), "no standard font for its Latin letters");
+    // An unregistered family draws as before: Latin in the standard font.
+    let mut d = PdfDoc::with_fallback_faces(None, None);
+    d.add_page(612.0, 792.0).text_in(72.0, 72.0, 12.0, Styled { font: Font::Helvetica, family: "TH Sarabun New" }, [0, 0, 0], "Name");
+    assert!(String::from_utf8_lossy(&d.finish()).contains("/BaseFont /Helvetica"));
+    Ok(())
+}
+
+#[test]
+fn family_text_width_uses_the_family_advances() {
+    // Unregistered: identical to the standard font.
+    assert_eq!(text_width_in(Font::Helvetica, Some("No Such Font"), 10.0, "Hello"), text_width(Font::Helvetica, 10.0, "Hello"));
+}

@@ -117,6 +117,40 @@ const PROPERTIES: [(&str, &str); 6] = [
     ("description", "Description"),
 ];
 
+/// What a cached print preview was made for: (document, revision, what, fit to page, selected range).
+type PreviewKey = (u64, u64, PrintWhat, bool, String);
+
+/// What File › Print prints.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrintWhat {
+    /// The active sheet (its print area, else its used range).
+    #[default]
+    ActiveSheets,
+    /// Every sheet.
+    EntireWorkbook,
+    /// The selected cells of the active sheet only (its print area is ignored).
+    Selection,
+}
+
+impl PrintWhat {
+    pub const ALL: [PrintWhat; 3] = [PrintWhat::ActiveSheets, PrintWhat::EntireWorkbook, PrintWhat::Selection];
+
+    /// The English label (translated with `Language::tr`).
+    pub fn label(self) -> &'static str {
+        match self {
+            PrintWhat::ActiveSheets => "Print Active Sheets",
+            PrintWhat::EntireWorkbook => "Print Entire Workbook",
+            PrintWhat::Selection => "Print Selection",
+        }
+    }
+}
+
+/// The selected range of the active sheet in A1 form, for printing or exporting only it. With
+/// several selected areas, the active (last) one: a print range is one rectangle.
+pub fn selected_print_range(app: &SheetApp) -> Option<String> {
+    app.session.active().and_then(|d| d.selection.ranges.last().map(gridcraft_engine::core::RangeRef::a1))
+}
+
 /// The open Backstage view.
 #[derive(Clone, Debug)]
 pub struct Backstage {
@@ -125,16 +159,18 @@ pub struct Backstage {
     props: [String; 6],
     /// Focus at the end of the previous frame, before egui clears it on Esc.
     text_edit_focused: bool,
-    /// Print: the whole workbook rather than the active sheet.
-    pub print_all: bool,
+    /// Print: what to print (the active sheet, the whole workbook or the selected cells).
+    pub print_what: PrintWhat,
     /// Print: fit each sheet on one page.
     pub fit_to_page: bool,
     /// Print: the previewed page (0-based).
     preview_page: usize,
-    /// Print: the preview for (document, revision, whole workbook, fit to page).
-    preview: Option<((u64, u64, bool, bool), Json)>,
+    /// Print: the preview for (document, revision, what, fit to page, selected range).
+    preview: Option<(PreviewKey, Json)>,
     /// Save As: the chosen file type (an extension from [`SAVE_TYPES`]).
     pub save_format: &'static str,
+    /// Options: the category shown (`krub_icons::options::CATEGORIES`).
+    pub options_pane: String,
     /// Home and Open: when the recent workbooks were last changed.
     recent: RecentFiles,
     /// Recovery listing is loaded once per visit to avoid disk reads every frame.
@@ -161,11 +197,12 @@ impl Backstage {
             page,
             props: Default::default(),
             text_edit_focused: false,
-            print_all: false,
+            print_what: PrintWhat::ActiveSheets,
             fit_to_page: false,
             preview_page: 0,
             preview: None,
             save_format: "xlsx",
+            options_pane: "general".to_string(),
             recent: RecentFiles::default(),
             recovery: None,
             recovery_discard: None,
@@ -256,7 +293,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     Page::SaveAs => save_as(app, ui, &mut bs, &mut out),
                     Page::Print => print(app, ui, &mut bs, &mut out),
                     Page::Export => export(app, ui, &mut out),
-                    Page::Options => options(app, ui),
+                    Page::Options => options(app, ui, &mut bs.options_pane),
                     Page::Account => account(app, ui),
                 }
             });
@@ -564,8 +601,10 @@ fn recent_list(app: &mut SheetApp, ui: &mut Ui, bs: &mut Backstage, out: &mut Ou
     }
 }
 
-/// What the file system said about a recent workbook.
+/// What the file system said about a recent workbook. The web has no file system to ask, so
+/// nothing makes these there.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Modified {
     /// When it was last changed, in seconds since 1970.
     At(f64),
@@ -861,6 +900,12 @@ fn export(app: &mut SheetApp, ui: &mut Ui, out: &mut Outcome) {
     {
         out.close = true;
     }
+    ui.add_space(6.0);
+    if action_row(ui, Icon::Paper, lang.tr("Create PDF of Selected Cells"), lang.tr("Save only the selected cells as a PDF document.")).clicked()
+        && export_selection_pdf(app)
+    {
+        out.close = true;
+    }
     ui.add_space(14.0);
     section(ui, lang, "Change File Type");
     for (fmt, icon, title, detail) in [
@@ -869,6 +914,27 @@ fn export(app: &mut SheetApp, ui: &mut Ui, out: &mut Outcome) {
     ] {
         if action_row(ui, icon, lang.tr(title), lang.tr(detail)).clicked() && export_as(app, fmt) {
             out.close = true;
+        }
+    }
+}
+
+/// Exports only the selected cells of the active sheet as a PDF (the print area is ignored):
+/// through the save picker on the desktop, as a browser download on the web.
+pub fn export_selection_pdf(app: &mut SheetApp) -> bool {
+    if !app.commit_edit(0, 0, false, false) {
+        return false;
+    }
+    let Some(range) = selected_print_range(app) else { return false };
+    let params = json!({"sheets": "active", "range": range});
+    if app.services.pick_save.is_some() {
+        app.export_pdf_with_picker(params);
+        return true;
+    }
+    match app.run("file.exportPdf", params) {
+        Ok(_) => true,
+        Err(e) => {
+            app.message = Some(("KhitKrub".into(), crate::clean_error(&e)));
+            false
         }
     }
 }

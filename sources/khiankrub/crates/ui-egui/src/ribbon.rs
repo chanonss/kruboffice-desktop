@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::colors::{Remember, Target};
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, medium, semibold};
-use crate::widgets::{CONTENT_H, big, big_toggle, combo, group, menu_button, small, split, split_labeled};
+use crate::widgets::{CONTENT_H, big, big_toggle, combo, group, menu_button, small, small_labeled, split};
 use crate::{WordApp, icons};
 
 pub use wordcraft_engine::ribbon::TABS;
@@ -104,22 +104,9 @@ pub fn has_chart_selected(s: &wordcraft_engine::Session) -> bool {
 /// Contextual tabs for the current selection (pure, tested).
 pub fn contextual_tabs(s: &wordcraft_engine::Session) -> Vec<&'static str> {
     let mut tabs = Vec::new();
-    if s.sel.focus.path.cell().is_some() {
-        tabs.push("Table Design");
-        tabs.push("Table Layout");
-    }
-    if has_picture_selected(s) {
-        tabs.push("Picture Format");
-    }
-    if has_shape_selected(s) {
-        tabs.push("Shape Format");
-    }
-    if has_smart_art_selected(s) {
-        tabs.push("SmartArt Design");
-    }
-    if has_chart_selected(s) {
-        tabs.push("Chart Design");
-    }
+    // A table's commands are in the Table pane (`table_pane`), not in contextual tabs.
+    // A picture's, shape's, chart's and SmartArt graphic's commands are in their panes
+    // (`object_pane`).
     // Editing a header or footer.
     if s.in_header_footer() {
         tabs.push("Header & Footer");
@@ -244,7 +231,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // Tab strip.
     egui::Panel::top("tabs")
-        .exact_size(30.0)
+        .exact_size(krub_icons::chrome::TAB_STRIP_H)
         // No line under the strip: the active tab runs on into the ribbon.
         .show_separator_line(false)
         .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin { left: 8, right: 10, top: 0, bottom: 0 }))
@@ -482,11 +469,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     egui::Panel::top("ribbon")
-        .exact_size(CONTENT_H + crate::widgets::label_strip_h(app) + 10.0)
+        // The KrubOffice ribbon height (`krub_icons::chrome`), the same in all three apps.
+        .exact_size(krub_icons::chrome::RIBBON_H + crate::widgets::label_strip_h(app))
         .frame(
             // No outline: its top edge drew a grey line between the active tab and the ribbon. The
             // panel's own divider still separates the ribbon from the ruler below.
-            egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }),
+            egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin { left: 8, right: 8, top: 5, bottom: 5 }),
         )
         .show(ui, |ui| {
             // Right-click on the ribbon (outside a button): Customize Ribbon. Registered first, so
@@ -523,14 +511,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         "Developer" => developer(app, ui),
                         "Zotero" => zotero(app, ui),
                         "Help" => help(app, ui),
-                        "Table Design" => table_design(app, ui),
-                        "Table Layout" => table_layout(app, ui),
                         "Equation" if app.session.math.is_some() => crate::equation_tab::show(app, ui),
-                        "Picture Format" => picture_format(app, ui),
-                        "Shape Format" => shape_format(app, ui),
-                        "SmartArt Design" => smart_art_design(app, ui),
                         "Outlining" => outlining(app, ui),
-                        "Chart Design" => chart_design(app, ui),
                         "Header & Footer" => header_footer(app, ui),
                         _ => home(app, ui),
                     }
@@ -813,7 +795,7 @@ fn saved_list_items(ui: &mut Ui, app: &mut WordApp) {
 /// and diagonal rules, Horizontal Line, then Draw Table, View Gridlines and the dialog. In a table
 /// they set the table's borders (diagonals: the selected cells'); elsewhere the paragraph's, and
 /// the table-only choices are off.
-fn border_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn border_items(ui: &mut Ui, app: &mut WordApp) {
     let in_table = crate::widgets::enabled(app, "table.borders");
     let side = |k: &str| -> (&'static str, Value) {
         if in_table {
@@ -851,7 +833,7 @@ fn border_items(ui: &mut Ui, app: &mut WordApp) {
 /// A menu item with a small picture before its name (Layout's Margins, Text Direction, Orientation,
 /// Columns, Breaks and Line Numbers; Table Design's Borders; Table Layout's Select, Delete and
 /// AutoFit), as in Word. `checked` (`Some`) highlights the current setting.
-fn pic_item(ui: &mut Ui, app: &mut WordApp, label: &str, checked: Option<bool>, pic: &str, id: &str, params: Value) {
+pub(crate) fn pic_item(ui: &mut Ui, app: &mut WordApp, label: &str, checked: Option<bool>, pic: &str, id: &str, params: Value) {
     let enabled = crate::widgets::enabled(app, id);
     let atom = ui.id().with(("layout picture", pic));
     let on = checked.unwrap_or(false);
@@ -1250,7 +1232,7 @@ fn language_checks(current: &str, listed: impl Fn(&str) -> bool) -> LanguageChec
 }
 
 /// A menu item with a check mark when `checked` (the current choice of several).
-fn mi_check(ui: &mut Ui, app: &mut WordApp, label: &str, checked: bool, id: &str, params: Value) {
+pub(crate) fn mi_check(ui: &mut Ui, app: &mut WordApp, label: &str, checked: bool, id: &str, params: Value) {
     // An invisible mark keeps the unchecked labels aligned with the checked one.
     let mark = egui::RichText::new("✓");
     let mark = if checked { mark } else { mark.color(egui::Color32::TRANSPARENT) };
@@ -1304,7 +1286,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
     let st = app.session.run("format.state", &json!({})).unwrap_or_default();
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
     group(ui, "Clipboard", app, |ui, app| {
-        menu_button(ui, app, "paste", Some("Paste"), "Paste (⌘V)", true, "edit.paste", |ui, app| {
+        crate::widgets::big_split(ui, app, "paste", "Paste", "Paste", "edit.paste", json!({}), |ui, app| {
             mi_icon(ui, app, "Paste", "paste", "edit.paste", json!({}));
             mi_icon(ui, app, "Keep Text Only", "textBox", "edit.pasteText", json!({}));
             mi_icon(ui, app, "Merge Formatting", "painter", "edit.pasteMerge", json!({}));
@@ -1565,9 +1547,6 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 });
             });
         });
-    });
-    group(ui, "Voice", app, |ui, app| {
-        big(ui, app, "dictate", "Dictate", "tools.dictate", json!({}), false);
     });
     group(ui, "Editor", app, |ui, app| {
         big(ui, app, "editor", "Editor", "review.spelling", json!({}), false);
@@ -2105,10 +2084,15 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
 /// Arrange › Wrap Text: how the selected object sits in the text, and (Square, Tight, Through)
 /// which of its sides text flows on.
 fn wrap_menu(ui: &mut Ui, app: &mut WordApp) {
+    menu_button(ui, app, "wrapText", Some("Wrap\nText"), "Wrap Text", true, "arrange.wrapText", wrap_items);
+}
+
+/// Wrap Text's menu: the wrapping styles and Wrap Text Sides.
+pub(crate) fn wrap_items(ui: &mut Ui, app: &mut WordApp) {
     let (wrap, side) = wordcraft_engine::cmd::objects::selected(&app.session)
         .and_then(|(_, o)| o.frame().map(|(_, _, f)| (f.wrap, f.wrap_text)))
         .unwrap_or_default();
-    menu_button(ui, app, "wrapText", Some("Wrap\nText"), "Wrap Text", true, "arrange.wrapText", |ui, app| {
+    {
         use wordcraft_doc::para::{Wrap, WrapText};
         for (l, w, v) in [
             ("In Line with Text", Wrap::Inline, "inline"),
@@ -2132,20 +2116,23 @@ fn wrap_menu(ui: &mut Ui, app: &mut WordApp) {
                 mi_check(ui, app, l, side == s, "arrange.wrapText", json!({"side": v}));
             }
         });
-    });
+    }
 }
 
 fn rotate_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
-    menu_button(ui, app, "rotate", label, "Rotate", false, "arrange.rotate", |ui, app| {
-        mi(ui, app, "Rotate Right 90°", "arrange.rotate", json!({"direction": "right"}));
-        mi(ui, app, "Rotate Left 90°", "arrange.rotate", json!({"direction": "left"}));
-        mi(ui, app, "Flip Vertical", "arrange.rotate", json!({"direction": "flipVertical"}));
-        mi(ui, app, "Flip Horizontal", "arrange.rotate", json!({"direction": "flipHorizontal"}));
-    });
+    menu_button(ui, app, "rotate", label, "Rotate", false, "arrange.rotate", rotate_items);
+}
+
+/// Rotate's menu: quarter turns and flips.
+pub(crate) fn rotate_items(ui: &mut Ui, app: &mut WordApp) {
+    mi(ui, app, "Rotate Right 90°", "arrange.rotate", json!({"direction": "right"}));
+    mi(ui, app, "Rotate Left 90°", "arrange.rotate", json!({"direction": "left"}));
+    mi(ui, app, "Flip Vertical", "arrange.rotate", json!({"direction": "flipVertical"}));
+    mi(ui, app, "Flip Horizontal", "arrange.rotate", json!({"direction": "flipHorizontal"}));
 }
 
 /// Size › Rotation: the selected object's exact angle (a drag of the field is one undo step).
-fn rotation_field(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn rotation_field(ui: &mut Ui, app: &mut WordApp) {
     let deg0 = wordcraft_engine::cmd::objects::selected(&app.session).and_then(|(_, o)| o.frame().map(|(_, _, f)| f.spin().deg)).unwrap_or(0.0);
     ui.label(egui::RichText::new(tl!("Rotation:")).small());
     let mut deg = deg0;
@@ -2235,30 +2222,20 @@ fn references(app: &mut WordApp, ui: &mut Ui) {
     });
     group(ui, "Captions", app, |ui, app| {
         big(ui, app, "caption", "Insert\nCaption", "references.caption", json!({}), false);
+        // Each insert, named beside its icon, with its own update button on the same row.
+        let w = crate::widgets::small_labeled_width(ui, &["Insert Table of Figures", "Insert Table of Tables"]);
         stack(ui, |ui| {
-            small(
-                ui,
-                app,
-                "tableOfFigures",
-                Some("Insert Table of Figures"),
-                "Insert Table of Figures",
-                "references.tableOfFigures",
-                json!({}),
-                false,
-            );
-            small(
-                ui,
-                app,
-                "tableOfTables",
-                Some("Insert Table of Tables"),
-                "Insert Table of Tables",
-                "references.tableOfFigures",
-                json!({"kind": "table"}),
-                false,
-            );
+            crate::widgets::row(ui, |ui| {
+                small_labeled(ui, app, "tableOfFigures", "Insert Table of Figures", "references.tableOfFigures", json!({}), w);
+                small(ui, app, "update", None, "Update Table of Figures", "references.updateFigures", json!({"kind": "figure"}), false);
+            });
+            ui.add_space(crate::widgets::ROW_GAP);
+            crate::widgets::row(ui, |ui| {
+                small_labeled(ui, app, "tableOfTables", "Insert Table of Tables", "references.tableOfFigures", json!({"kind": "table"}), w);
+                small(ui, app, "update", None, "Update Table of Tables", "references.updateFigures", json!({"kind": "table"}), false);
+            });
         });
         stack(ui, |ui| {
-            small(ui, app, "update", Some("Update Table"), "Update Table of Figures", "references.updateFigures", json!({}), false);
             small(ui, app, "crossRef", Some("Cross-reference"), "Cross-reference", "insert.crossReference", json!({}), false);
         });
     });
@@ -2647,125 +2624,10 @@ fn help(app: &mut WordApp, ui: &mut Ui) {
 
 /// SmartArt Design: the selected graphic's items (Add Shape, Promote, Demote, Text Pane), its
 /// layout (a gallery of previews), its colours and Reset.
-fn smart_art_design(app: &mut WordApp, ui: &mut Ui) {
-    use wordcraft_doc::smart_art::{SmartArtColors, SmartArtLayout};
-    let Some(g) = wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session) else { return };
-    let theme = app.session.doc.settings.theme_colors.clone();
-    // The Text Pane's current item, else the last.
-    let current = app.smart_art_item.filter(|i| *i < g.items.len());
-    group(ui, "Create Graphic", app, |ui, app| {
-        big(ui, app, "addShape", "Add\nShape", "smartArt.addShape", current.map_or(json!({}), |i| json!({"after": i})), false);
-        stack(ui, |ui| {
-            let idx = current.map_or(json!({}), |i| json!({"index": i}));
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "promote", Some("Promote"), "Promote", "smartArt.promote", idx.clone(), false);
-                small(ui, app, "demote", Some("Demote"), "Demote", "smartArt.demote", idx, false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "textPane", Some("Text Pane"), "Text Pane", "smartArt.textPane", json!({}), app.session.view.smart_art_pane);
-            });
-        });
-    });
-    group(ui, "Layouts", app, |ui, app| {
-        let t = Tokens::get(ui.ctx());
-        egui::Grid::new("smart_art_layout_gallery").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
-            for (k, layout) in SmartArtLayout::ALL.into_iter().enumerate() {
-                let (r, resp) = ui.allocate_exact_size(vec2(46.0, 28.0), Sense::click());
-                let on = g.layout == layout;
-                let fill = if on {
-                    t.checked
-                } else if resp.hovered() {
-                    t.hover
-                } else {
-                    t.ribbon
-                };
-                ui.painter().rect(r, 3.0, fill, Stroke::new(1.0, if on { t.accent } else { t.border }), egui::StrokeKind::Inside);
-                crate::dialogs_smart_art::preview(ui.painter(), r.shrink(2.0), layout, g.colors, &theme, t.text_dim);
-                if resp.on_hover_text(tl!(layout.label())).clicked() && !on {
-                    let _ = app.run("smartArt.layout", json!({"layout": layout.id()}));
-                }
-                if k % 4 == 3 {
-                    ui.end_row();
-                }
-            }
-        });
-    });
-    group(ui, "SmartArt Styles", app, |ui, app| {
-        menu_button(ui, app, "smartArtColors", Some("Change\nColors"), "Change Colors", true, "", |ui, app| {
-            for colors in SmartArtColors::ALL {
-                let on = g.colors == colors;
-                let resp = ui.add(egui::Button::new(crate::dialogs_smart_art::colors_label(colors)).selected(on).min_size(vec2(200.0, 24.0)));
-                let sw = Rect::from_min_size(pos2(resp.rect.right() - 74.0, resp.rect.center().y - 6.0), vec2(66.0, 12.0));
-                crate::dialogs_smart_art::swatches(ui.painter(), sw, colors, &theme);
-                if resp.clicked() {
-                    let _ = app.run("smartArt.colors", json!({"variant": colors.id()}));
-                    ui.close();
-                }
-            }
-        });
-    });
-    group(ui, "Reset", app, |ui, app| {
-        big(ui, app, "resetGraphic", "Reset\nGraphic", "smartArt.reset", json!({}), false);
-    });
-}
-
-/// Chart Design: the selected chart's elements (title, legend, data labels), its data and type,
-/// and its size.
-fn chart_design(app: &mut WordApp, ui: &mut Ui) {
-    let Some(chart) = wordcraft_engine::cmd::chart::selected_chart(&app.session) else { return };
-    group(ui, "Chart Layouts", app, |ui, app| {
-        menu_button(ui, app, "chartTitle", Some("Chart Title"), "Chart Title", true, "", |ui, app| {
-            mi_check(ui, app, "None", chart.title.is_none(), "chart.title", json!({"text": null}));
-            let text = chart.title.clone().unwrap_or_else(|| tl!("Chart Title").to_string());
-            mi_check(ui, app, "Above Chart", chart.title.is_some(), "chart.title", json!({"text": text}));
-        });
-        menu_button(ui, app, "legend", Some("Legend"), "Legend", true, "", |ui, app| {
-            mi_check(ui, app, "None", chart.legend.is_none(), "chart.legend", json!({"pos": "none"}));
-            for (label, pos) in [
-                ("Right", wordcraft_doc::chart::LegendPos::Right),
-                ("Top", wordcraft_doc::chart::LegendPos::Top),
-                ("Left", wordcraft_doc::chart::LegendPos::Left),
-                ("Bottom", wordcraft_doc::chart::LegendPos::Bottom),
-            ] {
-                mi_check(ui, app, label, chart.legend == Some(pos), "chart.legend", json!({"pos": pos.id()}));
-            }
-        });
-        menu_button(ui, app, "dataLabels", Some("Data Labels"), "Data Labels", true, "", |ui, app| {
-            mi_check(ui, app, "None", !chart.data_labels, "chart.dataLabels", json!({"on": false}));
-            mi_check(ui, app, "Show", chart.data_labels, "chart.dataLabels", json!({"on": true}));
-        });
-    });
-    group(ui, "Data", app, |ui, app| {
-        big(ui, app, "chartData", "Edit\nData", "chart.editData", json!({}), false);
-    });
-    group(ui, "Type", app, |ui, app| {
-        big(ui, app, "changeChartType", "Change\nChart Type", "chart.type", json!({}), false);
-    });
-    group(ui, "Size", app, |ui, app| {
-        let (w0, h0) =
-            wordcraft_engine::cmd::objects::selected(&app.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h))).unwrap_or((0.0, 0.0));
-        stack(ui, |ui| {
-            for (label, key, v0) in [("H:", "height", h0), ("W:", "width", w0)] {
-                crate::widgets::row(ui, |ui| {
-                    ui.label(egui::RichText::new(tl!(label)).small());
-                    let (r, v) = size_box(ui, v0, 36.0, 2000.0);
-                    if r.changed() {
-                        if r.dragged() && !r.drag_started() {
-                            app.session.join_next_undo();
-                        }
-                        let _ = app.run("picture.size", json!({key: v, "lockAspect": false}));
-                    }
-                });
-            }
-        });
-    });
-}
-
 /// A width or height box for a picture, shape or chart: `pt` (points) shown and typed in the unit of
 /// File › Options › Advanced (inches, centimetres…; `5 cm` typed in inches converts), as the table
 /// boxes are. Returns the box and the value in points.
-fn size_box(ui: &mut Ui, pt: f32, min_pt: f32, max_pt: f32) -> (egui::Response, f32) {
+pub(crate) fn size_box(ui: &mut Ui, pt: f32, min_pt: f32, max_pt: f32) -> (egui::Response, f32) {
     let unit = crate::options::unit();
     let k = unit.pt_per_unit();
     let mut v = pt / k;
@@ -2773,406 +2635,22 @@ fn size_box(ui: &mut Ui, pt: f32, min_pt: f32, max_pt: f32) -> (egui::Response, 
     (r, v * k)
 }
 
-/// Shape Format: fill, outline and effects of the selected shape, and its arrangement.
-fn shape_format(app: &mut WordApp, ui: &mut Ui) {
-    let (stroke, glow_size) = match wordcraft_engine::cmd::objects::selected(&app.session) {
-        Some((_, wordcraft_doc::para::InlineObject::Shape { stroke, effects, .. })) => (stroke, effects.glow.map(|g| g.size)),
-        _ => (None, None),
-    };
-    let theme = app.session.doc.settings.theme_colors.clone();
-    group(ui, "Shape Styles", app, |ui, app| {
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "shading", Some("Shape Fill"), "Shape Fill", false, "shape.fill", |ui, app| {
-                    mi(ui, app, "No Color", "shape.fill", json!({"color": null}));
-                    crate::colors::menu(ui, app, &theme, Target::cmd("shape.fill"));
-                });
-                menu_button(ui, app, "pen", Some("Shape Outline"), "Shape Outline", false, "shape.outline", |ui, app| {
-                    mi(ui, app, "No Color", "shape.outline", json!({"color": null}));
-                    crate::colors::menu(ui, app, &theme, Target::cmd("shape.outline"));
-                    ui.separator();
-                    ui.menu_button(tl!("Weight"), |ui| {
-                        let color = stroke.unwrap_or(wordcraft_doc::Rgb::BLACK).hex();
-                        for w in [0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0] {
-                            mi(ui, app, &format!("{w} {}", tl!("pt")), "shape.outline", json!({"color": color, "width": w}));
-                        }
-                    });
-                });
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "shapeEffects", Some("Shape Effects"), "Shadow, glow and soft edges", false, "shape.effects", |ui, app| {
-                    shape_effects_menu(ui, app, &theme, glow_size)
-                });
-            });
-        });
-    });
-    alt_text_group(ui, app);
-    if wordcraft_engine::cmd::canvas::selected_canvas(&app.session).is_some() {
-        group(ui, "Drawing Canvas", app, |ui, app| {
-            menu_button(ui, app, "canvas", Some("Drawing\nCanvas"), "Drawing Canvas", true, "", |ui, app| {
-                mi(ui, app, "Fit", "canvas.fit", json!({}));
-                mi(ui, app, "Expand", "canvas.expand", json!({}));
-                ui.menu_button(tl!("Scale Drawing"), |ui| {
-                    for pct in [50, 75, 125, 150, 200] {
-                        mi(ui, app, &format!("{pct}%"), "canvas.scale", json!({"factor": pct as f32 / 100.0}));
-                    }
-                });
-            });
-        });
-    }
-    group(ui, "WordArt Styles", app, |ui, app| {
-        menu_button(ui, app, "wordArt", Some("Styles"), "WordArt Styles", true, "", |ui, app| {
-            crate::wordart_menus::style_gallery(ui, app, "wordArt.style")
-        });
-        stack(ui, |ui| {
-            let outline = crate::wordart_menus::current_outline(app);
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "textFill", Some("Text Fill"), "Text Fill", false, "", |ui, app| {
-                    crate::wordart_menus::fill_menu(ui, app, &theme)
-                });
-                menu_button(ui, app, "textOutline", Some("Text Outline"), "Text Outline", false, "", |ui, app| {
-                    crate::wordart_menus::outline_menu(ui, app, &theme, outline)
-                });
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "transform", Some("Text Effects"), "Text Effects", false, "", |ui, app| {
-                    crate::wordart_menus::effects_menu(ui, app, &theme, true)
-                });
-            });
-        });
-    });
-    shape_text_group(app, ui);
-    group(ui, "Arrange", app, |ui, app| {
-        big(ui, app, "position", "Position", "arrange.position", json!({}), false);
-        wrap_menu(ui, app);
-        stack(ui, |ui| {
-            rotate_menu(ui, app, Some("Rotate"));
-            small(ui, app, "align", Some("Align"), "Align", "arrange.align", json!({}), false);
-        });
-    });
-    group(ui, "Size", app, |ui, app| {
-        let (w0, h0) =
-            wordcraft_engine::cmd::objects::selected(&app.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h))).unwrap_or((0.0, 0.0));
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                for (label, key, v0) in [("W:", "width", w0), ("H:", "height", h0)] {
-                    ui.label(egui::RichText::new(tl!(label)).small());
-                    let (r, v) = size_box(ui, v0, 4.0, 2000.0);
-                    if r.changed() {
-                        if r.dragged() && !r.drag_started() {
-                            app.session.join_next_undo();
-                        }
-                        let _ = app.run("picture.size", json!({key: v, "lockAspect": false}));
-                    }
-                }
-            });
-            ui.add_space(2.0);
-            crate::widgets::row(ui, |ui| rotation_field(ui, app));
-        });
-    });
-}
-
-/// Shape Format › Text: the text box's Text Direction and Align Text, and Create Link (Break Link
-/// once it is linked to another box).
-fn shape_text_group(app: &mut WordApp, ui: &mut Ui) {
-    use wordcraft_doc::props::{TextVert, VAlign};
-    let target = wordcraft_engine::cmd::objects::text_box_target(&app.session);
-    let body = target.and_then(|(_, id)| app.session.doc.parts.get(&id).map(|p| p.body)).unwrap_or_default();
-    group(ui, "Text", app, |ui, app| {
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "textDirection", Some("Text Direction"), "Text Direction", false, "", |ui, app| {
-                    for (label, vert) in [
-                        ("Horizontal", TextVert::Horz),
-                        ("Rotate all text 90°", TextVert::Vert),
-                        ("Rotate all text 270°", TextVert::Vert270),
-                        ("Stacked", TextVert::Stacked),
-                    ] {
-                        mi_check(ui, app, label, body.vert == vert, "shape.textDirection", json!({"dir": vert.ooxml()}));
-                    }
-                });
-                menu_button(ui, app, "alignText", Some("Align Text"), "Align Text", false, "", |ui, app| {
-                    for (label, anchor) in [("Top", VAlign::Top), ("Middle", VAlign::Center), ("Bottom", VAlign::Bottom)] {
-                        mi_check(
-                            ui,
-                            app,
-                            label,
-                            body.anchor == anchor,
-                            "shape.alignText",
-                            json!({"anchor": wordcraft_doc::props::anchor_ooxml(anchor)}),
-                        );
-                    }
-                });
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                if body.next.is_some() {
-                    small(ui, app, "textBoxUnlink", Some("Break Link"), "Break Link", "shape.breakLink", json!({}), false);
-                } else {
-                    let waiting = app.canvas.link_from.is_some();
-                    small(ui, app, "textBoxLink", Some("Create Link"), "Create Link", "ui.linkTextBox", json!({}), waiting);
-                }
-            });
-        });
-    });
-}
-
-/// Picture/Shape Format › Accessibility: Alt Text opens the Alt Text pane.
-fn alt_text_group(ui: &mut Ui, app: &mut WordApp) {
-    group(ui, "Accessibility", app, |ui, app| {
-        big(ui, app, "altText", "Alt\nText", "view.altTextPane", json!({"value": true}), false);
-    });
-}
-
-/// Shape Format › Shape Effects: Shadow, Glow and Soft Edges, each with presets and a "No …" entry.
-fn shape_effects_menu(ui: &mut Ui, app: &mut WordApp, theme: &[wordcraft_doc::Rgb], glow_size: Option<f32>) {
-    ui.menu_button(tl!("Shadow"), |ui| {
-        mi(ui, app, "No Shadow", "shape.effects", json!({"shadow": null}));
-        ui.separator();
-        for (id, label) in wordcraft_doc::effects::SHADOW_PRESETS {
-            mi(ui, app, label, "shape.effects", json!({"shadow": id}));
-        }
-    });
-    ui.menu_button(tl!("Glow"), |ui| {
-        mi(ui, app, "No Glow", "shape.effects", json!({"glow": null}));
-        ui.separator();
-        for size in [5.0, 8.0, 11.0, 18.0] {
-            mi(ui, app, &format!("{size} {}", tl!("pt")), "shape.effects", json!({"glow": size}));
-        }
-        ui.separator();
-        ui.menu_button(tl!("Glow Colors"), |ui| {
-            let target = Target::at("shape.effects", json!({"glow": {"color": null, "size": glow_size.unwrap_or(8.0)}}), "/glow/color");
-            crate::colors::menu(ui, app, theme, target);
-        });
-    });
-    ui.menu_button(tl!("Soft Edges"), |ui| {
-        mi(ui, app, "No Soft Edges", "shape.effects", json!({"softEdge": null}));
-        ui.separator();
-        for r in [1.0, 2.5, 5.0, 10.0, 25.0, 50.0] {
-            mi(ui, app, &format!("{r} {}", tl!("pt")), "shape.effects", json!({"softEdge": r}));
-        }
-    });
-}
-
-fn picture_format(app: &mut WordApp, ui: &mut Ui) {
-    group(ui, "Adjust", app, |ui, app| {
-        menu_button(ui, app, "picCorrections", Some("Corrections"), "Brightness, contrast and sharpness", true, "picture.corrections", |ui, app| {
-            for (l, b, c) in
-                [("Brighter +20%", 20.0, 0.0), ("Darker −20%", -20.0, 0.0), ("More Contrast +20%", 0.0, 20.0), ("Less Contrast −20%", 0.0, -20.0)]
-            {
-                mi(ui, app, l, "picture.corrections", json!({"brightness": b, "contrast": c}));
-            }
-            ui.separator();
-            mi(ui, app, "Sharpen", "picture.corrections", json!({"sharpen": 40.0}));
-            mi(ui, app, "Soften", "picture.corrections", json!({"sharpen": -40.0}));
-        });
-        menu_button(ui, app, "picColor", Some("Color"), "Saturation and recolor", true, "picture.color", |ui, app| {
-            for (l, v) in [("Full Saturation 100%", 100.0), ("Muted 50%", 50.0), ("Gray 0%", 0.0), ("Vivid 200%", 200.0)] {
-                mi(ui, app, l, "picture.color", json!({"mode": "saturation", "saturation": v}));
-            }
-            ui.separator();
-            mi(ui, app, "Grayscale", "picture.color", json!({"mode": "grayscale"}));
-            mi(ui, app, "Sepia", "picture.color", json!({"mode": "sepia"}));
-            mi(ui, app, "Washout", "picture.color", json!({"mode": "washout"}));
-        });
-        menu_button(ui, app, "icons", Some("Icon Color"), "Recolor a one-color picture, such as an icon", true, "picture.iconColor", |ui, app| {
-            let theme = app.session.doc.settings.theme_colors.clone();
-            crate::colors::menu(ui, app, &theme, Target::cmd("picture.iconColor"));
-        });
-        menu_button(ui, app, "picTransparency", Some("Transparency"), "Picture transparency", true, "picture.transparency", |ui, app| {
-            for v in [0.0, 15.0, 30.0, 50.0, 65.0, 80.0, 95.0] {
-                mi(ui, app, &format!("{v:.0}%"), "picture.transparency", json!({"percent": v}));
-            }
-            ui.separator();
-            // An exact value, dragged with a live preview: absolute from the original
-            // pixels, one undo step for the whole drag (same pattern as Size › W/H).
-            // The current value isn't stored anywhere, so the slider reopens where it
-            // was last left for this picture.
-            let (media, off) = match wordcraft_engine::cmd::objects::selected(&app.session) {
-                Some((pos, wordcraft_doc::para::InlineObject::Image { media, .. })) => (media, pos.off),
-                _ => (String::new(), 0),
-            };
-            let key = egui::Id::new(("picture_transparency", media, off));
-            let mut v = ui.data(|d| d.get_temp::<f64>(key)).unwrap_or(0.0);
-            let r = ui.add(crate::numfield::NumField::new(&mut v).speed(1.0).range(0.0..=100.0).suffix("%"));
-            if r.changed() {
-                ui.data_mut(|d| d.insert_temp(key, v));
-                if r.dragged() && !r.drag_started() {
-                    app.session.join_next_undo();
-                }
-                let _ = app.run("picture.transparency", json!({"percent": v}));
-            }
-        });
-        stack(ui, |ui| {
-            small(ui, app, "picChange", Some("Change"), "Change Picture", "ui.changePicture", json!({}), false);
-            small(ui, app, "picReset", Some("Reset"), "Reset Picture", "picture.reset", json!({}), false);
-        });
-    });
-    group(ui, "Picture Styles", app, |ui, app| {
-        menu_button(ui, app, "picStyles", Some("Styles"), "Frames and effects", true, "picture.style", |ui, app| {
-            for (l, s) in [
-                ("Simple Frame", "simpleFrame"),
-                ("Thick Frame", "thickFrame"),
-                ("Rounded", "rounded"),
-                ("Soft Edge", "softEdge"),
-                ("Shadow", "shadow"),
-            ] {
-                mi(ui, app, l, "picture.style", json!({"style": s}));
-            }
-        });
-        menu_button(ui, app, "picBorder", Some("Border"), "Picture border", true, "picture.border", |ui, app| {
-            for (l, w) in [("Thin", 2), ("Medium", 4), ("Thick", 8)] {
-                mi(ui, app, l, "picture.border", json!({"width": w}));
-            }
-        });
-    });
-    alt_text_group(ui, app);
-    group(ui, "Arrange", app, |ui, app| {
-        big(ui, app, "position", "Position", "arrange.position", json!({}), false);
-        wrap_menu(ui, app);
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                rotate_menu(ui, app, Some("Rotate"));
-                small(ui, app, "align", Some("Align"), "Align", "arrange.align", json!({}), false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                group_menu(ui, app, Some("Group"));
-            });
-        });
-    });
-    group(ui, "Size", app, |ui, app| {
-        let (w0, h0, crop0) = match wordcraft_engine::cmd::objects::selected(&app.session) {
-            Some((_, wordcraft_doc::para::InlineObject::Image { w, h, crop, .. })) => (w, h, crop),
-            _ => (0.0, 0.0, [0.0; 4]),
-        };
-        // `picture.size` locks the aspect ratio unless told otherwise, so one dimension suffices.
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                ui.label(egui::RichText::new(tl!("W:")).small());
-                let (r, w) = size_box(ui, w0, 4.0, 2000.0);
-                if r.changed() {
-                    if r.dragged() && !r.drag_started() {
-                        app.session.join_next_undo();
-                    }
-                    let _ = app.run("picture.size", json!({"width": w}));
-                }
-                ui.label(egui::RichText::new(tl!("H:")).small());
-                let (r, h) = size_box(ui, h0, 4.0, 2000.0);
-                if r.changed() {
-                    if r.dragged() && !r.drag_started() {
-                        app.session.join_next_undo();
-                    }
-                    let _ = app.run("picture.size", json!({"height": h}));
-                }
-                rotation_field(ui, app);
-            });
-            ui.add_space(2.0);
-            crate::widgets::row(ui, |ui| {
-                let cropping = crate::crop::active(app).is_some();
-                small(ui, app, "crop", Some("Crop"), "Crop", "ui.crop", json!({}), cropping);
-                for (i, side) in ["L", "T", "R", "B"].iter().enumerate() {
-                    ui.label(egui::RichText::new(crate::i18n::tc("crop side", side)).small());
-                    let mut v = crop0[i] * 100.0;
-                    let r = ui.add(crate::numfield::NumField::new(&mut v).speed(0.5).range(0.0..=45.0).suffix("%"));
-                    if r.changed() {
-                        if r.dragged() && !r.drag_started() {
-                            app.session.join_next_undo();
-                        }
-                        let mut c = crop0;
-                        c[i] = (v / 100.0).clamp(0.0, 0.45);
-                        let _ = app.run("picture.crop", json!({"left": c[0], "top": c[1], "right": c[2], "bottom": c[3]}));
-                    }
-                }
-                if ui.button(egui::RichText::new(tl!("Reset")).small()).on_hover_text(tl!("Reset Crop")).clicked() {
-                    let _ = app.run("picture.crop", json!({"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}));
-                }
-            });
-        });
-    });
-}
-
-fn table_design(app: &mut WordApp, ui: &mut Ui) {
-    let look = app.session.sel.focus.path.cell().and_then(|(tp, _, _)| app.session.doc.table(app.session.sel.focus.story, &tp).map(|t| t.props.look));
-    group(ui, "Table Style Options", app, |ui, app| {
-        let Some(l) = look else { return };
-        // Two rows (the two-size ribbon's): the rows' options, then the columns'.
-        egui::Grid::new("look").spacing(vec2(8.0, crate::widgets::ROW_GAP + 8.0)).show(ui, |ui| {
-            for (row, items) in [
-                [("Header Row", "headerRow", l.header_row), ("Total Row", "totalRow", l.total_row), ("Banded Rows", "bandedRows", l.banded_rows)],
-                [
-                    ("First Column", "firstColumn", l.first_column),
-                    ("Last Column", "lastColumn", l.last_column),
-                    ("Banded Columns", "bandedColumns", l.banded_columns),
-                ],
-            ]
-            .iter()
-            .enumerate()
-            {
-                let _ = row;
-                for (label, key, val) in items {
-                    let mut v = *val;
-                    if ui.checkbox(&mut v, tl!(label)).changed() {
-                        let _ = app.run("table.look", json!({ *key: v }));
-                    }
-                }
-                ui.end_row();
-            }
-        });
-    });
-    group(ui, "Table Styles", app, |ui, app| {
-        // The document's own styles first, so a new one shows without scrolling.
-        let mut styles: Vec<(bool, String, String)> = app
-            .session
-            .doc
-            .styles
-            .styles
-            .iter()
-            .filter(|s| s.kind == wordcraft_doc::StyleKind::Table && !s.hidden)
-            .map(|s| (s.builtin, s.id.clone(), crate::i18n::style_name(s)))
-            .collect();
-        styles.sort_by_key(|(builtin, _, _)| *builtin);
-        let current_id = look.and_then(|_| {
-            let (tp, _, _) = app.session.sel.focus.path.cell()?;
-            app.session.doc.table(app.session.sel.focus.story, &tp)?.props.style.clone()
-        });
-        let current = current_id.as_ref().and_then(|id| {
-            app.session
-                .doc
-                .styles
-                .get(id)
-                .filter(|st| st.kind == wordcraft_doc::StyleKind::Table)
-                .map(wordcraft_engine::cmd::table_style::is_builtin_table_style)
-        });
-        table_style_gallery(ui, app, &styles, current_id.as_deref(), current);
-        stack(ui, |ui| {
-            let swatch = crate::colors::parse(&app.canvas.last_shading).map(|c| egui::Color32::from_rgb(c.0, c.1, c.2));
-            let params = json!({"color": app.canvas.last_shading.clone()});
-            split_labeled(ui, app, "shading", Some("Shading"), "Shading", "table.shading", params, false, swatch, |ui, app| {
-                mi(ui, app, "No Color", "table.shading", json!({"color": null}));
-                let theme = app.session.doc.settings.theme_colors.clone();
-                crate::colors::menu(ui, app, &theme, Target::cmd("table.shading").remember(Remember::Shading));
-            });
-        });
-    });
-    group(ui, "Borders", app, |ui, app| {
-        menu_button(ui, app, "borders", Some("Borders"), "Borders", true, "table.borders", border_items);
-        big(ui, app, "borderPainter", "Border\nPainter", "table.borderPainter", json!({}), false);
-    });
-}
-
-/// The Table Design gallery: a few tiles with arrows to page through them and "more", which
+/// The table style gallery (Table pane): a few tiles with arrows to page through them and "more", which
 /// opens every table style in a panel grouped as Plain, Grid and List tables (the document's own
 /// first), with New, Modify, Delete and Clear below. `current` is the caret table's style id and
 /// `builtin` whether that style is one of ours (`None`: not in a table).
-fn table_style_gallery(ui: &mut Ui, app: &mut WordApp, styles: &[(bool, String, String)], current_id: Option<&str>, builtin: Option<bool>) {
+pub(crate) fn table_style_gallery(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    styles: &[(bool, String, String)],
+    current_id: Option<&str>,
+    builtin: Option<bool>,
+    visible: usize,
+) {
     let t = Tokens::get(ui.ctx());
     let tile = vec2(62.0, 52.0);
     // The panel's tiles are larger, like Word's, so a style's bands and borders read clearly.
     let panel_tile = vec2(92.0, 68.0);
-    let visible = 5usize;
     let pitch = tile.x + 3.0;
     let key = egui::Id::new("table_gallery_start");
     let start = ui.data(|d| d.get_temp::<usize>(key)).unwrap_or(0).min(styles.len().saturating_sub(1));
@@ -3269,10 +2747,10 @@ fn table_style_gallery(ui: &mut Ui, app: &mut WordApp, styles: &[(bool, String, 
     });
 }
 
-/// Table Layout › Cell Size: the caret cell's row height and column width, in inches. They show
+/// Table pane › Cell Size: the caret cell's row height and column width, in inches. They show
 /// the size on the page (a row without a set height shows the height its text gives it) and
 /// editing runs `table.rowHeight` / `table.columnWidth`; dragging one is a single Undo.
-fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
     let story = app.session.sel.focus.story;
     let Some((tp, r, c)) = app.session.sel.focus.path.cell() else { return };
     let Some(t) = app.session.doc.table(story, &tp) else { return };
@@ -3333,110 +2811,6 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
     });
 }
 
-fn table_layout(app: &mut WordApp, ui: &mut Ui) {
-    group(ui, "Table", app, |ui, app| {
-        stack(ui, |ui| {
-            let g = app.session.view.table_gridlines;
-            crate::widgets::row(ui, |ui| {
-                menu_button(ui, app, "selectTable", Some("Select"), "Select", false, "table.selectTable", |ui, app| {
-                    pic_item(ui, app, "Select Cell", None, "sel_cell", "table.selectCell", json!({}));
-                    pic_item(ui, app, "Select Column", None, "sel_column", "table.selectColumn", json!({}));
-                    pic_item(ui, app, "Select Row", None, "sel_row", "table.selectRow", json!({}));
-                    pic_item(ui, app, "Select Table", None, "sel_table", "table.selectTable", json!({}));
-                });
-                small(ui, app, "gridlines", Some("View Gridlines"), "View Gridlines", "table.viewGridlines", json!({}), g);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "properties", Some("Properties"), "Table Properties", "table.properties", json!({}), false);
-            });
-        });
-    });
-    group(ui, "Draw", app, |ui, app| {
-        use crate::table_pen::TableTool;
-        let tool = app.canvas.table_tool;
-        crate::widgets::big_toggle(ui, app, "drawTable", "Draw\nTable", "table.draw", tool == Some(TableTool::Draw));
-        crate::widgets::big_toggle(ui, app, "eraser", "Eraser", "table.eraser", tool == Some(TableTool::Erase));
-    });
-    group(ui, "Rows & Columns", app, |ui, app| {
-        menu_button(ui, app, "deleteTable", Some("Delete"), "Delete", true, "table.deleteTable", |ui, app| {
-            pic_item(ui, app, "Delete Cells", None, "del_cell", "table.deleteCells", json!({}));
-            pic_item(ui, app, "Delete Columns", None, "del_column", "table.deleteColumn", json!({}));
-            pic_item(ui, app, "Delete Rows", None, "del_row", "table.deleteRow", json!({}));
-            pic_item(ui, app, "Delete Table", None, "del_table", "table.deleteTable", json!({}));
-        });
-        big(ui, app, "insertAbove", "Insert\nAbove", "table.insertRowAbove", json!({}), false);
-        big(ui, app, "insertBelow", "Insert\nBelow", "table.insertRowBelow", json!({}), false);
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "insertLeft", None, "Insert Left", "table.insertColumnLeft", json!({}), false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "insertRight", None, "Insert Right", "table.insertColumnRight", json!({}), false);
-            });
-        });
-    });
-    group(ui, "Merge", app, |ui, app| {
-        big(ui, app, "merge", "Merge\nCells", "table.merge", json!({}), false);
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "splitCells", None, "Split Cells", "table.split", json!({}), false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "splitTable", None, "Split Table", "table.splitTable", json!({}), false);
-            });
-        });
-    });
-    group(ui, "Cell Size", app, |ui, app| {
-        menu_button(ui, app, "autofit", Some("AutoFit"), "AutoFit", true, "table.autofit", |ui, app| {
-            pic_item(ui, app, "AutoFit Contents", None, "fit_contents", "table.autofit", json!({"mode": "contents"}));
-            pic_item(ui, app, "AutoFit Window", None, "fit_window", "table.autofit", json!({"mode": "window"}));
-            pic_item(ui, app, "Fixed Column Width", None, "fit_fixed", "table.autofit", json!({"mode": "fixed"}));
-        });
-        cell_size_boxes(ui, app);
-        stack(ui, |ui| {
-            small(ui, app, "distributeRows", Some("Distribute Rows"), "Distribute Rows", "table.distributeRows", json!({}), false);
-            small(ui, app, "distributeCols", Some("Distribute Columns"), "Distribute Columns", "table.distributeColumns", json!({}), false);
-        });
-    });
-    group(ui, "Alignment", app, |ui, app| {
-        // The nine cell alignments, three rows in Word, are a menu of the two-size ribbon.
-        menu_button(ui, app, "cellAlign_center", Some("Alignment"), "Cell Alignment", true, "table.cellAlign", |ui, app| {
-            egui::Grid::new("cellalign").spacing(vec2(1.0, 1.0)).show(ui, |ui| {
-                for row in [
-                    [("topLeft", "Align Top Left"), ("topCenter", "Align Top Center"), ("topRight", "Align Top Right")],
-                    [("centerLeft", "Align Center Left"), ("center", "Align Center"), ("centerRight", "Align Center Right")],
-                    [("bottomLeft", "Align Bottom Left"), ("bottomCenter", "Align Bottom Center"), ("bottomRight", "Align Bottom Right")],
-                ] {
-                    for (v, tip) in row {
-                        if small(ui, app, &format!("cellAlign_{v}"), None, tip, "table.cellAlign", json!({"value": v}), false).clicked() {
-                            ui.close();
-                        }
-                    }
-                    ui.end_row();
-                }
-            });
-        });
-        big(ui, app, "textDirection", "Text\nDirection", "table.textDirection", json!({}), false);
-        big(ui, app, "cellMargins", "Cell\nMargins", "table.cellMargins", json!({}), false);
-    });
-    group(ui, "Data", app, |ui, app| {
-        big(ui, app, "sort", "Sort", "table.sort", json!({}), false);
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "repeatHeader", Some("Repeat Header Rows"), "Repeat Header Rows", "table.repeatHeader", json!({}), false);
-                small(ui, app, "toText", Some("Convert to Text"), "Convert to Text", "table.toText", json!({}), false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small(ui, app, "formula", Some("Formula"), "Formula", "table.formula", json!({}), false);
-            });
-        });
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3484,6 +2858,33 @@ mod tests {
         assert!(!h.state().session.view_only, "Editing turns it off again");
         h.state_mut().run("text.insert", json!({"text": "!"})).unwrap();
         assert_eq!(text(&h), "Hello!");
+    }
+
+    /// Home › Paste is the KrubOffice split button: the icon and label make one target that
+    /// pastes, and only the drop-down strip at the end of the label row opens the Paste menu.
+    #[test]
+    fn paste_is_a_split_button_whose_strip_opens_the_menu() {
+        use egui_kittest::kittest::Queryable;
+        let app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        let main = h.get_by_role_and_label(egui::accesskit::Role::Button, "Paste").rect();
+        let arrow = h.get_by_label("Paste options").rect();
+        assert!(main.contains_rect(arrow), "the strip is part of the button: {arrow:?} in {main:?}");
+        assert!((arrow.max.x - main.max.x).abs() < 0.5 && (arrow.max.y - main.max.y).abs() < 0.5, "bottom-right corner");
+        assert!((arrow.width() - crate::widgets::SPLIT_ARROW_W).abs() < 0.5);
+        assert!(arrow.min.y > main.min.y + main.height() / 3.0, "the strip is in the label row, below the icon");
+        assert!(h.query_by_label("Keep Text Only").is_none(), "the menu starts closed");
+        h.get_by_label("Paste options").click();
+        h.run_steps(4);
+        assert!(h.query_by_label("Keep Text Only").is_some(), "the strip opens the Paste menu");
     }
 
     /// The title bar has no Discord community button (this fork removed it), and no Discord link is
@@ -3885,13 +3286,13 @@ mod tests {
     }
 
     #[test]
-    fn picture_format_tab_appears_when_picture_selected() {
+    fn a_picture_selection_follows_the_picture() {
         let mut s = Session::new(wordcraft_doc::Document::new());
         assert!(!has_picture_selected(&s));
         assert!(!contextual_tabs(&s).contains(&"Picture Format"));
         s.run("insert.picture", &json!({"data": png_data()})).unwrap();
-        assert!(has_picture_selected(&s));
-        assert!(contextual_tabs(&s).contains(&"Picture Format"));
+        // Its commands are in the Picture pane (`object_pane`), not a tab.
+        assert!(has_picture_selected(&s) && !contextual_tabs(&s).contains(&"Picture Format"));
         s.run("select.collapse", &json!({"end": true})).unwrap();
         s.run("text.insert", &json!({"text": "x"})).unwrap();
         assert!(!has_picture_selected(&s));
@@ -3922,14 +3323,15 @@ mod tests {
     }
 
     #[test]
-    fn shape_format_tab_appears_when_shape_selected() {
+    fn a_shape_selection_follows_the_shape() {
+        // Its commands are in the Shape pane (`object_pane`), shown while `has_shape_selected`.
         let mut s = Session::new(wordcraft_doc::Document::new());
         s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
-        assert!(contextual_tabs(&s).contains(&"Shape Format"));
-        assert!(!contextual_tabs(&s).contains(&"Picture Format"));
+        assert!(has_shape_selected(&s));
+        assert!(!contextual_tabs(&s).contains(&"Shape Format") && !contextual_tabs(&s).contains(&"Picture Format"));
         s.run("select.collapse", &json!({"end": true})).unwrap();
         s.run("text.insert", &json!({"text": "x"})).unwrap();
-        assert!(!contextual_tabs(&s).contains(&"Shape Format"));
+        assert!(!has_shape_selected(&s));
     }
 
     /// Groups have no launchers (owner, 2026-11-13); every dialog or pane they opened is still
@@ -3955,30 +3357,30 @@ mod tests {
         assert_eq!(app.dialog.as_ref().map(crate::dialogs::Dialog::name), Some("insertSmartArt"));
         app.dialog = None;
         app.run("insert.smartArt", json!({"layout": "cycle"})).unwrap();
-        assert!(contextual_tabs(&app.session).contains(&"SmartArt Design"));
+        assert!(has_smart_art_selected(&app.session) && !contextual_tabs(&app.session).contains(&"SmartArt Design"));
         app.run("smartArt.textPane", json!({})).unwrap();
         assert!(app.session.view.smart_art_pane);
         app.session.run("select.collapse", &json!({"end": true})).unwrap();
         app.session.run("text.insert", &json!({"text": "x"})).unwrap();
-        assert!(!contextual_tabs(&app.session).contains(&"SmartArt Design"));
+        assert!(!has_smart_art_selected(&app.session));
     }
 
     #[test]
-    fn chart_design_tab_appears_when_chart_selected_and_buttons_open_dialogs() {
+    fn a_chart_selection_follows_the_chart_and_its_commands_open_dialogs() {
         let mut app = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), Default::default());
         // Insert › Chart without a type opens the gallery; choosing inserts.
         let _ = app.run("insert.chart", json!({}));
         assert_eq!(app.dialog.as_ref().map(crate::dialogs::Dialog::name), Some("insertChart"));
         app.dialog = None;
         app.run("insert.chart", json!({"type": "doughnut"})).unwrap();
-        assert!(contextual_tabs(&app.session).contains(&"Chart Design"));
+        assert!(has_chart_selected(&app.session) && !contextual_tabs(&app.session).contains(&"Chart Design"));
         let _ = app.run("chart.editData", json!({}));
         assert_eq!(app.dialog.as_ref().map(crate::dialogs::Dialog::name), Some("chartData"));
         let _ = app.run("chart.type", json!({}));
         assert_eq!(app.dialog.as_ref().map(crate::dialogs::Dialog::name), Some("changeChartType"));
         app.session.run("select.collapse", &json!({"end": true})).unwrap();
         app.session.run("text.insert", &json!({"text": "x"})).unwrap();
-        assert!(!contextual_tabs(&app.session).contains(&"Chart Design"));
+        assert!(!has_chart_selected(&app.session));
     }
 
     /// No group's content runs into its label: View › Show stacked four check boxes in a column
@@ -4016,15 +3418,8 @@ mod tests {
     /// fit the two-row ribbon too, in every language.
     #[test]
     fn contextual_groups_fit_above_their_labels() {
-        let picture = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/app-icon/khiankrub-192.png");
-        let cases: [(&str, Value, &[&str]); 6] = [
-            ("insert.table", json!({"rows": 3, "cols": 3}), &["Table Design", "Table Layout"]),
-            ("insert.picture", json!({"path": picture}), &["Picture Format"]),
-            ("insert.shape", json!({"kind": "rectangle"}), &["Shape Format"]),
-            ("insert.chart", json!({"type": "column"}), &["Chart Design"]),
-            ("insert.smartArt", json!({"layout": "process"}), &["SmartArt Design"]),
-            ("insert.equation", json!({}), &["Equation"]),
-        ];
+        // Tables, pictures, shapes, charts and SmartArt have panes instead (`table_pane`, `object_pane`).
+        let cases: [(&str, Value, &[&str]); 1] = [("insert.equation", json!({}), &["Equation"])];
         let mut tall = Vec::new();
         for (cmd, params, tabs) in cases {
             let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());

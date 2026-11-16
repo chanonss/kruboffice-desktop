@@ -125,8 +125,23 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
             }
             "Font" => {
                 craft_ui::ComboBox::from_label(lang.tr("Font")).selected_text(st.font.name.clone()).show_ui(ui, |ui| {
-                    for f in crate::fonts::families() {
-                        ui.selectable_value(&mut st.font.name, f.clone(), f.clone());
+                    // The pinned fonts first, as in the Home font box ([`krub_icons::fonts`]).
+                    let families = crate::fonts::families();
+                    let pins = krub_icons::fonts::pinned(ui.ctx());
+                    for row in krub_icons::fonts::rows(&families, &pins) {
+                        match row {
+                            krub_icons::fonts::Row::Heading(h) => {
+                                if h == krub_icons::fonts::ALL_FONTS {
+                                    ui.separator();
+                                }
+                                ui.label(egui::RichText::new(lang.tr(h)).small().weak());
+                            }
+                            krub_icons::fonts::Row::Font { index, .. } => {
+                                if let Some(f) = families.get(index) {
+                                    ui.selectable_value(&mut st.font.name, f.clone(), f.clone());
+                                }
+                            }
+                        }
                     }
                 });
                 ui.add(egui::Slider::new(&mut st.font.size, 6.0..=72.0).text(lang.tr("Size")));

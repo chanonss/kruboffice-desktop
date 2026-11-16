@@ -268,7 +268,6 @@ fn shape_format_controls_and_effects_are_translated() {
     let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
     app.run("ui.language", json!({"value": "th"})).unwrap();
     app.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
-    app.run("ui.tab", json!({"tab": "Shape Format"})).unwrap();
     let mut h = egui_kittest::Harness::builder().with_size(vec2(2200.0, 400.0)).build_ui_state(
         |ui, app: &mut WordApp| {
             let ctx = ui.ctx().clone();
@@ -278,7 +277,8 @@ fn shape_format_controls_and_effects_are_translated() {
         app,
     );
     h.run_steps(4);
-    for label in ["สีเติมรูปร่าง", "เส้นกรอบรูปร่าง", "เงา แสงเรือง และขอบนุ่ม", "สีเติมข้อความ", "เส้นกรอบข้อความ", "เอฟเฟกต์ข้อความ"]
+    // The Shape pane (owner, 2026-11-16): its sections, a row of each, and the WordArt buttons.
+    for label in ["พื้นที่", "เส้น", "เอฟเฟกต์", "ตำแหน่งและขนาด", "ความหนา:", "คงสัดส่วน", "สีเติมข้อความ", "เส้นกรอบข้อความ", "เอฟเฟกต์ข้อความ"]
     {
         assert!(h.query_by_label(label).is_some(), "missing translated control: {label}");
     }

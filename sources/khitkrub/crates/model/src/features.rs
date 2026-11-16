@@ -1008,6 +1008,52 @@ pub struct ShapeFormat {
     pub anchor: Option<ShapeTextAnchor>,
     /// Paragraphs run right to left (`a:pPr rtl`).
     pub rtl: bool,
+    /// No fill (`a:noFill`), whatever `Shape::fill` says.
+    pub no_fill: bool,
+    /// The fill's transparency in percent (`a:alpha` = 100 − this).
+    pub fill_transparency: f32,
+    /// Outline width in points (`a:ln w`); `None` is the default (¾ pt).
+    pub line_width: Option<f32>,
+    /// Outline dash (`a:prstDash`).
+    pub line_dash: LineDash,
+    /// The outline's transparency in percent.
+    pub line_transparency: f32,
+    /// An arrowhead at the line's start (`a:headEnd`) and end (`a:tailEnd`). An Arrow shape has
+    /// one at its end without this.
+    pub arrow_start: bool,
+    pub arrow_end: bool,
+    /// Clockwise rotation in degrees (`a:xfrm rot`).
+    pub rotation: f32,
+    /// Mirrored left to right (`a:xfrm flipH`) and top to bottom (`a:xfrm flipV`).
+    pub flip_h: bool,
+    pub flip_v: bool,
+    /// An outer shadow (`a:effectLst/a:outerShdw`); `None` is no shadow.
+    pub shadow: Option<ShapeShadow>,
+    /// Glow around the shape (`a:glow`): its radius in points (0 is no glow), its colour
+    /// (`Auto` is Accent 1) and its transparency in percent.
+    pub glow_radius: f32,
+    pub glow_color: Color,
+    pub glow_transparency: f32,
+    /// Soft edges (`a:softEdge`): how far in from the edge the shape fades out, in points.
+    pub soft_edge: f32,
+}
+
+/// An outer shadow: distance and blur in points, direction in degrees clockwise from the right,
+/// transparency in percent (the colour is black).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeShadow {
+    pub dist: f32,
+    pub dir: f32,
+    pub blur: f32,
+    pub transparency: f32,
+}
+
+impl Default for ShapeShadow {
+    /// Down and to the right, as most programs' first shadow.
+    fn default() -> Self {
+        ShapeShadow { dist: 3.0, dir: 45.0, blur: 4.0, transparency: 60.0 }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

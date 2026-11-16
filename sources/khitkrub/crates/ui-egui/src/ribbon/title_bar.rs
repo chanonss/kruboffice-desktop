@@ -2,21 +2,22 @@ use super::controls::{act, control_keytip};
 use super::{Color32, Icon, Sense, SheetApp, Stroke, StrokeKind, Tokens, Ui, icon_button, json, pos2, theme, theme_choices, vec2};
 
 /// macOS draws the window into the title bar (`with_fullsize_content_view`) and AppKit paints the
-/// traffic lights itself, centred in its standard 28 pt title-bar band. Moving them would take
-/// AppKit calls (`unsafe`, forbidden here), so on macOS the title bar is that band: the lights sit
-/// vertically centred in it, with the controls beside them (#170).
+/// traffic lights itself, 16 pt from the top of the window on current macOS. Moving them would take
+/// AppKit calls (`unsafe`, forbidden here), so on macOS the title bar is the band they are centred
+/// in, with the controls beside them (#170). The height is the KrubOffice one
+/// (`krub_icons::chrome::MAC_TITLE_H`), as in PhutKrub; up to macOS 15 the lights are smaller and
+/// sit about 2 pt above this bar's centre.
 const MAC: bool = cfg!(target_os = "macos");
 
-pub const MAC_TITLE_BAR: f32 = 28.0;
+pub const MAC_TITLE_BAR: f32 = krub_icons::chrome::MAC_TITLE_H;
 
-/// The traffic lights as AppKit lays them out: button diameter, centre-to-centre pitch and the
-/// first button's left edge (8–10 pt depending on the macOS version; the larger value keeps the
-/// gap after them from shrinking).
-const MAC_LIGHT: f32 = 12.0;
+/// The traffic lights as AppKit lays them out on current macOS: button diameter, centre-to-centre
+/// pitch and the first button's left edge (PhutKrub's measurements).
+const MAC_LIGHT: f32 = 14.0;
 
-const MAC_LIGHT_PITCH: f32 = 20.0;
+const MAC_LIGHT_PITCH: f32 = 23.0;
 
-const MAC_LIGHTS_LEFT: f32 = 10.0;
+const MAC_LIGHTS_LEFT: f32 = 9.0;
 
 /// Where title-bar content starts on macOS: the end of the three lights plus the gap the lights
 /// keep from the top of the window.
@@ -25,7 +26,7 @@ pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_
 /// Leave room for the macOS traffic lights when the content extends into the title bar.
 pub const TITLE_LEFT_PAD: f32 = if MAC { MAC_CONTENT_LEFT } else { 8.0 };
 
-pub(super) const TITLE_BAR_H: f32 = if MAC { MAC_TITLE_BAR } else { 38.0 };
+pub(super) const TITLE_BAR_H: f32 = if MAC { MAC_TITLE_BAR } else { krub_icons::chrome::TITLE_H };
 
 /// The tallest title-bar controls, smaller on macOS to keep a margin in the shorter bar.
 pub(super) const TITLE_CONTROL_H: f32 = if MAC { 22.0 } else { 26.0 };
@@ -60,12 +61,9 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             if resp.on_hover_text(app.ui.language.tr("AutoSave: save after every change (workbooks saved to a file)")).clicked() {
                 app.toggle_autosave();
             }
-            ui.add_space(6.0);
-            let __k = icon_button(ui, Icon::Home, t.text_dim, "Home", vec2(26.0, ch));
-            control_keytip(app, ui, &__k, "start");
-            if __k.clicked() {
-                app.open_dialog("start", json!({}));
-            }
+            // The Quick Access Toolbar, laid out as in the other KrubOffice apps (`krub_icons::qat`):
+            // Save · Undo ▾ · Redo · ⌄. File › Home is the first item of the File menu.
+            ui.add_space(krub_icons::qat::AFTER_AUTOSAVE);
             if icon_button(ui, Icon::Save, t.text_dim, "Save", vec2(26.0, ch)).clicked()
                 // File operations must include the cell the user is still editing (as the File > Save menu item already does).
                 && app.commit_edit(0, 0, false, false)
@@ -82,18 +80,20 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             if undo.clicked() && can_undo {
                 app.run_or_alert("edit.undo", json!({}));
             }
-            let undo_list = icon_button(ui, Icon::Chevron, t.text_dim, "Undo list", vec2(14.0, ch));
-            egui::Popup::menu(&undo_list).show(|ui| {
+            let lang = app.ui.language;
+            let undo_list = krub_icons::qat::history_arrow(ui, egui::Id::unique("qat_undo_list"), can_undo, t.text_dim, t.text_disabled, t.hover);
+            undo_list.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, lang.tr("Undo list")));
+            egui::Popup::menu(&undo_list.on_hover_text(lang.tr("Undo list"))).show(|ui| {
                 let labels: Vec<String> = if can_undo {
                     app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default()
                 } else {
                     Vec::new()
                 };
                 if labels.is_empty() {
-                    ui.label("Can't Undo");
+                    ui.label(lang.tr("Can't Undo"));
                 }
                 for (i, l) in labels.iter().enumerate() {
-                    if ui.button(format!("Undo {l}")).clicked() {
+                    if ui.button(format!("{} {}", lang.tr("Undo"), lang.tr(l))).clicked() {
                         app.run_or_alert("edit.undo", json!({"steps": i + 1}));
                     }
                 }
@@ -103,8 +103,9 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             if redo.clicked() && can_redo {
                 app.run_or_alert("edit.redo", json!({}));
             }
-            let more = icon_button(ui, Icon::More, t.text_dim, "More commands", vec2(26.0, ch));
-            egui::Popup::menu(&more).show(|ui| {
+            let more = krub_icons::qat::customize_button(ui, egui::Id::unique("qat_more"), t.text_dim, t.hover);
+            more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, lang.tr("More commands")));
+            egui::Popup::menu(&more.on_hover_text(lang.tr("More commands"))).show(|ui| {
                 for (label, id) in [
                     ("New Workbook", "file.new"),
                     ("Open…", "file.open"),
@@ -112,11 +113,11 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
                     ("Sort A to Z", "data.sortAscending"),
                     ("Calculate Now", "formulas.calculateNow"),
                 ] {
-                    if ui.button(label).clicked() {
+                    if ui.button(lang.tr(label)).clicked() {
                         app.run_or_alert(id, json!({}));
                     }
                 }
-                if ui.button("Print…").clicked() {
+                if ui.button(lang.tr("Print…")).clicked() {
                     app.print_now(json!({}));
                 }
             });
