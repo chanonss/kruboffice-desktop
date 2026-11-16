@@ -118,6 +118,11 @@ registers the file types. The release workflow builds it for amd64 on Ubuntu 22.
 `dist/KrubOffice-<version>-x86_64.AppImage`, one file that runs on most distributions without installing
 (glibc 2.35 or newer).
 
+`packaging/linux/build-rpm.sh` (after `build-deb.sh`, needs `rpmbuild`: `sudo apt install rpm`) packs the same
+files into `dist/kruboffice-<version>-1.x86_64.rpm` for Fedora and other rpm-based distributions (glibc 2.35 or
+newer). Install with `sudo dnf install ./dist/kruboffice-*.x86_64.rpm`. The release workflow installs it on Fedora 36
+and the latest Fedora before publishing.
+
 ## Licence
 
 MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). KhianKrub, KhitKrub and PhutKrub are adaptations, by Chanon
