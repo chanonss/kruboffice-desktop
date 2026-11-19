@@ -15,6 +15,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use eframe::egui;
+
+#[cfg(any(target_os = "windows", test))]
+mod graphics;
 use kruboffice::{dispatch, fonts, start, updates};
 
 const USAGE: &str = "Usage: kruboffice [FILE...]\n\nOpens each file in KhianKrub (documents), KhitKrub (spreadsheets) or PhutKrub (presentations).\nWith no file, shows the KrubOffice Start Center.";
@@ -97,7 +100,9 @@ fn main() {
     #[cfg(target_os = "macos")]
     let (_registration, inbox) = fmv_macos_events::Registration::install();
 
-    let options = eframe::NativeOptions {
+    // Changed only on Windows (`graphics::configure` below).
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("KrubOffice")
             .with_app_id("app.kruboffice.desktop")
@@ -109,6 +114,11 @@ fn main() {
             .with_visible(false),
         ..Default::default()
     };
+    // Before eframe creates the wgpu instance (issue #4): on Windows, DirectX 12 only when it has a
+    // usable GPU, so AMD's OpenGL driver is never loaded; OpenGL where DirectX 12 has none or on
+    // 32-bit builds; DirectX 12 shaders compiled with FXC. `WGPU_BACKEND` still overrides.
+    #[cfg(target_os = "windows")]
+    graphics::configure(&mut options, eframe::wgpu::Backends::from_env());
     let resources = resources_dir();
     let result = eframe::run_native(
         "KrubOffice",

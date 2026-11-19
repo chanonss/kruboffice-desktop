@@ -24,6 +24,11 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 fmv-macos-events = "=0.1.0"
 
+[target.'cfg(windows)'.dependencies]
+# Waits for the DirectX 12 adapter probe at start-up (`src/graphics.rs`); already in the build
+# through rfd, at this version.
+pollster = "0.4"
+
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
