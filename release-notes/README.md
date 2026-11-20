@@ -6,7 +6,7 @@ Release notes of the KrubOffice web apps, moved here from the Releases pages of 
 
 ## เขียนครับ (KhianKrub)
 
-- [0.18.0](khiankrub/v0.18.0.md) · 20 พ.ย. 2569
+- [0.18.0](khiankrub/v0.18.0.md) · 21 พ.ย. 2569
 - [0.17.0](khiankrub/v0.17.0.md) · 16 พ.ย. 2569
 - [0.16.0](khiankrub/v0.16.0.md) · 13 พ.ย. 2569
 - [0.15.0](khiankrub/v0.15.0.md) · 9 พ.ย. 2569
@@ -23,7 +23,7 @@ Release notes of the KrubOffice web apps, moved here from the Releases pages of 
 
 ## คิดครับ (KhitKrub)
 
-- [0.7.0](khitkrub/v0.7.0.md) · 20 พ.ย. 2569
+- [0.7.0](khitkrub/v0.7.0.md) · 21 พ.ย. 2569
 - [0.6.0](khitkrub/v0.6.0.md) · 16 พ.ย. 2569
 - [0.5.0](khitkrub/v0.5.0.md) · 13 พ.ย. 2569
 - [0.4.0](khitkrub/v0.4.0.md) · 7 พ.ย. 2569
@@ -33,7 +33,7 @@ Release notes of the KrubOffice web apps, moved here from the Releases pages of 
 
 ## พูดครับ (PhutKrub)
 
-- [0.9.0](phutkrub/v0.9.0.md) · 20 พ.ย. 2569
+- [0.9.0](phutkrub/v0.9.0.md) · 21 พ.ย. 2569
 - [0.8.0](phutkrub/v0.8.0.md) · 16 พ.ย. 2569
 - [0.7.0](phutkrub/v0.7.0.md) · 13 พ.ย. 2569
 - [0.6.0](phutkrub/v0.6.0.md) · 7 พ.ย. 2569
