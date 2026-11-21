@@ -21,14 +21,14 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub const DEFAULT_W: f32 = 432.0;
 pub const DEFAULT_H: f32 = 252.0;
 
-const LAYOUTS: &str = "basicList|process|cycle|hierarchy|pyramid|radial|matrix|venn";
+const LAYOUTS: &str = "basicList|verticalBulletList|process|chevron|verticalProcess|timeline|funnel|gear|cycle|hierarchy|orgChart|horizontalHierarchy|pyramid|invertedPyramid|radial|venn|target|linearVenn|matrix";
 const COLORS: &str = "accent1|accent2|accent3|accent4|accent5|accent6|colorful";
 const ITEMS: &str = r#"[string | {"text": string, "level"?: 0-7}] (a string's leading tabs are its level)"#;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("insert.smartArt", "SmartArt", "Insert › Illustrations", insert).params(
-            r#"{"layout"?: "basicList|process|cycle|hierarchy|pyramid|radial|matrix|venn", "items"?: [string | {"text": string, "level"?: 0-7}], "colors"?: "accent1…accent6|colorful", "width"?: pt, "height"?: pt} (no items: sample items for the layout)"#,
+        CommandSpec::new("insert.smartArt", "Diagram", "Insert › Illustrations", insert).params(
+            r#"{"layout"?: "basicList|verticalBulletList|process|chevron|verticalProcess|timeline|funnel|gear|cycle|hierarchy|orgChart|horizontalHierarchy|pyramid|invertedPyramid|radial|venn|target|linearVenn|matrix", "items"?: [string | {"text": string, "level"?: 0-7}], "colors"?: "accent1…accent6|colorful", "width"?: pt, "height"?: pt} (no items: sample items for the layout)"#,
         ),
         CommandSpec::new("smartArt.items", "Edit Items", "SmartArt Design › Create Graphic", |s, v| {
             let items = items_of(v.get("items").ok_or_else(|| CmdError::Params(format!("`items` is required: {ITEMS}")))?)?;
@@ -117,7 +117,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(())
             })
         })
-        .params(r#"{"layout": "basicList|process|cycle|hierarchy|pyramid|radial|matrix|venn"}"#)
+        .params(r#"{"layout": "basicList|verticalBulletList|process|chevron|verticalProcess|timeline|funnel|gear|cycle|hierarchy|orgChart|horizontalHierarchy|pyramid|invertedPyramid|radial|venn|target|linearVenn|matrix"}"#)
         .when(has_smart_art),
         CommandSpec::new("smartArt.colors", "Change Colors", "SmartArt Design › SmartArt Styles", |s, v| {
             let colors = colors_of(v)?.ok_or_else(|| CmdError::Params(format!("`variant` is required: {COLORS}")))?;

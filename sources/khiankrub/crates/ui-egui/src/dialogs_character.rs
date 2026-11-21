@@ -263,7 +263,13 @@ pub fn preview_text(app: &WordApp) -> String {
 }
 
 /// The Character window. Returns true to close.
-pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut CharForm, sample: &str) -> bool {
+pub fn body(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    f: &mut CharForm,
+    sample: &str,
+    bullet: &mut Option<Box<crate::dialogs_bullet::DefineBulletForm>>,
+) -> bool {
     // A fixed area, so the window keeps its size from page to page.
     const PAGE_H: f32 = 330.0;
     ui.allocate_ui_with_layout(vec2(700.0, PAGE_H), egui::Layout::left_to_right(egui::Align::Min), |ui| {
@@ -316,10 +322,54 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut CharForm, sample: &str) -> b
         f.start = Some(start);
     }
     let (ok, cancel) = out;
+    if (ok || cancel) && hand_back_bullet(app, f, bullet, ok) {
+        return true;
+    }
     if ok && let Some(params) = f.changes(&mut |name| app.previews.font_stored(name)) {
         let _ = app.run("format.set", params);
     }
     ok || cancel
+}
+
+/// The Character dialog formatting Define New Bullet's bullet (#2786, ported from WordCraft
+/// 83f18db1): it opens on the Font page with the bullet's font, size, bold, italic and colour, and
+/// carries the form back (see `Dialog::Font::bullet`).
+pub fn for_bullet(app: &mut WordApp, form: crate::dialogs_bullet::DefineBulletForm) -> Option<crate::dialogs::Dialog> {
+    let mut d = crate::dialogs::Dialog::open("font", app)?;
+    if let crate::dialogs::Dialog::Font { form: f, bullet, .. } = &mut d {
+        f.page = "font".into();
+        if !form.font.is_empty() {
+            f.font = app.previews.font_shown(&form.font);
+        }
+        f.size = form.size.clone();
+        f.bold = form.bold;
+        f.italic = form.italic;
+        f.color = if form.color.is_empty() { "auto".into() } else { form.color.clone() };
+        let start = (**f).clone();
+        f.start = Some(Box::new(start));
+        *bullet = Some(Box::new(form));
+    }
+    Some(d)
+}
+
+/// OK or Cancel while the dialog formats Define New Bullet's bullet (#2786): back to that dialog,
+/// with the font (its stored English name, and only when the user changed it, so a bullet in the
+/// text's font keeps following the text), size, bold, italic and colour on OK. False when the
+/// dialog isn't formatting a bullet.
+fn hand_back_bullet(app: &mut WordApp, f: &CharForm, bullet: &mut Option<Box<crate::dialogs_bullet::DefineBulletForm>>, ok: bool) -> bool {
+    let Some(mut form) = bullet.take() else { return false };
+    if ok {
+        let was = f.start.as_ref().map(|s| s.font.trim().to_string()).unwrap_or_default();
+        if f.font.trim() != was {
+            form.font = app.previews.font_stored(f.font.trim());
+        }
+        form.size = f.size.trim().to_string();
+        form.bold = f.bold;
+        form.italic = f.italic;
+        form.color = if f.color.eq_ignore_ascii_case("auto") { String::new() } else { f.color.clone() };
+    }
+    app.dialog = Some(crate::dialogs::Dialog::Insert(Box::new(crate::dialogs_insert::InsertDialog::DefineBullet(*form))));
+    true
 }
 
 fn font_page(app: &mut WordApp, ui: &mut Ui, f: &mut CharForm) {
@@ -419,12 +469,7 @@ fn effects_page(app: &mut WordApp, ui: &mut Ui, f: &mut CharForm) {
     egui::Grid::new("ch_decoration").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
         ui.label(tl!("Underlining:"));
         ui.horizontal(|ui| {
-            let shown = UNDERLINES.iter().find(|(k, _)| *k == f.underline).map_or(String::new(), |(_, l)| tl!(l).to_string());
-            egui::ComboBox::from_id_salt("ch_ul").width(140.0).selected_text(shown).show_ui(ui, |ui| {
-                for (k, l) in UNDERLINES {
-                    ui.steady_value(&mut f.underline, k.to_string(), tl!(l));
-                }
-            });
+            crate::line_looks::names(ui, egui::Id::new("ch_ul"), 140.0, &mut f.underline, &UNDERLINES);
             crate::dialogs::color_field(ui, &theme, &mut f.underline_color, "Automatic", "auto");
         });
         ui.end_row();
@@ -526,12 +571,7 @@ fn border_page(app: &mut WordApp, ui: &mut Ui, f: &mut CharForm) {
     ui.add_enabled_ui(f.border, |ui| {
         egui::Grid::new("ch_border").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
             ui.label(tl!("Style:"));
-            let shown = LINES.iter().find(|(k, _)| *k == f.border_style).map_or(f.border_style.clone(), |(_, l)| tl!(l).to_string());
-            egui::ComboBox::from_id_salt("ch_border_style").width(140.0).selected_text(shown).show_ui(ui, |ui| {
-                for (k, l) in LINES {
-                    ui.steady_value(&mut f.border_style, k.to_string(), tl!(l));
-                }
-            });
+            crate::line_looks::names(ui, egui::Id::new("ch_border_style"), 140.0, &mut f.border_style, &LINES);
             ui.end_row();
             ui.label(tl!("Color:"));
             crate::dialogs::color_field(ui, &theme, &mut f.border_color, "Automatic", "auto");

@@ -236,6 +236,14 @@ fn shape_items(app: &mut SlideApp, ui: &mut egui::Ui) {
         let _ = app.run("app.changePictureDialog", json!({}));
         ui.close();
     }
+    // Save as Picture, or Save Media as for a video or audio (owner, 2026-11-20).
+    let media = app.session.active().is_some_and(|d| d.selected_shapes().iter().any(|s| matches!(s.kind, deckcraft_model::ShapeKind::Media(_))));
+    if (picture || media) && ui.button(if picture { tl!("Save as Picture…") } else { tl!("Save Media as…") }).clicked() {
+        if let Err(e) = app.run("app.saveMediaDialog", json!({})) {
+            app.set_status(e.to_string());
+        }
+        ui.close();
+    }
     if ui.button(tl!("Link…")).clicked() {
         app.dialog = Some(crate::dialogs::Dialog::new("hyperlink"));
         ui.close();

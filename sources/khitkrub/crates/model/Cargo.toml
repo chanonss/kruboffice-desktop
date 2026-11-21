@@ -9,6 +9,8 @@ description = "GridCraft document model: workbooks, sheets, cells, styles, table
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
+craft-drawingml = { workspace = true }
 gridcraft-core = { workspace = true }
 sha2 = { workspace = true }
 gridcraft-formula = { workspace = true }

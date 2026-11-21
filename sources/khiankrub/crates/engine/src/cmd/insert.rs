@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("insert.icon", "Icons", "Insert › Illustrations", icon)
             .params(r#"{"id"?: string (omit to list the library), "color"?: "RRGGBB", "size"?: pt, "query"?: string, "category"?: string}"#),
         CommandSpec::new("insert.shape", "Shapes", "Insert › Illustrations", shape)
-            .params(r#"{"kind": "rectangle|roundedRectangle|ellipse|triangle|diamond|line|arrow|star|heart|straightConnector|elbowConnector|curvedConnector", "width"?: pt, "height"?: pt, "fill"?: "RRGGBB", "stroke"?: "RRGGBB", "arrow"?: "none"|"start"|"end"|"both" (lines and connectors; glue a connector's ends with shape.connect)}"#),
+            .params(r#"{"kind": "rectangle|roundedRectangle|ellipse|triangle|diamond|line|arrow|star|heart|straightConnector|elbowConnector|curvedConnector, or any standard DrawingML shape name (star24, flowChartDecision, wedgeRectCallout…)", "width"?: pt, "height"?: pt, "fill"?: "RRGGBB", "stroke"?: "RRGGBB", "arrow"?: "none"|"start"|"end"|"both" (lines and connectors; glue a connector's ends with shape.connect)}"#),
         CommandSpec::new("insert.textBox", "Text Box", "Insert › Text", text_box)
             .params(r#"{"text"?: string, "width"?: pt, "height"?: pt}"#)
             .when(|s| {
@@ -312,11 +312,18 @@ fn icon(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn shape(s: &mut Session, v: &Value) -> CmdResult {
-    let kind: ShapeKind =
-        serde_json::from_value(v.get("kind").cloned().unwrap_or(json!("rectangle"))).map_err(|e| CmdError::Params(e.to_string()))?;
-    let w = p::f32(v, "width").unwrap_or(108.0).clamp(4.0, 2000.0);
-    let h =
-        p::f32(v, "height").unwrap_or(if kind == ShapeKind::Line { 1.0 } else { 72.0 }).clamp(if kind.is_connector() { 0.0 } else { 1.0 }, 2000.0);
+    // KhianKrub's own kind names, or any standard DrawingML shape by its name (`star24`,
+    // `flowChartDecision`: the shared Insert › Shapes menu, owner 2026-11-19).
+    let raw = v.get("kind").cloned().unwrap_or(json!("rectangle"));
+    let kind: ShapeKind = match serde_json::from_value(raw.clone()) {
+        Ok(k) => k,
+        Err(e) => raw.as_str().and_then(ShapeKind::from_preset).ok_or_else(|| CmdError::Params(format!("`kind`: {e}")))?,
+    };
+    // Standard shapes other than KhianKrub's own go in square, as the menu draws them.
+    let default_w = if matches!(kind, ShapeKind::Preset(_)) { 72.0 } else { 108.0 };
+    let w = p::f32(v, "width").unwrap_or(default_w).clamp(4.0, 2000.0);
+    // A line goes in flat, straight across (it was 1 pt tall, so slightly slanted).
+    let h = p::f32(v, "height").unwrap_or(if kind == ShapeKind::Line { 0.0 } else { 72.0 }).clamp(if kind.is_open() { 0.0 } else { 1.0 }, 2000.0);
     let fill = match p::str(v, "fill") {
         Some(c) => Rgb::parse(c),
         None if kind.is_open() => None,
@@ -331,12 +338,10 @@ fn shape(s: &mut Session, v: &Value) -> CmdResult {
         Some(x) => return Err(CmdError::Params(format!("`arrow`: none, start, end or both, not `{x}`"))),
     };
     let extra = wordcraft_doc::connector::ShapeExtra { arrow_start, arrow_end, ..Default::default() };
-    // Connectors float in front of the text, so they can be glued to floating shapes.
-    let float = if kind.is_connector() {
-        Float { wrap: Wrap::InFrontOfText, ..Default::default() }
-    } else {
-        Float { wrap: Wrap::Inline, ..Default::default() }
-    };
+    // Lines and connectors float in front of the text, as in Word: connectors so they can be
+    // glued to floating shapes, both so their ends can be dragged anywhere.
+    let float =
+        if kind.is_open() { Float { wrap: Wrap::InFrontOfText, ..Default::default() } } else { Float { wrap: Wrap::Inline, ..Default::default() } };
     let stroke = p::str(v, "stroke").and_then(Rgb::parse).or(Some(Rgb(0x0E, 0x40, 0x5A)));
     let obj =
         InlineObject::Shape { kind, w, h, fill, stroke, stroke_width: 1.0, float, story: None, freeform: None, effects: Default::default(), extra };

@@ -1372,3 +1372,15 @@ fn type_thai_digits_when_the_font_has_them() {
     run(&mut s, "text.insert", json!({"text": "5", "raw": true}));
     assert_eq!(s.doc.plain_text(StoryRef::Body), "No 1 ๒๐5");
 }
+
+/// #6788: Enter in a paragraph with a drop cap makes a normal paragraph; only the first keeps
+/// the cap (Word behaviour).
+#[test]
+fn enter_in_a_drop_cap_paragraph_makes_a_normal_paragraph() {
+    let mut s = typed("Sugar and knowledge");
+    run(&mut s, "insert.dropCap", json!({"lines": 3}));
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 10}, "focus": {"block": 0, "off": 10}}));
+    run(&mut s, "text.newParagraph", json!({}));
+    let caps: Vec<_> = s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.props.drop_cap).collect();
+    assert_eq!(caps, [Some(3), None]);
+}

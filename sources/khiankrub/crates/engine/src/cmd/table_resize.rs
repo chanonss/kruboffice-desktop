@@ -509,7 +509,15 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     }
     let t = s.doc.table_mut(target.story, &target.table)?;
     if let Some(widths) = plan.widths {
+        let (old, pct) = (t.grid.clone(), t.props.width_pct);
         set_widths(t, widths);
+        // A table that fit the window still does when an inner column border moves (the ruler
+        // or Shift move only the column left of it): the others share the difference. Its own
+        // right edge and the corner handle resize the table itself.
+        let last = target.cols.len().saturating_sub(1);
+        if matches!(target.edge, Edge::Column(line) if line > 0 && line < last) {
+            super::table::keep_fit(t, pct, &old);
+        }
     }
     for (r, h) in &plan.heights {
         if let Some(row) = t.rows.get_mut(*r) {

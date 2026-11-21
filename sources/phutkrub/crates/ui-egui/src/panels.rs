@@ -12,6 +12,7 @@ use crate::{SlideApp, widgets};
 
 mod animation;
 mod background;
+mod chart_pane;
 mod comments;
 mod designer;
 #[cfg(test)]
@@ -24,6 +25,7 @@ mod thesaurus;
 
 use animation::animation;
 use background::background;
+pub(crate) use chart_pane::chart_pane;
 use comments::{comments, revisions};
 use designer::designer;
 use format_shape::format_shape;
@@ -31,6 +33,8 @@ pub(crate) use format_shape::text_transparency_slider;
 #[cfg(test)]
 use format_shape::{fill_transparency_to_apply, solid_fill_transparency_percent};
 pub(crate) use shape_pane::shape_pane;
+#[cfg(test)]
+pub(crate) use shape_pane::show_tab as show_shape_tab;
 use smartart::smartart;
 use thesaurus::thesaurus;
 
@@ -49,7 +53,7 @@ fn title(id: &str) -> &'static str {
         "revisions" => "Revisions",
         "obj:table" => "Table",
         "obj:picture" => "Picture",
-        "obj:smartart" => "SmartArt",
+        "obj:smartart" => "Diagram",
         "obj:chart" => "Chart",
         "obj:shape" => "Shape",
         "obj:idle" => "Format",
@@ -260,7 +264,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 "obj:idle" => {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new(tl!("Choose a shape, picture, table, chart or SmartArt graphic on the slide to see its commands here."))
+                        egui::RichText::new(tl!("Choose a shape, picture, table, chart or Diagram graphic on the slide to see its commands here."))
                             .color(t.text_dim),
                     );
                 }

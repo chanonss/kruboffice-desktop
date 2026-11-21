@@ -1,7 +1,13 @@
 use super::{
-    Anchor, CellPicture, CellRef, Color, EngineError, Image, Json, PROTECTED, Result, Session, Shape, ShapeKind, Sparkline, SparklineKind,
-    anchor_mode_name, anchor_mode_param, bad, bool_param, cell_param, edit, f64_param, json, locked_cell_error, ok, str_param, u32_param,
+    Anchor, CellPicture, CellRef, Color, EngineError, Image, Json, MAX_OBJECT_OFFSET, ObjKind, ObjRef, PROTECTED, Result, Session, Shape, ShapeKind,
+    Sparkline, SparklineKind, anchor_mode_name, anchor_mode_param, bad, bool_param, cell_param, edit, f64_param, json, locked_cell_error, ok,
+    size_cap, str_param, u32_param,
 };
+
+#[cfg(test)]
+pub(super) fn compiled() -> bool {
+    true
+}
 
 pub(super) fn insert_sparkline(s: &mut Session, p: &Json) -> Result<Json> {
     let src = str_param(p, "range").ok_or_else(|| bad("insert.sparkline", "missing `range`"))?.to_string();
@@ -63,6 +69,10 @@ pub(super) fn insert_picture(s: &mut Session, p: &Json) -> Result<Json> {
         .unwrap_or_else(|| if data.starts_with(&[0x89, b'P', b'N', b'G']) { "image/png".into() } else { "image/jpeg".into() });
     let (w, h) = crate::io::image_size(&data).unwrap_or((320, 240));
     let d = s.doc()?;
+    // Sheet protection locks drawing objects, as for a text box's text.
+    if d.wb.active().is_some_and(|sh| sh.is_protected()) {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
     let id = d.wb.next_object_id();
     let at = cell_param(s, p, "at")?.unwrap_or(d.selection.active);
     let scale = (640.0 / w.max(1) as f32).min(1.0);
@@ -123,8 +133,13 @@ pub(super) fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
         "line" => ShapeKind::Line,
         "arrow" => ShapeKind::Arrow,
         "textBox" => ShapeKind::TextBox,
-        _ => ShapeKind::Rectangle,
+        // Any standard DrawingML shape by its name (`star24`, `flowChartDecision`: the shared
+        // Insert › Shapes menu, owner 2026-11-19); a name it doesn't know is a rectangle.
+        other => ShapeKind::from_preset(other).unwrap_or(ShapeKind::Rectangle),
     };
+    // Standard shapes other than KhitKrub's own go in square, as the menu draws them; lines flat.
+    let preset = matches!(kind, ShapeKind::Preset(_));
+    let open = matches!(kind, ShapeKind::Preset(id) if id.is_open());
     let d = s.doc()?;
     let id = d.wb.next_object_id();
     let at = cell_param(s, p, "at")?.unwrap_or(d.selection.active);
@@ -145,8 +160,8 @@ pub(super) fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
             cell: at,
             dx: 0.0,
             dy: 0.0,
-            width: f64_param(p, "width").unwrap_or(144.0) as f32,
-            height: f64_param(p, "height").unwrap_or(if kind == ShapeKind::Line { 0.0 } else { 96.0 }) as f32,
+            width: f64_param(p, "width").unwrap_or(if preset { 96.0 } else { 144.0 }) as f32,
+            height: f64_param(p, "height").unwrap_or(if kind == ShapeKind::Line || open { 0.0 } else { 96.0 }) as f32,
             mode: anchor_mode_param(p).unwrap_or_default(),
         },
         fill,
@@ -176,8 +191,14 @@ pub(super) fn shape_set_text(s: &mut Session, p: &Json) -> Result<Json> {
     let sheet = d.wb.active_sheet();
     let sh = d.wb.active().ok_or_else(|| bad("shape.setText", "no such text box"))?;
     let shape = sh.shapes.iter().find(|shape| shape.id == id).ok_or_else(|| bad("shape.setText", "no such text box"))?;
-    if shape.kind != ShapeKind::TextBox {
+    if !matches!(shape.kind, ShapeKind::TextBox | ShapeKind::WordArt) {
         return Err(bad("shape.setText", "the shape is not a text box"));
+    }
+    if shape.kind == ShapeKind::WordArt && text.is_empty() {
+        return Err(bad("shape.setText", "WordArt text must not be empty"));
+    }
+    if shape.kind == ShapeKind::WordArt && text.chars().nth(crate::cmd::wordart::MAX_CHARS).is_some() {
+        return Err(bad("shape.setText", format!("`text` is longer than {} characters", crate::cmd::wordart::MAX_CHARS)));
     }
     // Sheet protection locks drawing objects (there is no "edit objects" allowance yet).
     if sh.is_protected() {
@@ -193,51 +214,85 @@ pub(super) fn shape_set_text(s: &mut Session, p: &Json) -> Result<Json> {
     })
 }
 
+/// The floating object a `{kind, id}` command names on the active sheet. Unknown kinds and
+/// objects are errors, so a stale id never succeeds silently.
+fn object_param(s: &Session, p: &Json, cmd: &str) -> Result<(usize, ObjRef)> {
+    let id = u32_param(p, "id").ok_or_else(|| bad(cmd, "missing `id`"))?;
+    let kind =
+        str_param(p, "kind").and_then(ObjKind::parse).ok_or_else(|| bad(cmd, "kind must be chart, image, shape, slicer, equation or control"))?;
+    let d = s.doc()?;
+    let sheet = d.wb.active_sheet();
+    let o = ObjRef::new(kind, id);
+    if !d.wb.sheet(sheet).is_some_and(|sh| sh.has_object(o)) {
+        return Err(bad(cmd, "no such object"));
+    }
+    // A locked form control on a protected sheet stays as it is.
+    crate::cmd::controls::check_objects_unlocked(s, sheet, kind, &[id])?;
+    Ok((sheet, o))
+}
+
+/// The file extension of a picture's bytes: what Save as Picture writes.
+pub fn picture_format(bytes: &[u8]) -> &'static str {
+    match bytes.get(..4) {
+        Some([0x89, b'P', b'N', b'G']) => "png",
+        Some([0xFF, 0xD8, ..]) => "jpg",
+        Some([b'G', b'I', b'F', _]) => "gif",
+        Some([b'R', b'I', b'F', b'F']) => "webp",
+        Some([b'B', b'M', ..]) => "bmp",
+        Some([0xD7, 0xCD, 0xC6, 0x9A]) => "wmf",
+        Some([0x01, 0x00, 0x00, 0x00]) if bytes.get(40..44) == Some(b" EMF") => "emf",
+        _ if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") => "svg",
+        _ => "png",
+    }
+}
+
+/// Picture `id` on the active sheet: its bytes and a file name in their own format,
+/// "Picture.png" (owner, 2026-11-20).
+pub fn picture_file(s: &Session, id: u32) -> Option<(String, std::sync::Arc<Vec<u8>>)> {
+    let d = s.doc().ok()?;
+    let im = d.wb.sheet(d.wb.active_sheet())?.images.iter().find(|im| im.id == id)?;
+    Some((format!("Picture.{}", picture_format(&im.data)), im.data.clone()))
+}
+
+/// Save as Picture: picture `id`'s bytes to `path`, in their own format.
+pub(super) fn save_picture(s: &mut Session, p: &Json) -> Result<Json> {
+    let id = u32_param(p, "id").ok_or_else(|| bad("picture.save", "missing `id`"))?;
+    let path = str_param(p, "path").filter(|x| !x.trim().is_empty()).ok_or_else(|| bad("picture.save", "missing `path`"))?;
+    let (_, bytes) = picture_file(s, id).ok_or_else(|| bad("picture.save", "no such picture"))?;
+    let format = picture_format(&bytes);
+    let has_ext = std::path::Path::new(path).extension().is_some_and(|e| !e.is_empty());
+    let path = if has_ext { path.to_string() } else { format!("{path}.{format}") };
+    crate::io::write_file(&path, &bytes)?;
+    Ok(json!({"path": path, "format": format, "bytes": bytes.len()}))
+}
+
 pub(super) fn delete_object(s: &mut Session, p: &Json) -> Result<Json> {
-    let id = u32_param(p, "id").ok_or_else(|| bad("object.delete", "missing `id`"))?;
-    let kind = str_param(p, "kind").unwrap_or("").to_string();
-    let sheet = s.doc()?.wb.active_sheet();
+    let (sheet, o) = object_param(s, p, "object.delete")?;
     edit(s, |cx| {
-        let sh = cx.sheet_mut(sheet)?;
-        match kind.as_str() {
-            "chart" => sh.charts.retain(|c| c.id != id),
-            "image" => sh.images.retain(|c| c.id != id),
-            "slicer" => sh.slicers.retain(|c| c.id != id),
-            _ => sh.shapes.retain(|c| c.id != id),
-        }
-        Ok(Json::Null)
+        cx.sheet_mut(sheet)?.remove_object(o);
+        Ok(json!({"deleted": o}))
     })
 }
 
 pub(super) fn move_object(s: &mut Session, p: &Json) -> Result<Json> {
-    let id = u32_param(p, "id").ok_or_else(|| bad("object.move", "missing `id`"))?;
-    let kind = str_param(p, "kind").unwrap_or("").to_string();
-    let sheet = s.doc()?.wb.active_sheet();
+    let (sheet, o) = object_param(s, p, "object.move")?;
     let at = cell_param(s, p, "at")?;
     edit(s, |cx| {
-        let sh = cx.sheet_mut(sheet)?;
-        let anchor = match kind.as_str() {
-            "chart" => sh.charts.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            "image" => sh.images.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            "slicer" => sh.slicers.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            "shape" => sh.shapes.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            _ => None,
-        };
-        let Some(a) = anchor else { return Err(bad("object.move", "no such object")) };
+        let Some(a) = cx.sheet_mut(sheet)?.object_anchor_mut(o) else { return Err(bad("object.move", "no such object")) };
         if let Some(at) = at {
             a.cell = at;
         }
         if let Some(v) = f64_param(p, "dx") {
-            a.dx = v as f32;
+            a.dx = v.clamp(-MAX_OBJECT_OFFSET, MAX_OBJECT_OFFSET) as f32;
         }
         if let Some(v) = f64_param(p, "dy") {
-            a.dy = v as f32;
+            a.dy = v.clamp(-MAX_OBJECT_OFFSET, MAX_OBJECT_OFFSET) as f32;
         }
         if let Some(v) = f64_param(p, "width") {
-            a.width = v.clamp(1.0, 10000.0) as f32;
+            a.width = v.clamp(1.0, size_cap(a.width)) as f32;
         }
         if let Some(v) = f64_param(p, "height") {
-            a.height = v.clamp(0.0, 10000.0) as f32;
+            a.height = v.clamp(0.0, size_cap(a.height)) as f32;
         }
         Ok(Json::Null)
     })
@@ -247,22 +302,185 @@ pub(super) fn move_object(s: &mut Session, p: &Json) -> Result<Json> {
 /// cells" / "Don't move or size with cells"), so it follows — or ignores — its rows and columns
 /// when the sheet is sorted or edited structurally.
 pub(super) fn set_anchor_mode(s: &mut Session, p: &Json) -> Result<Json> {
-    let id = u32_param(p, "id").ok_or_else(|| bad("object.setAnchorMode", "missing `id`"))?;
-    let kind = str_param(p, "kind").unwrap_or("").to_string();
-    if !matches!(kind.as_str(), "chart" | "image" | "shape") {
-        return Err(bad("object.setAnchorMode", "kind must be chart, image or shape"));
-    }
+    let (sheet, o) = object_param(s, p, "object.setAnchorMode")?;
     let mode = anchor_mode_param(p).ok_or_else(|| bad("object.setAnchorMode", "mode must be moveAndSize, moveOnly or absolute"))?;
-    let sheet = s.doc()?.wb.active_sheet();
     edit(s, |cx| {
-        let sh = cx.sheet_mut(sheet)?;
-        let anchor = match kind.as_str() {
-            "chart" => sh.charts.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            "image" => sh.images.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-            _ => sh.shapes.iter_mut().find(|c| c.id == id).map(|c| &mut c.anchor),
-        };
-        let Some(a) = anchor else { return Err(bad("object.setAnchorMode", "no such object")) };
+        let Some(a) = cx.sheet_mut(sheet)?.object_anchor_mut(o) else { return Err(bad("object.setAnchorMode", "no such object")) };
         a.mode = mode;
         Ok(json!({"mode": anchor_mode_name(mode)}))
+    })
+}
+
+/// The shape `id` on the active sheet for command `cmd`, refusing a protected sheet.
+fn editable_shape(s: &Session, cmd: &str, p: &Json) -> Result<(usize, u32)> {
+    let id = p.get("id").and_then(Json::as_u64).and_then(|id| u32::try_from(id).ok()).ok_or_else(|| bad(cmd, "`id` must be a shape id"))?;
+    let d = s.doc()?;
+    let sheet = d.wb.active_sheet();
+    let sh = d.wb.active().ok_or_else(|| bad(cmd, "no such shape"))?;
+    if !sh.shapes.iter().any(|shape| shape.id == id) {
+        return Err(bad(cmd, "no such shape"));
+    }
+    // Sheet protection locks drawing objects (there is no "edit objects" allowance yet).
+    if sh.is_protected() {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
+    Ok((sheet, id))
+}
+
+/// A finite number in `range` from `p[key]`, or an error naming it.
+fn ranged(cmd: &str, p: &Json, key: &str, range: std::ops::RangeInclusive<f64>) -> Result<Option<f32>> {
+    match p.get(key) {
+        None => Ok(None),
+        Some(v) => match v.as_f64() {
+            Some(x) if x.is_finite() && range.contains(&x) => Ok(Some(x as f32)),
+            _ => Err(bad(cmd, format!("`{key}` must be a number from {} to {}", range.start(), range.end()))),
+        },
+    }
+}
+
+/// Shape pane: the fill, outline, arrows, rotation and flips of a shape, in one undo step.
+pub(super) fn shape_format(s: &mut Session, p: &Json) -> Result<Json> {
+    use gridcraft_model::LineDash;
+    const C: &str = "shape.format";
+    let (sheet, id) = editable_shape(s, C, p)?;
+    // Read and check every parameter before changing anything.
+    let fill = match p.get("fill") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v) => Some(Some(crate::cmd::format::color_param(Some(v)).ok_or_else(|| bad(C, "`fill` must be a colour or null"))?)),
+    };
+    let line = match p.get("line") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v) => Some(Some(crate::cmd::format::color_param(Some(v)).ok_or_else(|| bad(C, "`line` must be a colour or null"))?)),
+    };
+    let fill_t = ranged(C, p, "fillTransparency", 0.0..=100.0)?;
+    let line_t = ranged(C, p, "lineTransparency", 0.0..=100.0)?;
+    let width = ranged(C, p, "lineWidth", 0.25..=72.0)?;
+    let rotation = ranged(C, p, "rotation", -3600.0..=3600.0)?;
+    let dash = match p.get("lineDash").map(|v| v.as_str()) {
+        None => None,
+        Some(Some("solid")) => Some(LineDash::Solid),
+        Some(Some("sysDot" | "dot")) => Some(LineDash::SysDot),
+        Some(Some("dash")) => Some(LineDash::Dash),
+        Some(Some("lgDash")) => Some(LineDash::LgDash),
+        Some(Some("dashDot")) => Some(LineDash::DashDot),
+        _ => return Err(bad(C, "`lineDash` must be solid, sysDot, dash, lgDash or dashDot")),
+    };
+    let flag = |key: &str| -> Result<Option<bool>> {
+        match p.get(key) {
+            None => Ok(None),
+            Some(v) => v.as_bool().map(Some).ok_or_else(|| bad(C, format!("`{key}` must be true or false"))),
+        }
+    };
+    let (arrow_start, arrow_end, flip_h, flip_v) = (flag("arrowStart")?, flag("arrowEnd")?, flag("flipH")?, flag("flipV")?);
+    let shadow = match p.get("shadow") {
+        None => None,
+        Some(Json::Null) => Some(None),
+        Some(v @ Json::Object(_)) => {
+            let d = gridcraft_model::ShapeShadow::default();
+            Some(Some(gridcraft_model::ShapeShadow {
+                dist: ranged(C, v, "dist", 0.0..=200.0)?.unwrap_or(d.dist),
+                dir: ranged(C, v, "dir", -3600.0..=3600.0)?.map_or(d.dir, |a| a.rem_euclid(360.0)),
+                blur: ranged(C, v, "blur", 0.0..=100.0)?.unwrap_or(d.blur),
+                transparency: ranged(C, v, "transparency", 0.0..=100.0)?.unwrap_or(d.transparency),
+            }))
+        }
+        Some(_) => return Err(bad(C, "`shadow` must be null or {dist, dir, blur, transparency}")),
+    };
+    let glow_radius = ranged(C, p, "glowRadius", 0.0..=150.0)?;
+    let glow_t = ranged(C, p, "glowTransparency", 0.0..=100.0)?;
+    let soft_edge = ranged(C, p, "softEdge", 0.0..=100.0)?;
+    let glow_color = match p.get("glowColor") {
+        None => None,
+        Some(v) => Some(crate::cmd::format::color_param(Some(v)).ok_or_else(|| bad(C, "`glowColor` must be a colour"))?),
+    };
+    edit(s, |cx| {
+        let shape = cx.sheet_mut(sheet)?.shapes.iter_mut().find(|shape| shape.id == id).ok_or_else(|| bad(C, "no such shape"))?;
+        let f = &mut shape.format;
+        match fill {
+            Some(Some(c)) => {
+                shape.fill = c;
+                f.no_fill = false;
+            }
+            Some(None) => f.no_fill = true,
+            None => {}
+        }
+        match line {
+            Some(Some(c)) => {
+                shape.line = c;
+                f.no_line = false;
+            }
+            Some(None) => f.no_line = true,
+            None => {}
+        }
+        if let Some(t) = fill_t {
+            f.fill_transparency = t;
+        }
+        if let Some(t) = line_t {
+            f.line_transparency = t;
+        }
+        if let Some(w) = width {
+            f.line_width = Some(w);
+        }
+        if let Some(d) = dash {
+            f.line_dash = d;
+            // Choosing a dash shows the outline again.
+            f.no_line = false;
+        }
+        if let Some(r) = rotation {
+            f.rotation = r.rem_euclid(360.0);
+        }
+        f.arrow_start = arrow_start.unwrap_or(f.arrow_start);
+        f.arrow_end = arrow_end.unwrap_or(f.arrow_end);
+        f.flip_h = flip_h.unwrap_or(f.flip_h);
+        f.flip_v = flip_v.unwrap_or(f.flip_v);
+        if let Some(sh) = shadow {
+            f.shadow = sh;
+        }
+        if let Some(c) = glow_color {
+            f.glow_color = c;
+            // Choosing a colour for no glow turns on a small one.
+            if f.glow_radius <= 0.0 && glow_radius.is_none() {
+                f.glow_radius = 5.0;
+            }
+        }
+        if let Some(r) = glow_radius {
+            f.glow_radius = r;
+        }
+        if let Some(t) = glow_t {
+            f.glow_transparency = t;
+        }
+        if let Some(r) = soft_edge {
+            f.soft_edge = r;
+        }
+        Ok(Json::Null)
+    })
+}
+
+/// Shape pane › Arrange: move a shape up or down the sheet's stacking order of shapes.
+pub(super) fn object_order(s: &mut Session, p: &Json) -> Result<Json> {
+    const C: &str = "object.order";
+    if p.get("kind").and_then(Json::as_str).is_some_and(|k| k != "shape") {
+        return Err(bad(C, "only shapes can be reordered"));
+    }
+    let (sheet, id) = editable_shape(s, C, p)?;
+    let op = p.get("op").and_then(Json::as_str).unwrap_or("");
+    if !matches!(op, "bringToFront" | "bringForward" | "sendBackward" | "sendToBack") {
+        return Err(bad(C, "`op` must be bringToFront, bringForward, sendBackward or sendToBack"));
+    }
+    edit(s, |cx| {
+        let shapes = &mut cx.sheet_mut(sheet)?.shapes;
+        let i = shapes.iter().position(|shape| shape.id == id).ok_or_else(|| bad(C, "no such shape"))?;
+        let last = shapes.len().saturating_sub(1);
+        let to = match op {
+            "bringToFront" => last,
+            "bringForward" => (i + 1).min(last),
+            "sendBackward" => i.saturating_sub(1),
+            _ => 0,
+        };
+        let shape = shapes.remove(i);
+        shapes.insert(to.min(shapes.len()), shape);
+        Ok(Json::Null)
     })
 }

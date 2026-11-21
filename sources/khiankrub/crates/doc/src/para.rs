@@ -306,6 +306,80 @@ pub enum ShapeKind {
     StraightConnector,
     ElbowConnector,
     CurvedConnector,
+    /// Any other standard DrawingML shape (owner, 2026-11-19: the shared Insert › Shapes menu),
+    /// drawn from the shared library (`craft_drawingml::preset`) at its default adjustments.
+    Preset(PresetId),
+}
+
+/// A standard DrawingML shape (`star24`, `flowChartDecision`…): its place in the shared
+/// library's catalog, written to files and JSON by its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PresetId(u16);
+
+impl PresetId {
+    /// The shape called `name` in the shared catalog, if it is one.
+    pub fn from_name(name: &str) -> Option<PresetId> {
+        craft_drawingml::preset::CATALOG.iter().position(|i| i.name == name).and_then(|i| u16::try_from(i).ok()).map(PresetId)
+    }
+
+    /// Its DrawingML name (`rect` should the catalog ever be shorter, which it isn't).
+    pub fn name(self) -> &'static str {
+        craft_drawingml::preset::CATALOG.get(usize::from(self.0)).map_or("rect", |i| i.name)
+    }
+
+    /// Its English name for people ("24-Point Star").
+    pub fn label(self) -> &'static str {
+        craft_drawingml::preset::CATALOG.get(usize::from(self.0)).map_or("Rectangle", |i| i.label)
+    }
+
+    /// The shape drawn `w` × `h` points at its default adjustments.
+    pub fn geometry(self, w: f64, h: f64) -> Option<craft_drawingml::preset::Geometry> {
+        let name = self.name();
+        craft_drawingml::preset::build(name, w, h, craft_drawingml::preset::info(name).map_or(&[][..], |i| i.defaults))
+    }
+
+    /// It is drawn as lines only (an arc, a bracket…), with no area to fill.
+    pub fn is_open(self) -> bool {
+        craft_drawingml::preset::is_line_like(self.name())
+    }
+}
+
+impl Serialize for PresetId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for PresetId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let name = String::deserialize(d)?;
+        PresetId::from_name(&name).ok_or_else(|| serde::de::Error::custom(format!("unknown shape `{name}`")))
+    }
+}
+
+impl ShapeKind {
+    /// The kind for DrawingML preset `name`: one of the kinds KhianKrub always had, else
+    /// [`ShapeKind::Preset`] for any other standard shape. `None` for a name that isn't one.
+    pub fn from_preset(name: &str) -> Option<ShapeKind> {
+        Some(match name {
+            "rect" => ShapeKind::Rectangle,
+            "roundRect" => ShapeKind::RoundedRectangle,
+            "ellipse" => ShapeKind::Ellipse,
+            "flowChartOr" => ShapeKind::FlowchartOr,
+            "triangle" => ShapeKind::Triangle,
+            "rtTriangle" => ShapeKind::RightTriangle,
+            "diamond" => ShapeKind::Diamond,
+            "line" => ShapeKind::Line,
+            "rightArrow" => ShapeKind::Arrow,
+            "star5" => ShapeKind::Star,
+            "heart" => ShapeKind::Heart,
+            "textBox" => ShapeKind::TextBox,
+            "straightConnector1" => ShapeKind::StraightConnector,
+            "bentConnector3" => ShapeKind::ElbowConnector,
+            "curvedConnector3" => ShapeKind::CurvedConnector,
+            other => ShapeKind::Preset(PresetId::from_name(other)?),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]

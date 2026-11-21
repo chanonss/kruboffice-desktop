@@ -175,7 +175,7 @@ fn every_page_renders() {
         (Page::Open, "Browse…"),
         (Page::Info, "Hidden slides"),
         (Page::Recover, "Local recovery is unavailable"),
-        (Page::Options, "Dark appearance"),
+        (Page::Options, "Interface theme:"),
         (Page::SaveAs, "Not saved yet"),
         (Page::Print, "Print Hidden Slides"),
         (Page::Export, "Create PDF Document"),
@@ -358,6 +358,61 @@ fn change_file_type_png_can_leave_the_background_transparent() {
     let img = deckcraft_render::decode_image(&png).unwrap();
     assert_eq!(img.get_pixel(2, 2).0[3], 0, "the background is left out");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Export › Change File Type exports every slide as its own picture, PNG or JPEG (#2019).
+#[test]
+fn change_file_type_exports_all_slides_as_pictures() {
+    let dir = temp_dir("all-slides");
+    let (services, asked) = saving_into(&dir);
+    let mut h = harness(SlideApp::new(Session::with_new(), services));
+    h.state_mut().run("slide.new", json!({})).unwrap();
+    h.state_mut().run("slide.new", json!({})).unwrap();
+    let title = h.state().session.active().unwrap().title();
+    h.state_mut().run("app.backstage", json!({"page": "export"})).unwrap();
+    h.run_steps(3);
+    click_on_page(&h, "Change File Type");
+    h.run_steps(3);
+    click_on_page(&h, "JPEG Pictures, all slides (*.jpg)");
+    h.run_steps(2);
+    assert!(h.query_by_label("Transparent background").is_none(), "JPEG has no transparency");
+    click_on_page(&h, "Save As");
+    h.run_steps(3);
+    for k in 1..=3 {
+        let jpg = std::fs::read(dir.join(format!("{title}{k}.jpg"))).unwrap();
+        assert!(jpg.starts_with(&[0xFF, 0xD8]), "slide {k} is a JPEG");
+    }
+    assert!(!dir.join(format!("{title}4.jpg")).exists(), "one picture per slide");
+
+    h.state_mut().run("app.backstage", json!({"page": "export"})).unwrap();
+    h.run_steps(3);
+    click_on_page(&h, "Change File Type");
+    h.run_steps(3);
+    click_on_page(&h, "PNG Pictures, all slides (*.png)");
+    h.run_steps(2);
+    assert!(h.query_by_label("Transparent background").is_some(), "all-slides PNG keeps the option");
+    click_on_page(&h, "Save As");
+    h.run_steps(3);
+    for k in 1..=3 {
+        assert!(dir.join(format!("{title}{k}.png")).is_file(), "slide {k} as PNG");
+    }
+    assert_eq!(*asked.borrow(), vec![format!("{title}.jpg"), format!("{title}.png")]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Save As shows every type in its open list: the last one is picked by a click, not hidden
+/// below the list's default height (#2019).
+#[test]
+fn save_as_type_list_shows_every_type() {
+    let mut h = harness(new_app());
+    h.state_mut().run("app.backstage", json!({"page": "saveAs"})).unwrap();
+    h.run_steps(3);
+    h.get_by_label("Save as type").click();
+    h.run_steps(3);
+    let (last, label, _) = crate::backstage::SAVE_TYPES[crate::backstage::SAVE_TYPES.len() - 1];
+    h.get_by_label(label).click();
+    h.run_steps(3);
+    assert_eq!(h.state().backstage.as_ref().map(|b| b.file_type), Some(last));
 }
 
 /// Close closes a saved presentation at once and asks about unsaved changes first.
@@ -968,16 +1023,18 @@ fn about_has_product_links_and_credits_without_account_controls() {
     let mut h = harness(new_app());
     h.get_by_label("File").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Account").is_none());
+    // No Account entry in the side menu (the user icon in the bar is named Account, 2026-11-18).
+    assert!(h.query_all_by_label("Account").all(|n| !in_nav(n.rect())));
     click_nav(&h, "About");
     h.run_steps(3);
     assert_eq!(page(&h), Some(Page::Home));
     assert_eq!(h.state().dialog.as_ref().map(|d| d.id.as_str()), Some("about"));
     assert!(h.query_by_label("User Information").is_none());
-    assert!(h.query_by_label("Original project: github.com/storytold/deckcraft").is_some());
-    assert!(h.query_by_label("KrubOffice: github.com/chanonss/kruboffice-desktop").is_some());
+    // The About shared by the three apps (owner, 2026-11-18).
+    assert!(h.query_by_label("Original project DeckCraft").is_some());
+    assert!(h.query_by_label("KrubOffice on GitHub").is_some());
     assert!(h.query_by_label("Contributors").is_some());
-    assert!(h.query_by_label("Models").is_some());
+    assert!(h.query_by_label("AI models").is_some());
 }
 
 /// At the 900-point minimum window width the About columns stack and Appearance stays on the page.
@@ -994,4 +1051,71 @@ fn about_appearance_stays_on_the_page_at_minimum_width() {
     h.run_steps(3);
     let r = h.query_all_by_role_and_label(Role::ComboBox, "Appearance").next().expect("Appearance selector").rect();
     assert!(r.right() <= 900.0, "Appearance selector ends at {}, inside the window", r.right());
+}
+
+/// Owner, 2026-11-17: the web start screen lists the Google Drive files this browser opened or
+/// saved. A file opens from Drive in a new tab (`./?drive=<id>`), so it is saved back there; a
+/// file with unsaved changes here says so, its draft isn't listed again as a draft of its own, and
+/// a click asks whether to open those changes or the Drive version (which leaves them behind).
+#[test]
+fn web_home_lists_google_drive_files_with_their_unsaved_changes() {
+    use crate::{BrowserDraft, DraftAction};
+    let asked: Rc<RefCell<Vec<(DraftAction, String)>>> = Rc::default();
+    let log = asked.clone();
+    let drafts = vec![
+        BrowserDraft { id: "doc-1".into(), name: "Monthly report".into(), saved: "29/10/2026, 14:32".into() },
+        BrowserDraft { id: "doc-2".into(), name: "Class slides".into(), saved: "28/10/2026, 09:10".into() },
+    ];
+    let mut app = SlideApp::new(Session::new(), Services::default());
+    app.ui.language = "en".into();
+    app.services.browser_recovery = Some(crate::BrowserRecoveryServices {
+        drafts: Box::new(move |_| Some(drafts.clone())),
+        act: Box::new(move |what, id| log.borrow_mut().push((what, id.to_string()))),
+        fragile: Box::new(|| false),
+        open_draft: Box::new(|| None),
+    });
+    app.services.google_drive = Some(crate::DriveServices {
+        recent: Box::new(|_| {
+            vec![
+                krub_drive::RecentDriveFile { id: "1pitch".into(), name: "Pitch.pptx".into(), when: "17/11/2026".into(), draft: None },
+                krub_drive::RecentDriveFile {
+                    id: "1class".into(),
+                    name: "Class.pptx".into(),
+                    when: "16/11/2026".into(),
+                    draft: Some("doc-2".into()),
+                },
+            ]
+        }),
+        ..Default::default()
+    });
+    let mut h = Harness::builder().with_size(egui::vec2(1440.0, 2600.0)).build_ui_state(
+        |ui, app: &mut SlideApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        app,
+    );
+    h.run_steps(4);
+    let click = |h: &mut Harness<'static, SlideApp>, label: &str| {
+        h.get_by_label(label).click();
+        let mut opened = Vec::new();
+        for _ in 0..2 {
+            h.step();
+            opened.extend(opened_urls(h));
+        }
+        opened
+    };
+    assert!(h.query_by_label_contains("Saving goes back to the file on Drive").is_some());
+    assert!(h.query_by_label("Class slides (draft)").is_none(), "the Drive file's changes aren't a draft of their own");
+    assert!(h.query_by_label("Monthly report (draft)").is_some(), "other drafts stay");
+    assert_eq!(click(&mut h, "Pitch.pptx"), [("./?drive=1pitch".to_string(), true)]);
+    let class = "Class.pptx (Unsaved changes in this browser)";
+    h.get_by_label(class).click();
+    h.run_steps(2);
+    assert_eq!(click(&mut h, "Open with the unsaved changes"), [("./?draft=doc-2".to_string(), true)]);
+    h.get_by_label(class).click();
+    h.run_steps(2);
+    assert_eq!(click(&mut h, "Open the Google Drive version"), [("./?drive=1class".to_string(), true)]);
+    assert_eq!(asked.borrow().last(), Some(&(DraftAction::Discard, "doc-2".to_string())));
 }

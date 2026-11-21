@@ -400,6 +400,9 @@ pub(super) fn object_menu(app: &mut SheetApp, ui: &mut egui::Ui) {
                 }
                 items.extend([("Format Control…", "ui:formatControl"), ("-", "")]);
             }
+            if kind == "image" {
+                items.extend([("Save as Picture…", "ui:savePicture"), ("-", "")]);
+            }
             items.push(("Delete", "object.delete"));
             if kind == "chart" {
                 items.extend([("-", ""), ("Select Data…", "ui:selectData"), ("Format Chart Area…", "ui:formatChart")]);
@@ -418,6 +421,7 @@ pub(super) fn object_menu(app: &mut SheetApp, ui: &mut egui::Ui) {
                         "ui:editText" => app.open_dialog("formatControl", json!({"id": id, "textOnly": true})),
                         "ui:assignAction" => app.open_dialog("assignAction", json!({"id": id})),
                         "ui:formatControl" => app.open_dialog("formatControl", json!({"id": id})),
+                        "ui:savePicture" => app.save_picture(id),
                         _ => {
                             app.run_or_alert("object.delete", json!({"kind": kind, "id": id}));
                             app.selected_object = None;

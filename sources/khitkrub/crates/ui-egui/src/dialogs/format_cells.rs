@@ -43,6 +43,7 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
                         "Accounting",
                         "Short Date",
                         "Long Date",
+                        "Thai Long Date",
                         "Time",
                         "Percentage",
                         "Fraction",
@@ -70,6 +71,7 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
                         "0.00%",
                         "0.00E+00",
                         "# ?/?",
+                        gridcraft_engine::cmd::format::THAI_LONG_DATE,
                         "m/d/yyyy",
                         "d-mmm-yy",
                         "mmmm d, yyyy",
@@ -86,7 +88,7 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
                 st.num_fmt = gridcraft_engine::model::NumFmt::new(&code);
             }
             "Alignment" => {
-                use gridcraft_engine::model::{HAlign, VAlign};
+                use gridcraft_engine::model::{HAlign, ReadingOrder, VAlign};
                 ui.label(egui::RichText::new(lang.tr("Horizontal")).strong());
                 ui.horizontal_wrapped(|ui| {
                     for (h, n) in [
@@ -112,6 +114,19 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
                         (VAlign::Distributed, "Distributed"),
                     ] {
                         ui.radio_value(&mut st.align.v, v, lang.tr(n));
+                    }
+                });
+                ui.label(egui::RichText::new(lang.tr("Reading direction")).strong());
+                ui.horizontal_wrapped(|ui| {
+                    for (order, name) in [
+                        (ReadingOrder::Context, "Context"),
+                        (ReadingOrder::LeftToRight, "Left to right"),
+                        (ReadingOrder::RightToLeft, "Right to left"),
+                    ] {
+                        let selected = st.align.reading_order.unwrap_or_default() == order;
+                        if ui.radio(selected, lang.tr(name)).clicked() {
+                            st.align.reading_order = Some(order);
+                        }
                     }
                 });
                 let mut indent = st.align.indent as f32;
@@ -201,21 +216,33 @@ pub(super) fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog
                 ] {
                     let n = lang.tr(n);
                     ui.horizontal(|ui| {
-                        ui.label(format!("{n}:"));
-                        for (s, label) in [
-                            (BorderStyle::None, "none"),
-                            (BorderStyle::Thin, "thin"),
-                            (BorderStyle::Medium, "medium"),
-                            (BorderStyle::Thick, "thick"),
-                            (BorderStyle::Dashed, "dashed"),
-                            (BorderStyle::Dotted, "dotted"),
-                            (BorderStyle::Double, "double"),
+                        ui.allocate_ui_with_layout(egui::vec2(96.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.set_min_width(96.0);
+                            ui.label(format!("{n}:"));
+                        });
+                        // Each style drawn as a line (owner, 2026-11-19); none by name.
+                        use krub_icons::line_style::{Look, swatch};
+                        for (s, label, look) in [
+                            (BorderStyle::None, "none", None),
+                            (BorderStyle::Thin, "thin", Some(Look::Solid)),
+                            (BorderStyle::Medium, "medium", Some(Look::Medium)),
+                            (BorderStyle::Thick, "thick", Some(Look::Thick)),
+                            (BorderStyle::Dashed, "dashed", Some(Look::Dashed)),
+                            (BorderStyle::Dotted, "dotted", Some(Look::Dotted)),
+                            (BorderStyle::Double, "double", Some(Look::Double)),
                         ] {
                             let label = lang.tr(label);
-                            let response = ui.selectable_label(slot.style == s, label);
                             let selected = slot.style == s;
-                            response
-                                .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, format!("{n} {label}")));
+                            let name = format!("{n} {label}");
+                            let response = match look {
+                                Some(_) => swatch(ui, egui::vec2(40.0, 20.0), look, &name, selected),
+                                // None by its word alone, the same width on every row.
+                                None => {
+                                    let r = ui.add_sized(egui::vec2(48.0, 20.0), egui::Button::selectable(selected, label));
+                                    r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &name));
+                                    r
+                                }
+                            };
                             if response.clicked() {
                                 slot.style = s;
                             }

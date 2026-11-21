@@ -9,7 +9,10 @@ use crate::style::{Color, Style};
 mod pivot;
 mod print;
 
-pub use pivot::{PivotCalcField, PivotDateGroup, PivotField, PivotFilter, PivotFunc, PivotLayout, PivotShowAs, PivotSort, PivotTable, PivotValue};
+pub use pivot::{
+    PIVOT_INDEXER, PivotCalcField, PivotDataCell, PivotDateGroup, PivotField, PivotFilter, PivotFunc, PivotIndexer, PivotItemRef, PivotLayout,
+    PivotLookup, PivotShowAs, PivotSort, PivotTable, PivotValue, pivot_key,
+};
 pub use print::{EditRange, HfPage, LineInfo, Orientation, PageOrder, PrintSettings, SheetProtection, password_hash};
 
 // ---------------------------------------------------------------- tables
@@ -228,6 +231,30 @@ pub enum CfRule {
         reverse: bool,
         show_value: bool,
     },
+}
+
+impl CfRule {
+    /// The differential style a matching rule applies; colour scales, data bars and icon sets have none.
+    pub fn style(&self) -> Option<&Style> {
+        match self {
+            CfRule::CellIs { style, .. }
+            | CfRule::Expression { style, .. }
+            | CfRule::ContainsText { style, .. }
+            | CfRule::NotContainsText { style, .. }
+            | CfRule::BeginsWith { style, .. }
+            | CfRule::EndsWith { style, .. }
+            | CfRule::Blanks { style }
+            | CfRule::NoBlanks { style }
+            | CfRule::Errors { style }
+            | CfRule::NoErrors { style }
+            | CfRule::Duplicate { style }
+            | CfRule::Unique { style }
+            | CfRule::Top10 { style, .. }
+            | CfRule::AboveAverage { style, .. }
+            | CfRule::TimePeriod { style, .. } => Some(style),
+            CfRule::ColorScale { .. } | CfRule::DataBar { .. } | CfRule::IconSet { .. } => None,
+        }
+    }
 }
 
 /// Number of icons in an icon set (`3Arrows` → 3, `5Quarters` → 5), always 3 to 5.
@@ -591,6 +618,11 @@ pub struct Chart {
     /// whenever the PivotTable is refreshed or its layout changes.
     #[serde(default)]
     pub pivot: Option<String>,
+    /// How each part looks (owner, 2026-11-19: the shared chart pane, `krub_chart_format`):
+    /// fill, border, effects and text of the chart area, plot area, title, legend, axes,
+    /// gridlines and series. Everything automatic draws as before.
+    #[serde(default, skip_serializing_if = "krub_chart_format::Formats::is_auto")]
+    pub format: krub_chart_format::Formats,
 }
 
 impl Chart {
@@ -644,9 +676,78 @@ pub enum ShapeKind {
     /// A freehand ink stroke; `Shape::text` holds the points as `x,y;x,y;…` relative to the
     /// anchor (sheet points), `Shape::line` the ink colour and `fill` unused.
     Ink,
+    /// Decorative text (`insert.wordArt`): a transparent shape whose `Shape::text` is drawn with
+    /// the large, filled/outlined/shadowed text properties of `Shape::format`.
+    WordArt,
     /// An equation: `Shape::text` holds its LaTeX source, `Shape::line` its ink colour
     /// (`Color::Auto` for the sheet's text colour) and `Shape::math` its cached layout.
     Equation,
+    /// Any other standard DrawingML shape (owner, 2026-11-19: the shared Insert › Shapes menu),
+    /// drawn from the shared library (`craft_drawingml::preset`) at its default adjustments.
+    Preset(PresetId),
+}
+
+/// A standard DrawingML shape (`star24`, `flowChartDecision`…): its place in the shared
+/// library's catalog, written to files and JSON by its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PresetId(u16);
+
+impl PresetId {
+    /// The shape called `name` in the shared catalog, if it is one.
+    pub fn from_name(name: &str) -> Option<PresetId> {
+        craft_drawingml::preset::CATALOG.iter().position(|i| i.name == name).and_then(|i| u16::try_from(i).ok()).map(PresetId)
+    }
+
+    /// Its DrawingML name.
+    pub fn name(self) -> &'static str {
+        craft_drawingml::preset::CATALOG.get(usize::from(self.0)).map_or("rect", |i| i.name)
+    }
+
+    /// Its English name for people ("24-Point Star").
+    pub fn label(self) -> &'static str {
+        craft_drawingml::preset::CATALOG.get(usize::from(self.0)).map_or("Rectangle", |i| i.label)
+    }
+
+    /// The shape drawn `w` × `h` points at its default adjustments.
+    pub fn geometry(self, w: f64, h: f64) -> Option<craft_drawingml::preset::Geometry> {
+        let name = self.name();
+        craft_drawingml::preset::build(name, w, h, craft_drawingml::preset::info(name).map_or(&[][..], |i| i.defaults))
+    }
+
+    /// It is drawn as lines only, with no area to fill.
+    pub fn is_open(self) -> bool {
+        craft_drawingml::preset::is_line_like(self.name())
+    }
+}
+
+impl Serialize for PresetId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for PresetId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let name = String::deserialize(d)?;
+        PresetId::from_name(&name).ok_or_else(|| serde::de::Error::custom(format!("unknown shape `{name}`")))
+    }
+}
+
+impl ShapeKind {
+    /// The kind for DrawingML preset `name`: one of the kinds KhitKrub always had, else
+    /// [`ShapeKind::Preset`] for any other standard shape (a block arrow too: KhitKrub's own
+    /// `Arrow` is a line with an arrowhead). `None` for a name that isn't one.
+    pub fn from_preset(name: &str) -> Option<ShapeKind> {
+        Some(match name {
+            "rect" => ShapeKind::Rectangle,
+            "roundRect" => ShapeKind::RoundedRectangle,
+            "ellipse" => ShapeKind::Ellipse,
+            "triangle" => ShapeKind::Triangle,
+            "line" => ShapeKind::Line,
+            "textBox" => ShapeKind::TextBox,
+            other => ShapeKind::Preset(PresetId::from_name(other)?),
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1002,6 +1103,8 @@ pub struct ShapeFormat {
     pub text_color: Option<Color>,
     /// Text outline (`a:rPr/a:ln`): colour and width in points.
     pub text_outline: Option<(Color, f32)>,
+    /// Text drop shadow colour (`a:rPr/a:effectLst/a:outerShdw`); `None` is no shadow.
+    pub text_shadow: Option<Color>,
     /// `None`: the shape's default (left for text boxes, centred for other shapes).
     pub align: Option<ShapeTextAlign>,
     /// `None`: the shape's default (top for text boxes, middle for other shapes).
@@ -1171,6 +1274,7 @@ mod tests {
             source: None,
             by_rows: false,
             pivot: None,
+            format: Default::default(),
         };
         let mut json = serde_json::to_value(&chart).expect("serialize chart");
         json.as_object_mut().expect("chart object").remove("hole_size");

@@ -126,6 +126,7 @@ pub(super) fn web_home(app: &mut SlideApp, ui: &mut Ui) {
                     ui.add_space(18.0);
                     theme_tiles(ui);
                     ui.add_space(28.0);
+                    drive_list(app, ui);
                     drafts_list(app, ui);
                     ui.add_space(28.0);
                 });
@@ -259,6 +260,116 @@ fn app_switcher_row(ui: &mut Ui, thai_letter: &str, tile: Color32, name: &str, k
 
 /// The drafts kept in this browser. Click a row to keep working in a new tab; its ⋮ (or a right-click)
 /// downloads a copy or discards it, after asking.
+/// Owner, 2026-11-17: the Google Drive files this browser opened or saved, newest first. A row
+/// opens the file from Drive in a new tab (`./?drive=<id>`), so it is saved back there; a file
+/// with unsaved changes in this browser says so, and asks whether to open those (`./?draft=…`)
+/// or the Drive version.
+pub(super) fn drive_list(app: &mut SlideApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    let Some(drive) = &app.services.google_drive else { return };
+    let files = (drive.recent)(&app.ui.language);
+    if files.is_empty() {
+        return;
+    }
+    let kept: Vec<String> = app
+        .services
+        .browser_recovery
+        .as_ref()
+        .and_then(|r| (r.drafts)(&app.ui.language))
+        .map_or_else(Vec::new, |d| d.into_iter().map(|d| d.id).collect());
+    let width = ui.available_width().min(700.0);
+    ui.label(RichText::new("Google Drive").font(theme::bold(16.0)).color(t.text));
+    ui.label(
+        RichText::new(tl!("Files you opened or saved on Google Drive in this browser. Saving goes back to the file on Drive."))
+            .font(theme::font(12.0))
+            .color(t.text_dim),
+    );
+    ui.add_space(6.0);
+    enum Do {
+        Drive(String, Option<String>),
+        Draft(String),
+        Forget(String),
+    }
+    let mut todo = None;
+    for f in &files {
+        let unsaved = f.draft.as_ref().filter(|d| kept.contains(d));
+        let (r, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
+        let spoken = match unsaved {
+            Some(_) => format!("{} ({})", f.name, tl!("Unsaved changes in this browser")),
+            None => f.name.clone(),
+        };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &spoken));
+        if ui.rect_contains_pointer(r) {
+            ui.painter().rect_filled(r, 4.0, t.hover);
+        }
+        krub_icons::paint_named(
+            ui.painter(),
+            Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(20.0, 20.0)),
+            "cloud",
+            t.text,
+            false,
+            false,
+        );
+        let name = ui.painter().layout_no_wrap(f.name.clone(), theme::font(13.0), t.text);
+        let clip = Rect::from_min_size(pos2(r.min.x + 40.0, r.min.y), vec2((width - 56.0).max(0.0), r.height()));
+        ui.painter().with_clip_rect(clip).galley(pos2(r.min.x + 40.0, r.min.y + 13.0 - name.size().y / 2.0), name, t.text);
+        let sub = match unsaved {
+            Some(_) => format!("{} · {}", f.when, tl!("Unsaved changes in this browser")),
+            None => f.when.clone(),
+        };
+        ui.painter().text(
+            pos2(r.min.x + 40.0, r.min.y + 29.0),
+            Align2::LEFT_CENTER,
+            sub,
+            theme::font(11.0),
+            if unsaved.is_some() { t.accent } else { t.text_dim },
+        );
+        let menu = |ui: &mut Ui, todo: &mut Option<Do>| {
+            if let Some(d) = unsaved {
+                if ui.button(tl!("Open with the unsaved changes")).clicked() {
+                    *todo = Some(Do::Draft(d.clone()));
+                    ui.close();
+                }
+                if ui.button(tl!("Open the Google Drive version")).clicked() {
+                    *todo = Some(Do::Drive(f.id.clone(), Some(d.clone())));
+                    ui.close();
+                }
+            } else if ui.button(tl!("Open")).clicked() {
+                *todo = Some(Do::Drive(f.id.clone(), None));
+                ui.close();
+            }
+            ui.separator();
+            if ui.button(tl!("Remove from this list")).clicked() {
+                *todo = Some(Do::Forget(f.id.clone()));
+                ui.close();
+            }
+        };
+        resp.context_menu(|ui| menu(ui, &mut todo));
+        if unsaved.is_some() {
+            egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_START).show(|ui| menu(ui, &mut todo));
+        } else if resp.clicked() {
+            todo = Some(Do::Drive(f.id.clone(), None));
+        }
+    }
+    ui.add_space(20.0);
+    match todo {
+        Some(Do::Drive(id, draft)) => {
+            // Its unsaved changes here are left behind: the Drive version is the file now.
+            if let (Some(d), Some(recovery)) = (draft, &app.services.browser_recovery) {
+                (recovery.act)(DraftAction::Discard, &d);
+            }
+            open_in_new_tab(ui, "drive", &id);
+        }
+        Some(Do::Draft(d)) => open_in_new_tab(ui, "draft", &d),
+        Some(Do::Forget(id)) => {
+            if let Some(drive) = &app.services.google_drive {
+                (drive.forget_recent)(id);
+            }
+        }
+        None => {}
+    }
+}
+
 pub(super) fn drafts_list(app: &mut SlideApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let Some(recovery) = &app.services.browser_recovery else { return };
@@ -278,10 +389,14 @@ pub(super) fn drafts_list(app: &mut SlideApp, ui: &mut Ui) {
         ui.label(RichText::new(warning).font(theme::font(12.0)).color(t.text_dim));
     }
     ui.add_space(6.0);
-    let Some(drafts) = drafts else {
+    let Some(mut drafts) = drafts else {
         ui.label(RichText::new(tl!("Loading drafts…")).color(t.text_dim));
         return;
     };
+    // A Drive file's unsaved changes show on its row in the Google Drive list, not as a draft.
+    let of_drive: Vec<String> =
+        app.services.google_drive.as_ref().map_or_else(Vec::new, |d| (d.recent)(&app.ui.language).into_iter().filter_map(|f| f.draft).collect());
+    drafts.retain(|d| !of_drive.contains(&d.id));
     if drafts.is_empty() {
         ui.label(
             RichText::new(tl!("Presentations you make here are kept in this browser, so you can pick up where you left off.")).color(t.text_dim),

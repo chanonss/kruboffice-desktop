@@ -22,10 +22,16 @@ use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Ui, V
 
 mod font_fallback;
 mod font_setup;
+mod pdf_faces;
 
 pub use font_fallback::symbol_face_installed;
 #[cfg(test)]
-use font_fallback::{cjk_han_japanese, cjk_han_simplified, cjk_hangul, fallback_faces, hebrew, lao, symbols_more, thai};
+use font_fallback::{
+    PREFERRED_ARABIC, arabic, cjk_han_japanese, cjk_han_simplified, cjk_hangul, fallback_faces, hebrew, lao, load_faces, preferred_file,
+    symbols_more, thai,
+};
+#[cfg(all(test, unix, not(target_os = "macos")))]
+use font_fallback::{covers_arabic, fontconfig_arabic, parse_fc_match};
 use font_setup::pick;
 pub use font_setup::{
     CELL, CELL_BOLD, CELL_BOLD_ITALIC, CELL_ITALIC, CraftFont, FontKey, HanOrder, HostFace, MATH, MATH_BOLD, MATH_ITALIC, MONO, SERIF, UI, UI_BOLD,
@@ -34,9 +40,10 @@ pub use font_setup::{
     pinned_font_definitions, set_host_faces, symbol_fallback, sync_pdf_faces, system_ui_fonts_loaded, ui_bold, ui_font,
 };
 #[cfg(test)]
-use font_setup::{candidates, craft_font_faces, try_load};
+use font_setup::{candidates, craft_font_faces, font_definitions_impl, try_load};
 #[cfg(test)]
 pub(crate) use font_setup::{drop_unparseable_fonts, font_parses};
+pub use pdf_faces::prepare as prepare_pdf_faces;
 
 /// KhitKrub's teal, the app icon's background (as KhianKrub's band is its icon's navy): the title bar
 /// and tab strip in the light theme.

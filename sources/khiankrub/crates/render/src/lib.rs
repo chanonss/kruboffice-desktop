@@ -280,12 +280,85 @@ fn build_vector(bytes: &[u8]) -> Option<Vector> {
         return None;
     }
     // The pixels move into the pixmaps; the picture keeps only the geometry.
-    let pixmaps = pic.items.iter_mut().map(|it| it.take_pixels().and_then(|(w, h, px)| premul_pixmap(w, h, &px)).map(Arc::new)).collect();
-    Some(Vector { pic, pixmaps })
+    let bitmaps: Vec<Option<Pixmap>> = pic.items.iter_mut().map(|it| it.take_pixels().and_then(|(w, h, px)| premul_pixmap(w, h, &px))).collect();
+    let mut v = Vector { pic, pixmaps: Vec::new() };
+    let geometry = v.bytes();
+    v.pixmaps = fit_cache(bitmaps, geometry.saturating_add(bytes.len())).into_iter().map(|b| b.map(Arc::new)).collect();
+    Some(v)
+}
+
+/// The bitmaps of a metafile at a size its whole picture is kept in the cache (from WordCraft #5494).
+/// A picture past the cache budget would not be kept, so every repaint would parse and decode the
+/// file again (a metafile with a 6000 × 6000 bitmap is 144 MB): its bitmaps are box-averaged down
+/// to an eighth of the budget between them, in proportion to their size (never below a sixteenth,
+/// never past what the budget leaves). Pictures within the budget keep their full resolution.
+fn fit_cache(mut pixmaps: Vec<Option<Pixmap>>, fixed: usize) -> Vec<Option<Pixmap>> {
+    let pixels = |p: &Pixmap| usize::from(p.width()) * usize::from(p.height()) * 4;
+    let total: usize = pixmaps.iter().flatten().map(pixels).sum();
+    if total.saturating_add(fixed) <= CACHE_BYTES {
+        return pixmaps;
+    }
+    let target = CACHE_BYTES / 8;
+    let allowance = target.saturating_sub(fixed).max(target / 2).min(CACHE_BYTES.saturating_sub(fixed));
+    let room = allowance / 4;
+    for pm in pixmaps.iter_mut().flatten() {
+        let share = (room as u128 * pixels(pm) as u128 / total.max(1) as u128) as u64;
+        if let Some(small) = shrink(pm, share) {
+            *pm = small;
+        }
+    }
+    pixmaps
+}
+
+/// `p` box-averaged down to at most `max_pixels` pixels (keeping its shape, at least 1 × 1); None
+/// when it already fits.
+fn shrink(p: &Pixmap, max_pixels: u64) -> Option<Pixmap> {
+    let (w, h) = (u64::from(p.width()), u64::from(p.height()));
+    if w * h <= max_pixels.max(1) {
+        return None;
+    }
+    let k = (max_pixels.max(1) as f64 / (w * h) as f64).sqrt();
+    let nw = ((w as f64 * k).floor() as u64).clamp(1, w);
+    let nh = ((h as f64 * k).floor() as u64).clamp(1, h);
+    let src = p.data();
+    let mut out = Vec::with_capacity((nw * nh) as usize);
+    for dy in 0..nh {
+        let (y0, y1) = (dy * h / nh, ((dy + 1) * h / nh).max(dy * h / nh + 1));
+        for dx in 0..nw {
+            let (x0, x1) = (dx * w / nw, ((dx + 1) * w / nw).max(dx * w / nw + 1));
+            let mut sum = [0u64; 4];
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if let Some(c) = src.get((y * w + x) as usize) {
+                        sum[0] += u64::from(c.r);
+                        sum[1] += u64::from(c.g);
+                        sum[2] += u64::from(c.b);
+                        sum[3] += u64::from(c.a);
+                    }
+                }
+            }
+            let n = ((y1 - y0) * (x1 - x0)).max(1);
+            let avg = |v: u64| (v / n).min(255) as u8;
+            out.push(vello_cpu::color::PremulRgba8 { r: avg(sum[0]), g: avg(sum[1]), b: avg(sum[2]), a: avg(sum[3]) });
+        }
+    }
+    Some(Pixmap::from_parts(out, nw as u16, nh as u16))
 }
 
 fn rgba_color(c: [u8; 4]) -> peniko::Color {
     peniko::Color::from_rgba8(c[0], c[1], c[2], c[3])
+}
+
+/// Widest path drawn, in device pixels a side: 64 times the largest canvas. The rasteriser
+/// flattens a curve into as many points as its size asks for, before clipping, so a path with
+/// coordinates of 1e15 (file data in a native document) would take it forever or run out of
+/// memory; one this far past every canvas shows nothing a real drawing would (WordCraft #5453).
+const MAX_PATH_PIXELS: f64 = 1_048_576.0;
+
+/// Whether `path` under `view` is small enough to draw ([`MAX_PATH_PIXELS`]) and finite.
+fn path_extent_ok(view: Affine, path: &kurbo::BezPath) -> bool {
+    let b = view.transform_rect_bbox(path.bounding_box());
+    path.is_finite() && [b.x0, b.y0, b.x1, b.y1].iter().all(|v| v.is_finite() && v.abs() <= MAX_PATH_PIXELS)
 }
 
 /// Draws a metafile picture into `r` (page points): fills and strokes in page space (so strokes keep
@@ -723,8 +796,21 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 line(ctx, w * 0.9);
                 return;
             }
-            ctx.set_stroke(st);
-            line(ctx, 0.0);
+            // A horizontal or vertical rule is snapped to the device pixels, so every border of one
+            // width covers the same number of pixels at any zoom (upstream #6048).
+            match snap_rule(view, (*x0 as f64, *y0 as f64, *x1 as f64, *y1 as f64), w) {
+                Some((w_px, (ox, oy))) => {
+                    ctx.set_stroke(kurbo::Stroke { width: w_px / view.as_coeffs()[0], ..st });
+                    let mut p = BezPath::new();
+                    p.move_to((*x0 as f64 + ox, *y0 as f64 + oy));
+                    p.line_to((*x1 as f64 + ox, *y1 as f64 + oy));
+                    ctx.stroke_path(&p);
+                }
+                None => {
+                    ctx.set_stroke(st);
+                    line(ctx, 0.0);
+                }
+            }
         }
         Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, .. } => {
             // Invisible glyphs (WordArt letters are drawn from their outlines) carry text only.
@@ -851,7 +937,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
         }
         Draw::Path { segs, fill, stroke, stroke_width, look } => {
             let path = wordcraft_layout::display::seg_path(segs);
-            if path.elements().is_empty() {
+            if path.elements().is_empty() || !path_extent_ok(view, &path) {
                 return;
             }
             ctx.set_transform(view);
@@ -1085,6 +1171,15 @@ pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, corner: Option<u32>) -> BezPa
             }
             poly(&pts)
         }
+        // Any other standard shape: the shared library's geometry, moved into `r`.
+        ShapeKind::Preset(id) => match id.geometry(r.width(), r.height()) {
+            Some(g) => {
+                let mut p = g.outline();
+                p.apply_affine(kurbo::Affine::translate((r.x0, r.y0)));
+                p
+            }
+            None => r.to_path(0.1),
+        },
         ShapeKind::Heart => {
             let (w, h) = (r.width(), r.height());
             let mut p = BezPath::new();
@@ -1129,9 +1224,85 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
+/// Snap a horizontal or vertical rule to the device pixel grid so every border of one nominal
+/// width covers the same number of pixels at any zoom (#5967). Returns the stroke width in device
+/// pixels and the offset, in points, that moves the line onto the snapped spot; `None` for slanted
+/// lines or a view that rotates or skews.
+fn snap_rule(view: Affine, (x0, y0, x1, y1): (f64, f64, f64, f64), width: f64) -> Option<(f64, (f64, f64))> {
+    if !is_upright(view) {
+        return None;
+    }
+    let [k, _, _, _, tx, ty] = view.as_coeffs();
+    if y0 == y1 && x0 != x1 {
+        let (w_px, c) = snap_hairline(y0 * k + ty, width * k);
+        Some((w_px, (0.0, (c - ty) / k - y0)))
+    } else if x0 == x1 && y0 != y1 {
+        let (w_px, c) = snap_hairline(x0 * k + tx, width * k);
+        Some((w_px, ((c - tx) / k - x0, 0.0)))
+    } else {
+        None
+    }
+}
+
+/// A line `width_px` wide centred at device coordinate `centre`, moved so both edges fall on whole
+/// pixels. Returns the width, made a whole number of pixels (at least one), and the new centre.
+fn snap_hairline(centre: f64, width_px: f64) -> (f64, f64) {
+    let w = width_px.round().max(1.0);
+    (w, (centre - w / 2.0).round() + w / 2.0)
+}
+
+/// Does `view` map page points to device pixels without rotation, skew or mirroring, scaling both
+/// axes alike? Only then do hinted outlines (made on the pixel grid) line up with the screen.
+fn is_upright(view: Affine) -> bool {
+    let [a, b, c, d, e, f] = view.as_coeffs();
+    [a, b, c, d, e, f].iter().all(|v| v.is_finite()) && b == 0.0 && c == 0.0 && a > 0.0 && (a - d).abs() <= a * 1e-6
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Upstream #6048: rules of one width cover the same whole pixels at every zoom.
+    #[test]
+    fn rules_of_one_width_cover_the_same_whole_pixels_at_every_zoom() {
+        for zoom in [0.5, 0.6, 0.75] {
+            for ppp in [1.0, 1.25] {
+                let k = zoom * ppp * 96.0 / 72.0;
+                let view = Affine::new([k, 0.0, 0.0, k, 37.3, 12.9]);
+                let mut widths = Vec::new();
+                for i in 0..20 {
+                    let pos = 10.0 + f64::from(i) * 17.37;
+                    let (w_h, (_, oy)) = snap_rule(view, (5.0, pos, 400.0, pos), 0.5).unwrap();
+                    let (w_v, (ox, _)) = snap_rule(view, (pos, 5.0, pos, 400.0), 0.5).unwrap();
+                    widths.push(w_h);
+                    widths.push(w_v);
+                    for (w, centre) in [(w_h, (pos + oy) * k + 12.9), (w_v, (pos + ox) * k + 37.3)] {
+                        let edge = centre - w / 2.0;
+                        assert!((edge - edge.round()).abs() < 1e-9, "zoom {zoom} ppp {ppp}: edge {edge} is off the pixel grid");
+                    }
+                }
+                assert!(widths.iter().all(|w| *w == widths[0] && *w >= 1.0 && w.fract() == 0.0), "zoom {zoom} ppp {ppp}: {widths:?}");
+            }
+        }
+        assert!(snap_rule(Affine::rotate(0.3), (0.0, 0.0, 9.0, 0.0), 0.5).is_none());
+        assert!(snap_rule(Affine::scale(2.0), (0.0, 0.0, 9.0, 4.0), 0.5).is_none());
+    }
+
+    /// WordCraft #5453: a path far past every canvas is not flattened.
+    #[test]
+    fn paths_far_past_every_canvas_are_not_flattened() {
+        let line = |x: f64| {
+            let mut p = kurbo::BezPath::new();
+            p.move_to((0.0, 0.0));
+            p.curve_to((x, 0.0), (x, x), (0.0, x));
+            p
+        };
+        assert!(path_extent_ok(Affine::IDENTITY, &line(500.0)));
+        assert!(path_extent_ok(Affine::scale(4.0), &line(200_000.0)), "a large page at a high zoom");
+        assert!(!path_extent_ok(Affine::IDENTITY, &line(1e15)));
+        assert!(!path_extent_ok(Affine::scale(1e12), &line(10.0)));
+        assert!(!path_extent_ok(Affine::IDENTITY, &line(f64::NAN)));
+    }
     use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
     /// #299: the caret's background is the page colour, a highlight, or the dark page.

@@ -79,6 +79,9 @@ fn is_presentation_name(lower: &str) -> bool {
         || lower.ends_with(".pptx")
         || lower.ends_with(".potx")
         || lower.ends_with(".ppsx")
+        || lower.ends_with(".ppt")
+        || lower.ends_with(".pot")
+        || lower.ends_with(".pps")
 }
 
 /// File → Open keeps the requested operation: a presentation opens, an outline becomes slides.
@@ -185,7 +188,7 @@ impl SlideApp {
         format!("{name}.{ext}")
     }
 
-    /// Exports the active presentation as `fmt` (`pdf`, `png`, `pngAll`, `jpeg`, `pptx`,
+    /// Exports the active presentation as `fmt` (`pdf`, `png`, `pngAll`, `jpeg`, `jpegAll`, `pptx`,
     /// `deckcraft`, `outline`) through `file.export`: the save picker on the desktop, a download
     /// on the web. `extra` adds `file.export` params (the PDF's layout, slides…). The
     /// presentation keeps its own file. Returns whether a file was written or handed over.
@@ -196,6 +199,7 @@ impl SlideApp {
             "png" => ("png", "png", false),
             "pngAll" => ("png", "png", true),
             "jpeg" | "jpg" => ("jpg", "jpeg", false),
+            "jpegAll" => ("jpg", "jpeg", true),
             "pptx" => ("pptx", "pptx", false),
             "outline" | "txt" => ("txt", "outline", false),
             "rtf" => ("rtf", "rtf", false),
@@ -315,10 +319,10 @@ impl SlideApp {
     }
 
     /// Files the system hands over (the command line, a double-click through the file
-    /// association), opened in order. When the last one is a PowerPoint Show (`.ppsx`), its slide
-    /// show starts at once from where Play from Start begins, as PowerPoint does; anything else
-    /// opens for editing, and File › Open opens a `.ppsx` for editing too. Returns the files that
-    /// couldn't be opened, with the reason.
+    /// association), opened in order. When the last one is a PowerPoint Show (`.ppsx`, or the
+    /// 97-2003 `.pps`), its slide show starts at once from where Play from Start begins, as
+    /// PowerPoint does; anything else opens for editing, and File › Open opens a `.ppsx` for
+    /// editing too. Returns the files that couldn't be opened, with the reason.
     pub fn open_from_system(&mut self, paths: &[String]) -> Vec<(String, String)> {
         let mut failed = Vec::new();
         let mut last = None;
@@ -328,7 +332,10 @@ impl SlideApp {
                 Err(e) => failed.push((p.clone(), e)),
             }
         }
-        if last.is_some_and(|p| p.to_ascii_lowercase().ends_with(".ppsx")) {
+        if last.is_some_and(|p| {
+            let p = p.to_ascii_lowercase();
+            p.ends_with(".ppsx") || p.ends_with(".pps")
+        }) {
             self.start_show(self.show_start_index(), false);
         }
         failed
@@ -409,6 +416,40 @@ impl SlideApp {
                 false
             }
         }
+    }
+
+    /// Save as Picture and Save Media as (owner, 2026-11-20): the selected picture's, video's or
+    /// audio's own bytes, named "Picture", "Video" or "Audio" in the interface's language with
+    /// the file's own extension: a download on the web, the save picker's path on the desktop.
+    pub(crate) fn save_selected_media(&mut self) -> Result<Value, String> {
+        use deckcraft_model::ShapeKind;
+        let Some(d) = self.session.active() else { return Err("no presentation is open".into()) };
+        let found = d.selected_shapes().into_iter().find_map(|s| match &s.kind {
+            ShapeKind::Picture { fill } => Some((fill.media, "Picture")),
+            ShapeKind::Media(m) => Some((m.media, if m.video { "Video" } else { "Audio" })),
+            _ => None,
+        });
+        let Some((id, what)) = found else { return Err(tl!("Select a picture, video or audio first.").into()) };
+        let Some(item) = d.doc.media(id).filter(|m| !m.data.is_empty()) else {
+            return Err(tl!("This media is linked, not kept in the presentation.").into());
+        };
+        let ext = std::path::Path::new(&item.name)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(str::to_ascii_lowercase)
+            .or_else(|| item.content_type.rsplit_once('/').map(|(_, e)| e.trim_start_matches("x-").to_string()))
+            .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
+            .unwrap_or_else(|| "bin".into());
+        let name = format!("{}.{ext}", tl!(what));
+        let bytes = item.data.clone();
+        if let Some(download) = self.services.download.as_mut() {
+            download(&name, &bytes);
+            return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
+        }
+        let Some(path) = self.services.pick_save.as_mut().and_then(|pick| pick(&name)) else { return Ok(json!({"cancelled": true})) };
+        let Some(write) = self.services.write.as_mut() else { return Err("saving files needs the desktop app".into()) };
+        write(&path, &bytes)?;
+        Ok(json!({"path": path, "bytes": bytes.len()}))
     }
 
     pub(crate) fn pick_and_insert(&mut self, purpose: &str, cmd: &str) {

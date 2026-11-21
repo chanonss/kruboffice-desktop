@@ -15,6 +15,7 @@ fn shape_format_size_boxes_show_inches_and_resize_the_shape() {
     let mut h = crate::support::harness(session, 4);
     h.state_mut().selected_object = Some(ObjRef::new(ObjKind::Shape, id));
     h.run_steps(3);
+    crate::support::show_shape_tab(&mut h, krub_icons::shape_pane::Tab::SizePosition);
     // The Shape pane's Width: and Height: boxes, named by their labels (1.5 by 1 inch).
     for (label, inches) in [("Width:", 1.5), ("Height:", 1.0)] {
         let n = h.get_by_role_and_label(Role::SpinButton, label);

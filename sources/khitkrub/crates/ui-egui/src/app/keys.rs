@@ -28,6 +28,27 @@ impl SheetApp {
         }
         for action in actions {
             match action {
+                // Choosing a tab by its number, or stepping with ← → (owner, 2026-11-19).
+                keytips::Action::TabNumber(n) => {
+                    if let Some(tab) = self.keytip_tabs.get(n.wrapping_sub(1)).copied() {
+                        self.run_or_alert("ui.ribbonTab", json!({"tab": tab}));
+                        self.ui.ribbon_collapsed = false;
+                        self.keytips.enter(keytips::keytip_table::tab_sequence(tab));
+                    }
+                }
+                keytips::Action::StepTab(forward) => {
+                    let count = self.keytip_tabs.len().min(10);
+                    let current = self.keytip_tabs.iter().position(|t| *t == self.ui.ribbon_tab).map_or(0, |i| i + 1);
+                    let to = krub_icons::tab_keys::step(current, count, forward);
+                    if let Some(tab) = self.keytip_tabs.get(to.wrapping_sub(1)).copied() {
+                        self.run_or_alert("ui.ribbonTab", json!({"tab": tab}));
+                    }
+                }
+                keytips::Action::IntoTab => {
+                    let tab = self.ui.ribbon_tab.clone();
+                    self.ui.ribbon_collapsed = false;
+                    self.keytips.enter(keytips::keytip_table::tab_sequence(&tab));
+                }
                 keytips::Action::Tab("File") => self.open_backstage(backstage::Page::Home),
                 keytips::Action::Tab(tab) => {
                     self.run_or_alert("ui.ribbonTab", json!({"tab": tab}));

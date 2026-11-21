@@ -6,15 +6,23 @@
 
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
 
+pub mod about;
+pub mod chart_icons;
+pub mod chart_pane;
 pub mod chrome;
 pub mod deck;
+pub mod diagram_picker;
 pub mod fonts;
 pub mod line;
+pub mod line_style;
 pub mod menu;
 pub mod options;
+pub mod pane_ui;
 pub mod qat;
+pub mod shape_gallery;
 pub mod shape_pane;
 pub mod sheet;
+pub mod tab_keys;
 pub mod tabler;
 mod thai;
 mod word;

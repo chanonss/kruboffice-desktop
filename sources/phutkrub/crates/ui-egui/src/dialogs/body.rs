@@ -1,4 +1,3 @@
-use super::about::{about, credits_block};
 use super::alt_text::alt_text_starts_decorative;
 use super::columns::columns_dialog;
 use super::date_time::{date_rows, date_time_dialog};
@@ -55,8 +54,7 @@ pub(super) fn body(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         "customShow" => dlg_custom_show(app, ui, d),
         "chartData" => dlg_chart_data(app, ui, d),
         "trim" => dlg_trim(app, ui, d),
-        "smartart" => dlg_smartart(app, ui, d),
-        "about" => dlg_about(app, ui, d),
+        "smartart" => super::diagram::diagram_dialog(app, ui, d),
         "autocorrect" => dlg_autocorrect(app, ui, d),
         "gridOptions" => grid_options(app, ui, d),
         "columns" => columns_dialog(app, ui, d),
@@ -723,6 +721,7 @@ fn dlg_export(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         ("PNG images (current slide)", "png"),
         ("PNG images (all slides)", "pngAll"),
         ("JPEG image (current slide)", "jpeg"),
+        ("JPEG images (all slides)", "jpegAll"),
         ("PowerPoint Presentation (.pptx)", "pptx"),
         ("Outline (.txt)", "outline"),
         ("Animated GIF (.gif)", "gif"),
@@ -1256,54 +1255,6 @@ fn dlg_trim(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }),
         );
     }
-    ok || cancel
-}
-
-fn dlg_smartart(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
-    ui.label(tl!("Pick a graphic; type one item per line."));
-    let kind = d.get("kind", "process");
-    ui.horizontal_wrapped(|ui| {
-        for (k, l) in [
-            ("list", "Basic List"),
-            ("process", "Basic Process"),
-            ("cycle", "Basic Cycle"),
-            ("hierarchy", "Hierarchy"),
-            ("pyramid", "Pyramid"),
-            ("matrix", "Matrix"),
-        ] {
-            if ui.selectable_label(kind == k, l).clicked() {
-                d.fields.insert("kind".into(), k.into());
-            }
-        }
-    });
-    let mut v = d.get("text", "Plan\nBuild\nLaunch");
-    ui.add(egui::TextEdit::multiline(&mut v).hint_text(tl!("SmartArt items")).desired_rows(5).desired_width(320.0));
-    d.fields.insert("text".into(), v.clone());
-    let (ok, cancel) = buttons(ui, "Insert");
-    if ok {
-        run(app, "insert.smartArt", json!({"kind": kind, "items": v.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>()}));
-        app.ui.pane = Some("smartart".into());
-    }
-    ok || cancel
-}
-
-fn dlg_about(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
-    let tab = d.get("tab", "about");
-    ui.horizontal(|ui| {
-        for (k, l) in [("about", "About"), ("contributors", "Contributors"), ("models", "Models")] {
-            if ui.selectable_label(tab == k, l).clicked() {
-                d.fields.insert("tab".into(), k.into());
-            }
-        }
-    });
-    ui.separator();
-    match tab.as_str() {
-        "contributors" | "models" => {
-            credits_block(ui, tab == "models");
-        }
-        _ => about(app, ui),
-    }
-    let (ok, cancel) = buttons(ui, "Close");
     ok || cancel
 }
 

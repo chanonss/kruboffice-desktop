@@ -22,7 +22,7 @@ mod text_fields;
 
 use album::{photo_album, photo_album_edit};
 pub use chart::chart_type;
-use chart::{chart, chart_data, chart_options, chart_type_cmd};
+use chart::{chart, chart_data, chart_format, chart_options, chart_type_cmd};
 use links::{action_button, hyperlink, shape_action};
 pub use picture::content_type;
 pub(crate) use picture::media_bytes;
@@ -91,7 +91,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("insert.audio", "Audio from File…", ["Insert", "Media", "Audio"], None, "{path? | data: base64, name?, rect?}", has_slide, audio),
         cmd!("insert.video", "Video from File…", ["Insert", "Media", "Video"], None, "{path? | data: base64, name?, rect?}", has_slide, video),
-        cmd!("insert.wordArt", "WordArt", ["Insert", "Text"], None, "{text?, style?: 0..}", has_slide, word_art),
+        cmd!("insert.wordArt", "Decorative Text", ["Insert", "Text"], None, "{text?, style?: 0..}", has_slide, word_art),
         cmd!("insert.slideNumber", "Slide Number", ["Insert", "Text"], None, "{}", has_slide, slide_number),
         cmd!(
             "insert.dateTime",
@@ -141,8 +141,17 @@ pub fn specs() -> Vec<CommandSpec> {
             chart_options
         ),
         cmd!(
+            "chart.format",
+            "Format Chart",
+            ["Format", "Current Selection"],
+            None,
+            "{part: chartArea|plotArea|title|legend|categoryAxis|valueAxis|gridlines|series1…, edit: fill|fillColor|fillTransparency|border|borderColor|borderWidth|borderTransparency|compound|dash|roundedCorners|shadow|shadowColor|shadowTransparency|shadowBlur|shadowAngle|shadowDistance|glowSize|glowColor|glowTransparency|softEdge|textFill|textColor|textTransparency|textOutline|textOutlineColor|textOutlineWidth|fontSize|reset, value: string (auto|none|solid, RRGGBB, a number in pt, % or degrees, true|false; fontSize auto), id?}",
+            has_selection,
+            chart_format
+        ),
+        cmd!(
             "insert.smartArt",
-            "SmartArt",
+            "Diagram",
             ["Insert", "Illustrations"],
             None,
             "{kind: list|process|cycle|hierarchy|pyramid|matrix, items?: [text] (leading tabs = sub-points), nodes?: [{text, level}]} → {id}",

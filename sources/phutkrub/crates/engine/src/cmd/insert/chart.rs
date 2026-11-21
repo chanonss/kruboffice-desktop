@@ -168,6 +168,31 @@ fn apply_subtotals_and_bars(c: &mut deckcraft_model::chart::Chart, p: &Value, su
     }
 }
 
+/// `chart.format` (owner, 2026-11-19): one change from the shared chart pane to one part of the
+/// chart (`krub_chart_format`): `{part, edit, value}`.
+pub(super) fn chart_format(s: &mut Session, p: &Value) -> Result<Value> {
+    let part = str_param(p, "part")
+        .and_then(krub_chart_format::part_from_id)
+        .ok_or_else(|| bad("chart.format", "`part` is chartArea, plotArea, title, legend, categoryAxis, valueAxis, gridlines or series1…"))?;
+    let key = str_param(p, "edit").ok_or_else(|| bad("chart.format", "`edit` names the change: fill, borderColor, shadow…"))?;
+    let value = match p.get("value") {
+        Some(Value::String(v)) => v.clone(),
+        Some(Value::Bool(b)) => b.to_string(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::from("true"),
+    };
+    let edit = krub_chart_format::Edit::from_pair(key, &value).ok_or_else(|| bad("chart.format", "`edit` and `value` don't go together"))?;
+    with_chart(s, p, "chart.format", |c| {
+        if c.verbatim {
+            return Err(bad("chart.format", "this chart is too large to format; it is kept as it was read"));
+        }
+        c.format.apply(part, &edit);
+        // The chart is written from the model from now on, not from the file's markup.
+        c.raw = None;
+        Ok(())
+    })
+}
+
 pub(super) fn chart_options(s: &mut Session, p: &Value) -> Result<Value> {
     // Histogram bins: a count or a width (setting one clears the other; null for automatic).
     let bin_count = p.get("binCount").map(|v| v.as_u64().map(|n| n.clamp(1, deckcraft_model::chart::MAX_BINS as u64) as u32));
@@ -190,6 +215,7 @@ pub(super) fn chart_options(s: &mut Session, p: &Value) -> Result<Value> {
     with_chart(s, p, "chart.options", |c| {
         if let Some(t) = &text_color {
             c.text_color = t.clone();
+            c.legend_entries.iter_mut().for_each(|e| e.color = None);
         }
         apply_bin_options(c, bin_count, bin_size);
         apply_subtotals_and_bars(c, p, subtotals.as_deref());

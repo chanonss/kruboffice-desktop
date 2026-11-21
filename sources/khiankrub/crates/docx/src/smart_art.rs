@@ -59,6 +59,17 @@ fn layout_id(l: SmartArtLayout) -> (&'static str, &'static str) {
         SmartArtLayout::Radial => ("urn:microsoft.com/office/officeart/2005/8/layout/radial1", "cycle"),
         SmartArtLayout::Matrix => ("urn:microsoft.com/office/officeart/2005/8/layout/matrix3", "matrix"),
         SmartArtLayout::Venn => ("urn:microsoft.com/office/officeart/2005/8/layout/venn1", "relationship"),
+        SmartArtLayout::VerticalBulletList => ("urn:microsoft.com/office/officeart/2005/8/layout/vList2", "list"),
+        SmartArtLayout::Chevron => ("urn:microsoft.com/office/officeart/2005/8/layout/chevron1", "process"),
+        SmartArtLayout::OrgChart => ("urn:microsoft.com/office/officeart/2005/8/layout/orgChart1", "hierarchy"),
+        SmartArtLayout::Timeline => ("urn:microsoft.com/office/officeart/2005/8/layout/hProcess11", "process"),
+        SmartArtLayout::Target => ("urn:microsoft.com/office/officeart/2005/8/layout/target1", "relationship"),
+        SmartArtLayout::Funnel => ("urn:microsoft.com/office/officeart/2005/8/layout/funnel1", "relationship"),
+        SmartArtLayout::Gear => ("urn:microsoft.com/office/officeart/2005/8/layout/gear1", "relationship"),
+        SmartArtLayout::VerticalProcess => ("urn:microsoft.com/office/officeart/2005/8/layout/process2", "process"),
+        SmartArtLayout::InvertedPyramid => ("urn:microsoft.com/office/officeart/2005/8/layout/pyramid3", "pyramid"),
+        SmartArtLayout::HorizontalHierarchy => ("urn:microsoft.com/office/officeart/2005/8/layout/hierarchy2", "hierarchy"),
+        SmartArtLayout::LinearVenn => ("urn:microsoft.com/office/officeart/2005/8/layout/venn3", "relationship"),
     }
 }
 
@@ -187,6 +198,109 @@ fn tops(spec: &SmartArtSpec) -> Vec<usize> {
     spec.items.iter().enumerate().filter(|(_, it)| it.level == 0).map(|(i, _)| i).collect()
 }
 
+/// The items under item `i` as bulleted sub-items (without its own line).
+fn sub_items(spec: &SmartArtSpec, i: usize) -> Vec<(String, bool)> {
+    spec.descendants(i).filter_map(|j| spec.items.get(j)).map(|it| (format!("• {}", it.text), true)).collect()
+}
+
+/// A box with no fill or outline holding dark text.
+fn label(b: [f32; 4], text: Vec<(String, bool)>) -> Sh {
+    let mut s = Sh::node("rect", b, 1).with_text(text).text_box(b);
+    s.fill = Paint::None;
+    s.line = Paint::None;
+    s.dark_text = true;
+    s
+}
+
+/// A tree of the items: each item's children, the top-level items, and how many leaf columns
+/// each item spans (an item whose children `hang` spans one).
+struct Tree {
+    kids: Vec<Vec<usize>>,
+    roots: Vec<usize>,
+    leaves: Vec<usize>,
+    /// Items whose children hang in a column under them instead of spreading out.
+    hangs: Vec<bool>,
+}
+
+impl Tree {
+    /// The tree of `spec`; with `hanging`, an item below the top whose children have no children
+    /// of their own hangs them.
+    fn of(spec: &SmartArtSpec, hanging: bool) -> Tree {
+        let n = spec.items.len();
+        let mut kids: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut roots = Vec::new();
+        for (i, p) in spec.parents().iter().enumerate() {
+            match p.and_then(|p| kids.get_mut(p)) {
+                Some(k) => k.push(i),
+                None => roots.push(i),
+            }
+        }
+        let hangs: Vec<bool> = (0..n)
+            .map(|i| {
+                hanging
+                    && spec.items.get(i).is_some_and(|it| it.level > 0)
+                    && kids.get(i).is_some_and(|k| !k.is_empty() && k.iter().all(|&c| kids.get(c).is_some_and(Vec::is_empty)))
+            })
+            .collect();
+        // Leaves under each item (children come after their parent, so from the end).
+        let mut leaves = vec![1usize; n];
+        for i in (0..n).rev() {
+            if hangs.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let sum: usize = kids.get(i).map_or(0, |k| k.iter().map(|&c| leaves.get(c).copied().unwrap_or(1)).sum());
+            if sum > 0
+                && let Some(l) = leaves.get_mut(i)
+            {
+                *l = sum;
+            }
+        }
+        Tree { kids, roots, leaves, hangs }
+    }
+
+    fn kids(&self, i: usize) -> &[usize] {
+        self.kids.get(i).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn leaves(&self, i: usize) -> usize {
+        self.leaves.get(i).copied().unwrap_or(1)
+    }
+
+    fn hangs(&self, i: usize) -> bool {
+        self.hangs.get(i).copied().unwrap_or(false)
+    }
+
+    /// Where each item's span of leaf columns starts, in columns.
+    fn starts(&self) -> Vec<f32> {
+        let mut start = vec![0.0f32; self.kids.len()];
+        let mut at = 0.0;
+        for &r in &self.roots {
+            if let Some(s) = start.get_mut(r) {
+                *s = at;
+            }
+            at += self.leaves(r) as f32;
+        }
+        for i in 0..self.kids.len() {
+            if self.hangs(i) {
+                continue;
+            }
+            let mut at = start.get(i).copied().unwrap_or(0.0);
+            for &k in self.kids(i) {
+                if let Some(s) = start.get_mut(k) {
+                    *s = at;
+                }
+                at += self.leaves(k) as f32;
+            }
+        }
+        start
+    }
+
+    /// Leaf columns in all.
+    fn total(&self) -> usize {
+        self.roots.iter().map(|&r| self.leaves(r)).sum::<usize>().max(1)
+    }
+}
+
 /// The shapes of `spec` laid out in a `w` × `h` points box, back to front.
 fn layout(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
     let ok = |v: f32| if v.is_finite() { v.clamp(0.0, 20_000.0) } else { 0.0 };
@@ -203,6 +317,17 @@ fn layout(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
         SmartArtLayout::Radial => radial(spec, w, h),
         SmartArtLayout::Matrix => matrix(spec, w, h),
         SmartArtLayout::Venn => venn(spec, w, h),
+        SmartArtLayout::VerticalBulletList => vertical_bullet_list(spec, w, h),
+        SmartArtLayout::Chevron => chevron(spec, w, h),
+        SmartArtLayout::OrgChart => org_chart(spec, w, h),
+        SmartArtLayout::Timeline => timeline(spec, w, h),
+        SmartArtLayout::Target => target(spec, w, h),
+        SmartArtLayout::Funnel => funnel(spec, w, h),
+        SmartArtLayout::Gear => gear(spec, w, h),
+        SmartArtLayout::VerticalProcess => vertical_process(spec, w, h),
+        SmartArtLayout::InvertedPyramid => inverted_pyramid(spec, w, h),
+        SmartArtLayout::HorizontalHierarchy => horizontal_hierarchy(spec, w, h),
+        SmartArtLayout::LinearVenn => linear_venn(spec, w, h),
     }
 }
 
@@ -505,6 +630,374 @@ fn venn(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
         s.line = Paint::None;
         s.dark_text = true;
         out.push(s);
+    }
+    out
+}
+
+/// Wide bars one under another; each bar's sub-items as bullets on a pale band under it.
+fn vertical_bullet_list(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    const GAP: f32 = 0.2;
+    const SUB: f32 = 0.55;
+    let subs: Vec<usize> = tops.iter().map(|&i| spec.descendants(i).len()).collect();
+    let units: f32 = subs.iter().map(|&k| 1.0 + SUB * k as f32).sum::<f32>() + GAP * tops.len().saturating_sub(1) as f32;
+    let unit = (h / units.max(1.0)).min(w * 0.3);
+    let mut y = (h - unit * units).max(0.0) / 2.0;
+    let mut out = Vec::new();
+    for (k, (&i, &sub)) in tops.iter().zip(&subs).enumerate() {
+        let accent = spec.colors.accent(k);
+        let bar = [0.0, y, w, unit];
+        out.push(Sh::node("roundRect", bar, accent).with_text(paras(spec, i, false)).text_box([w * 0.03, y, w * 0.94, unit]));
+        y += unit;
+        if sub > 0 {
+            let band = [w * 0.04, y, w * 0.96, unit * SUB * sub as f32];
+            let mut s = label(band, sub_items(spec, i)).text_box(inset(band, 0.04));
+            s.fill = Paint::Accent(accent, Some(20_000));
+            s.alpha = Some(90_000);
+            out.push(s);
+            y += band[3];
+        }
+        y += unit * GAP;
+    }
+    out
+}
+
+/// Steps as chevrons left to right; each step's sub-items under its chevron.
+fn chevron(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1) as f32;
+    let subs = tops.iter().any(|&i| !spec.descendants(i).is_empty());
+    // A chevron is RATIO × its height wide, its point half its height deep; neighbours GAP apart.
+    const RATIO: f32 = 2.2;
+    const GAP: f32 = 0.08;
+    let depth_of = if subs { 2.5 } else { 1.0 };
+    let ch = (w / (n * RATIO - (n - 1.0) * (0.5 - GAP))).min(h * 0.9 / depth_of);
+    let (cw, d) = (ch * RATIO, ch * 0.5);
+    let total = n * cw - (n - 1.0) * (d - ch * GAP);
+    let x0 = (w - total).max(0.0) / 2.0;
+    let y = (h - ch * depth_of).max(0.0) / 2.0;
+    let mut out = Vec::new();
+    for (k, &i) in tops.iter().enumerate() {
+        let x = x0 + k as f32 * (cw - d + ch * GAP);
+        let b = [x, y, cw, ch];
+        out.push(Sh::node("chevron", b, spec.colors.accent(k)).with_text(paras(spec, i, false)).text_box([
+            x + d * 0.9,
+            y + ch * 0.1,
+            cw - d * 1.8,
+            ch * 0.8,
+        ]));
+        let sub = sub_items(spec, i);
+        if !sub.is_empty() {
+            out.push(label([x + d * 0.5, y + ch * 1.1, cw - d, ch * 1.3], sub));
+        }
+    }
+    out
+}
+
+/// A tree of boxes, a row per level, joined by elbow lines; an item's children that have none of
+/// their own hang in a column under it.
+fn org_chart(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tree = Tree::of(spec, true);
+    let n = spec.items.len();
+    let parents = spec.parents();
+    let hung = |i: usize| parents.get(i).copied().flatten().is_some_and(|p| tree.hangs(p));
+    const STEP: f32 = 0.75;
+    // Rows the chart needs: one per level, plus the hanging columns' extra rows.
+    let rows = (0..n)
+        .map(|i| {
+            let l = spec.items.get(i).map_or(0.0, |it| f32::from(it.level));
+            if tree.hangs(i) { l + 1.0 + STEP * tree.kids(i).len() as f32 + 0.1 } else { l + 1.0 }
+        })
+        .fold(1.0f32, f32::max);
+    let unit = w / tree.total() as f32;
+    let rh = h / rows;
+    let nw = (unit * 0.86).min(rh * 0.6 * 2.2);
+    let nh = (rh * 0.6).min(nw * 0.8);
+    let start = tree.starts();
+    let cx = |i: usize| start.get(i).copied().unwrap_or(0.0) * unit + tree.leaves(i) as f32 * unit / 2.0;
+    let level = |i: usize| spec.items.get(i).map_or(0.0, |it| f32::from(it.level));
+    let top = |i: usize| level(i) * rh + (rh - nh) / 2.0;
+    let mut out = Vec::new();
+    let mut boxes: Vec<[f32; 4]> = (0..n).map(|i| [cx(i) - nw / 2.0, top(i), nw, nh]).collect();
+    for i in 0..n {
+        let ks = tree.kids(i);
+        if ks.is_empty() {
+            continue;
+        }
+        let accent = spec.colors.accent(i);
+        let p = boxes.get(i).copied().unwrap_or_default();
+        let pb = p[1] + p[3];
+        if tree.hangs(i) {
+            // A spine down the box's left part, a stub to each hanging box.
+            let sx = p[0] + nw * 0.08;
+            let (hw, hh) = (nw * 0.84, (rh * STEP * 0.8).min(nh));
+            let mut last = pb;
+            for (k, &c) in ks.iter().enumerate() {
+                let y = pb + rh * 0.15 + k as f32 * rh * STEP;
+                if let Some(b) = boxes.get_mut(c) {
+                    *b = [p[0] + nw - hw, y, hw, hh];
+                }
+                out.push(Sh::line(sx, y + hh / 2.0, p[0] + nw - hw, y + hh / 2.0, accent));
+                last = y + hh / 2.0;
+            }
+            out.push(Sh::line(sx, pb, sx, last, accent));
+            continue;
+        }
+        let px = cx(i);
+        let ct = ks.first().map_or(pb, |&k| top(k));
+        let mid = (pb + ct) / 2.0;
+        out.push(Sh::line(px, pb, px, mid, accent));
+        let xs: Vec<f32> = ks.iter().map(|&k| cx(k)).collect();
+        let (lo, hi) = xs.iter().fold((px, px), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        if hi - lo > 0.5 {
+            out.push(Sh::line(lo, mid, hi, mid, accent));
+        }
+        for x in xs {
+            out.push(Sh::line(x, mid, x, ct, accent));
+        }
+    }
+    for (i, b) in boxes.into_iter().enumerate() {
+        let accent = spec.colors.accent(if hung(i) { parents.get(i).copied().flatten().unwrap_or(i) } else { i });
+        out.push(Sh::node("rect", b, accent).with_text(paras(spec, i, false)));
+    }
+    out
+}
+
+/// A long arrow; a dot per event on it, the event's text above and below by turns.
+fn timeline(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1);
+    let (cy, t) = (h / 2.0, (h * 0.07).min(w * 0.05));
+    let mut arrow = Sh::node("rightArrow", [0.0, cy - t, w, 2.0 * t], spec.colors.accent(0));
+    arrow.fill = Paint::Accent(spec.colors.accent(0), Some(50_000));
+    arrow.line = Paint::None;
+    let mut out = vec![arrow];
+    let span = w * 0.94 / n as f32;
+    let d = (t * 1.4).min(span * 0.4);
+    // Labels sit just off the line, above and below by turns.
+    let th = (h * 0.26).min(cy - t * 1.6).max(0.0);
+    for (k, &i) in tops.iter().enumerate() {
+        let x = (k as f32 + 0.5) * span;
+        let accent = spec.colors.accent(k);
+        let mut dot = Sh::node("ellipse", [x - d / 2.0, cy - d / 2.0, d, d], accent);
+        dot.fill = Paint::Light;
+        dot.line = Paint::Accent(accent, None);
+        dot.line_w = 2.0;
+        out.push(dot);
+        let y = if k % 2 == 0 { cy - t * 1.6 - th } else { cy + t * 1.6 };
+        out.push(label([x - span * 0.48, y, span * 0.96, th], paras(spec, i, true)));
+    }
+    out
+}
+
+/// Rings round a centre, the first item outermost; each ring's text at the right, a line from
+/// the ring to it.
+fn target(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1);
+    let d = h.min(w * 0.55);
+    let (cx, cy) = (d / 2.0, h / 2.0);
+    let band = d / 2.0 / n as f32;
+    let lx = d + w * 0.06;
+    let mut out = Vec::new();
+    for (k, _) in tops.iter().enumerate() {
+        let r = d / 2.0 * (n - k) as f32 / n as f32;
+        let accent = spec.colors.accent(k);
+        let mut s = Sh::node("ellipse", [cx - r, cy - r, 2.0 * r, 2.0 * r], accent);
+        if n > 1 && spec.colors.accent(0) == spec.colors.accent(1) {
+            s.fill = Paint::Accent(accent, Some(35_000 + 65_000 * k as u32 / (n as u32 - 1)));
+        }
+        out.push(s);
+    }
+    for (k, &i) in tops.iter().enumerate() {
+        let y = cy - d / 2.0 + band * (k as f32 + 0.5);
+        out.push(Sh::line(cx, y, lx - w * 0.01, y, spec.colors.accent(k)));
+        let lh = band.max(h / n as f32 * 0.9).min(band * 2.0);
+        let b = [lx, (y - lh / 2.0).clamp(0.0, (h - lh).max(0.0)), (w - lx).max(0.0), lh];
+        out.push(label(b, paras(spec, i, true)));
+    }
+    out
+}
+
+/// A funnel: every item but the last as circles in its mouth, an arrow, then the last item.
+fn funnel(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let (inputs, result) = match tops.split_last() {
+        Some((r, rest)) => (rest.to_vec(), *r),
+        None => return Vec::new(),
+    };
+    let fw = w.min(h * 1.5);
+    let (fh, cx) = (h * 0.62, w / 2.0);
+    let accent = spec.colors.accent(0);
+    let mut f = Sh::node("funnel", [cx - fw / 2.0, 0.0, fw, fh], accent);
+    f.fill = Paint::Accent(accent, Some(30_000));
+    f.line = Paint::Accent(accent, None);
+    f.line_w = 1.5;
+    let mut out = vec![f];
+    let m = inputs.len();
+    if m > 0 {
+        let cols = m.min(3);
+        let rows = m.div_ceil(cols);
+        let dc = (fw * 0.8 / cols as f32).min(fh * 0.72 / rows as f32);
+        for (k, &i) in inputs.iter().enumerate() {
+            let (r, c) = (k / cols, k % cols);
+            let in_row = if r + 1 == rows { m - r * cols } else { cols };
+            let x = cx - in_row as f32 * dc / 2.0 + c as f32 * dc;
+            let b = [x, fh * 0.04 + r as f32 * dc * 0.92, dc * 0.94, dc * 0.94];
+            out.push(Sh::node("ellipse", b, spec.colors.accent(k + 1)).with_text(paras(spec, i, true)).text_box(inset(b, ROUND_INSET)));
+        }
+    }
+    let (aw, ah) = (fw * 0.12, h * 0.12);
+    let mut a = Sh::node("downArrow", [cx - aw / 2.0, fh + h * 0.01, aw, ah], accent);
+    a.fill = Paint::Accent(accent, Some(60_000));
+    a.line = Paint::None;
+    out.push(a);
+    let ry = fh + h * 0.14;
+    let rw = fw * 0.6;
+    out.push(Sh::node("roundRect", [cx - rw / 2.0, ry, rw, (h - ry).max(0.0)], spec.colors.accent(m)).with_text(paras(spec, result, true)));
+    out
+}
+
+/// Up to three meshing gears, large to small, each holding an item's text.
+fn gear(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    // Centres and radii in a 1.3 × 1 frame.
+    const PLACES: [(f32, f32, f32); 3] = [(0.45, 0.58, 0.36), (0.98, 0.3, 0.26), (1.0, 0.78, 0.2)];
+    let (fw, fh) = if tops.len() == 1 { (1.0, 1.0) } else { (1.3, 1.0) };
+    let k = (w / fw).min(h / fh);
+    let (ox, oy) = ((w - fw * k) / 2.0, (h - fh * k) / 2.0);
+    let mut out = Vec::new();
+    for (j, (&i, &(x, y, r))) in tops.iter().zip(PLACES.iter()).enumerate() {
+        let (x, y, r) = if tops.len() == 1 { (0.5, 0.5, 0.48) } else { (x, y, r) };
+        let b = [ox + (x - r) * k, oy + (y - r) * k, 2.0 * r * k, 2.0 * r * k];
+        let prst = if j == 0 { "gear9" } else { "gear6" };
+        out.push(Sh::node(prst, b, spec.colors.accent(j)).with_text(paras(spec, i, true)).text_box(inset(b, 0.24)));
+    }
+    out
+}
+
+/// Steps top to bottom with a down arrow in each gap.
+fn vertical_process(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1) as f32;
+    const GAP: f32 = 0.6;
+    let nh = h / (n + (n - 1.0) * GAP);
+    let nw = (nh * 3.0).min(w * 0.9);
+    let gap = nh * GAP;
+    let x = (w - nw) / 2.0;
+    let mut out = Vec::new();
+    for (k, _) in tops.iter().enumerate().skip(1) {
+        let gy = k as f32 * (nh + gap) - gap;
+        let (aw, ah) = ((nw * 0.2).min(gap * 0.9), gap * 0.7);
+        let mut a = Sh::node("downArrow", [w / 2.0 - aw / 2.0, gy + (gap - ah) / 2.0, aw, ah], spec.colors.accent(k - 1));
+        a.fill = Paint::Accent(spec.colors.accent(k - 1), Some(60_000));
+        a.line = Paint::None;
+        out.push(a);
+    }
+    for (k, &i) in tops.iter().enumerate() {
+        let b = [x, k as f32 * (nh + gap), nw, nh];
+        out.push(Sh::node("roundRect", b, spec.colors.accent(k)).with_text(paras(spec, i, true)));
+    }
+    out
+}
+
+/// Bands stacked into an upside-down triangle: the first item at the wide top.
+fn inverted_pyramid(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1) as f32;
+    let tw = w.min(h * 1.3);
+    let x0 = (w - tw) / 2.0;
+    let bh = h / n;
+    let mut out = Vec::new();
+    for (k, &i) in tops.iter().enumerate() {
+        let last = k + 1 == tops.len();
+        let (top_w, bot_w) = (tw * (n - k as f32) / n, tw * (n - k as f32 - 1.0) / n);
+        let b = [x0 + (tw - top_w) / 2.0, k as f32 * bh, top_w, bh];
+        let accent = spec.colors.accent(k);
+        // The upright shapes turned half round; their text stays upright.
+        let mut s = if last {
+            Sh::node("triangle", b, accent).text_box([b[0] + top_w * 0.22, b[1] + bh * 0.04, top_w * 0.56, bh * 0.56])
+        } else {
+            let inset_x = (top_w - bot_w) / 2.0;
+            let ss = top_w.min(bh).max(0.01);
+            let mut s = Sh::node("trapezoid", b, accent);
+            s.adj = Some((inset_x / ss * 100_000.0).round().clamp(0.0, 10_000_000.0) as i64);
+            let mid_w = (top_w + bot_w) / 2.0 * 0.8;
+            s.text_box([w / 2.0 - mid_w / 2.0, b[1] + bh * 0.08, mid_w, bh * 0.84])
+        };
+        s.rot = 180.0;
+        out.push(s.with_text(paras(spec, i, true)));
+    }
+    out
+}
+
+/// A tree from left to right, a column per level: each item level with the items under it,
+/// joined by elbow lines.
+fn horizontal_hierarchy(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tree = Tree::of(spec, false);
+    let n = spec.items.len();
+    let depth = spec.items.iter().map(|it| usize::from(it.level)).max().unwrap_or(0) + 1;
+    let unit = h / tree.total() as f32;
+    let cw = w / depth as f32;
+    let nh = (unit * 0.82).min(cw * 0.62 / 1.6);
+    let nw = (cw * 0.7).min(nh * 3.0);
+    let start = tree.starts();
+    let cy = |i: usize| start.get(i).copied().unwrap_or(0.0) * unit + tree.leaves(i) as f32 * unit / 2.0;
+    let left = |i: usize| spec.items.get(i).map_or(0.0, |it| f32::from(it.level) * cw + (cw - nw) / 2.0);
+    let mut out = Vec::new();
+    for i in 0..n {
+        let ks = tree.kids(i);
+        if ks.is_empty() {
+            continue;
+        }
+        let accent = spec.colors.accent(i);
+        let (py, pr) = (cy(i), left(i) + nw);
+        let cl = ks.first().map_or(pr, |&k| left(k));
+        let mid = (pr + cl) / 2.0;
+        out.push(Sh::line(pr, py, mid, py, accent));
+        let ys: Vec<f32> = ks.iter().map(|&k| cy(k)).collect();
+        let (lo, hi) = ys.iter().fold((py, py), |(lo, hi), &y| (lo.min(y), hi.max(y)));
+        if hi - lo > 0.5 {
+            out.push(Sh::line(mid, lo, mid, hi, accent));
+        }
+        for y in ys {
+            out.push(Sh::line(mid, y, cl, y, accent));
+        }
+    }
+    for i in 0..n {
+        let b = [left(i), cy(i) - nh / 2.0, nw, nh];
+        out.push(Sh::node("roundRect", b, spec.colors.accent(i)).with_text(paras(spec, i, false)));
+    }
+    out
+}
+
+/// Circles in a row, each overlapping the next; each one's text in its middle.
+fn linear_venn(spec: &SmartArtSpec, w: f32, h: f32) -> Vec<Sh> {
+    let tops = tops(spec);
+    let n = tops.len().max(1) as f32;
+    const STEP: f32 = 0.75;
+    let d = (w / (1.0 + STEP * (n - 1.0))).min(h);
+    let x0 = (w - d * (1.0 + STEP * (n - 1.0))) / 2.0;
+    let y = (h - d) / 2.0;
+    let at = |k: usize| [x0 + k as f32 * d * STEP, y, d, d];
+    let mut out = Vec::new();
+    for (k, _) in tops.iter().enumerate() {
+        let mut s = Sh::node("ellipse", at(k), spec.colors.accent(k));
+        s.fill = Paint::Accent(spec.colors.accent(k), Some(40_000));
+        s.alpha = Some(60_000);
+        s.line = Paint::None;
+        out.push(s);
+    }
+    for (k, _) in tops.iter().enumerate() {
+        let mut s = Sh::node("ellipse", at(k), spec.colors.accent(k));
+        s.fill = Paint::None;
+        s.line = Paint::Accent(spec.colors.accent(k), None);
+        s.line_w = 1.5;
+        out.push(s);
+    }
+    for (k, &i) in tops.iter().enumerate() {
+        let b = at(k);
+        out.push(label([b[0] + d * 0.27, b[1] + d * 0.2, d * 0.46, d * 0.6], paras(spec, i, true)));
     }
     out
 }
@@ -858,31 +1351,53 @@ pub fn layout_xml(l: SmartArtLayout) -> String {
     w.close("dgm:catLst");
     let (alg, params): (&str, &[(&str, &str)]) = match l {
         SmartArtLayout::BasicList | SmartArtLayout::Matrix => ("snake", &[("grDir", "tL"), ("flowDir", "row"), ("contDir", "sameDir")]),
-        SmartArtLayout::Process => ("lin", &[("linDir", "fromL"), ("nodeVertAlign", "mid")]),
+        SmartArtLayout::Process | SmartArtLayout::Chevron | SmartArtLayout::Timeline | SmartArtLayout::LinearVenn => {
+            ("lin", &[("linDir", "fromL"), ("nodeVertAlign", "mid")])
+        }
+        SmartArtLayout::VerticalBulletList | SmartArtLayout::VerticalProcess => ("lin", &[("linDir", "fromT"), ("nodeHorzAlign", "ctr")]),
         SmartArtLayout::Cycle | SmartArtLayout::Venn => ("cycle", &[("stAng", "0"), ("spanAng", "360")]),
         SmartArtLayout::Radial => ("cycle", &[("stAng", "0"), ("spanAng", "360"), ("ctrShpMap", "fNode")]),
-        SmartArtLayout::Hierarchy => ("hierChild", &[("linDir", "fromL"), ("chAlign", "t")]),
+        SmartArtLayout::Hierarchy | SmartArtLayout::OrgChart => ("hierChild", &[("linDir", "fromL"), ("chAlign", "t")]),
+        SmartArtLayout::HorizontalHierarchy => ("hierChild", &[("linDir", "fromT"), ("chAlign", "l")]),
         SmartArtLayout::Pyramid => ("pyra", &[("linDir", "fromT")]),
+        SmartArtLayout::InvertedPyramid => ("pyra", &[("linDir", "fromB")]),
+        SmartArtLayout::Target | SmartArtLayout::Funnel | SmartArtLayout::Gear => ("composite", &[]),
     };
     let shape = match l {
-        SmartArtLayout::BasicList => "rect",
-        SmartArtLayout::Process | SmartArtLayout::Hierarchy | SmartArtLayout::Matrix => "roundRect",
-        SmartArtLayout::Cycle | SmartArtLayout::Radial | SmartArtLayout::Venn => "ellipse",
-        SmartArtLayout::Pyramid => "trapezoid",
+        SmartArtLayout::BasicList | SmartArtLayout::OrgChart => "rect",
+        SmartArtLayout::Process
+        | SmartArtLayout::Hierarchy
+        | SmartArtLayout::HorizontalHierarchy
+        | SmartArtLayout::Matrix
+        | SmartArtLayout::VerticalBulletList
+        | SmartArtLayout::VerticalProcess => "roundRect",
+        SmartArtLayout::Cycle
+        | SmartArtLayout::Radial
+        | SmartArtLayout::Venn
+        | SmartArtLayout::LinearVenn
+        | SmartArtLayout::Target
+        | SmartArtLayout::Timeline
+        | SmartArtLayout::Funnel => "ellipse",
+        SmartArtLayout::Pyramid | SmartArtLayout::InvertedPyramid => "trapezoid",
+        SmartArtLayout::Chevron => "chevron",
+        SmartArtLayout::Gear => "gear9",
     };
     layout_node(&mut w, "diagram", None, alg, params, None, &[], |w| match l {
-        SmartArtLayout::Hierarchy => {
+        SmartArtLayout::Hierarchy | SmartArtLayout::OrgChart | SmartArtLayout::HorizontalHierarchy => {
+            let below: &[(&str, &str)] =
+                if l == SmartArtLayout::HorizontalHierarchy { &[("linDir", "fromT"), ("chAlign", "l")] } else { &[("chAlign", "t")] };
+            let ends = if l == SmartArtLayout::HorizontalHierarchy { ("midR", "midL") } else { ("bCtr", "tCtr") };
             w.open("dgm:forEach", &[("name", "branches"), ("axis", "ch"), ("ptType", "node")]);
             layout_node(w, "branch", None, "hierRoot", &[], None, &[], |w| {
                 layout_node(w, "item", Some("node1"), "tx", &[], Some(shape), &[("axis", "self")], |_| {});
-                layout_node(w, "below", None, "hierChild", &[("chAlign", "t")], None, &[], |w| {
+                layout_node(w, "below", None, "hierChild", below, None, &[], |w| {
                     w.open("dgm:forEach", &[("name", "joins"), ("axis", "ch"), ("ptType", "parTrans")]);
                     layout_node(
                         w,
                         "join",
                         Some("connector"),
                         "conn",
-                        &[("dim", "1D"), ("connRout", "bend"), ("begPts", "bCtr"), ("endPts", "tCtr")],
+                        &[("dim", "1D"), ("connRout", "bend"), ("begPts", ends.0), ("endPts", ends.1)],
                         Some("conn"),
                         &[("axis", "self")],
                         |_| {},
@@ -904,11 +1419,12 @@ pub fn layout_xml(l: SmartArtLayout) -> String {
         }
         _ => {
             w.open("dgm:forEach", &[("name", "items"), ("axis", "ch"), ("ptType", "node")]);
-            let style = if l == SmartArtLayout::Venn { "venn" } else { "node1" };
+            let style = if matches!(l, SmartArtLayout::Venn | SmartArtLayout::LinearVenn) { "venn" } else { "node1" };
             layout_node(w, "item", Some(style), "tx", &[], Some(shape), ITEM_TEXT, |_| {});
-            if matches!(l, SmartArtLayout::Process | SmartArtLayout::Cycle) {
+            if matches!(l, SmartArtLayout::Process | SmartArtLayout::Cycle | SmartArtLayout::VerticalProcess) {
+                let arrow = if l == SmartArtLayout::VerticalProcess { "downArrow" } else { "rightArrow" };
                 w.open("dgm:forEach", &[("name", "arrows"), ("axis", "followSib"), ("ptType", "sibTrans"), ("cnt", "1")]);
-                layout_node(w, "arrow", Some("connector"), "conn", &[("dim", "2D")], Some("rightArrow"), &[("axis", "self")], |_| {});
+                layout_node(w, "arrow", Some("connector"), "conn", &[("dim", "2D")], Some(arrow), &[("axis", "self")], |_| {});
                 w.close("dgm:forEach");
             }
             w.close("dgm:forEach");

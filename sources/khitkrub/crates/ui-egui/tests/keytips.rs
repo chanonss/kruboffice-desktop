@@ -511,7 +511,7 @@ fn vertical_alignment_keytips_run_their_commands() {
 fn pending_sequences_are_silent_no_ops() {
     let mut h = harness(blank());
     let journal = h.state().session.journal.len();
-    sequence(&mut h, &[Key::N, Key::W], false); // NW -> insert.wordArt (missing)
+    sequence(&mut h, &[Key::N, Key::S, Key::C], false); // NSC -> insert.screenshot (missing)
     assert!(h.state().dialog.is_none(), "no dialog for a pending sequence");
     assert!(h.state().message.is_none(), "no message box for a pending sequence");
     assert!(h.state().toast.is_none(), "no toast for a pending sequence");
@@ -820,4 +820,32 @@ fn borders_keytip_opens_the_borders_menu() {
     h.run_steps(2);
     assert_eq!(h.state().keytips.prefix(), Some("H"), "Esc backs out to the Home letters");
     assert!(!egui::Popup::is_any_open(&h.ctx), "and closes the menu");
+}
+
+/// The numbers on the tabs choose them (owner, 2026-11-19, `krub_icons::tab_keys`): tap Alt
+/// (Option on macOS), then a number; ← → step round the tabs; ↓ shows the current tab's badges.
+#[test]
+fn numbers_and_arrows_choose_tabs() {
+    for os in [OperatingSystem::Windows, OperatingSystem::Mac] {
+        let mut h = harness_on(blank(), os);
+        alt_down(&mut h, Key::AltLeft);
+        alt_up(&mut h, Key::AltLeft);
+        assert_eq!(h.state().keytips.prefix(), Some(""), "{os:?}: a tap shows the tabs' keys");
+        key(&mut h, Key::Num2);
+        let second = h.state().keytip_tabs[1];
+        assert_eq!(h.state().ui.ribbon_tab, second, "{os:?}: 2 picks the second tab");
+        assert!(h.state().keytips.prefix().is_some_and(|p| !p.is_empty()), "{os:?}: and shows its badges");
+        key(&mut h, Key::Escape);
+        key(&mut h, Key::Escape);
+        alt_down(&mut h, Key::AltLeft);
+        alt_up(&mut h, Key::AltLeft);
+        key(&mut h, Key::ArrowRight);
+        assert_eq!(h.state().ui.ribbon_tab, h.state().keytip_tabs[2], "{os:?}: → steps to the next tab");
+        assert_eq!(h.state().keytips.prefix(), Some(""), "{os:?}: still choosing");
+        key(&mut h, Key::ArrowLeft);
+        key(&mut h, Key::ArrowLeft);
+        assert_eq!(h.state().ui.ribbon_tab, h.state().keytip_tabs[0], "{os:?}: ← steps back");
+        key(&mut h, Key::ArrowDown);
+        assert!(h.state().keytips.prefix().is_some_and(|p| !p.is_empty()), "{os:?}: ↓ shows the tab's badges");
+    }
 }

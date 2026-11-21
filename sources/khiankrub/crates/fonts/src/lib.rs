@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod color;
+pub mod download;
 pub mod embed;
 mod fontdb;
 pub mod math;

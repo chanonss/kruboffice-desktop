@@ -13,9 +13,14 @@ use crate::xml::El;
 const THEME_LINE_WIDTHS: [f32; 3] = [0.5, 1.0, 1.5];
 
 /// The shape kind drawn for DrawingML preset geometry `prst` (ECMA-376 Part 1 §20.1.10.56).
-/// Presets WordCraft has no shape for are drawn as the nearest one it has: callouts as the box,
-/// round or cloud they point from, flowchart boxes as rectangles.
+/// Lines and connectors keep their own kinds (so connectors stay glued); every other standard
+/// shape is itself (owner, 2026-11-19: [`ShapeKind::Preset`] from the shared library). A name
+/// the library doesn't know is drawn as the nearest shape KhianKrub has.
 pub(crate) fn preset_kind(prst: &str) -> ShapeKind {
+    let line_like = matches!(prst, "line" | "lineInv") || prst.contains("Connector");
+    if !line_like && let Some(kind) = ShapeKind::from_preset(prst) {
+        return kind;
+    }
     match prst {
         "roundRect"
         | "round1Rect"
@@ -223,13 +228,22 @@ mod tests {
     }
 
     #[test]
-    fn presets_map_to_the_nearest_shape() {
+    fn presets_keep_their_own_shape() {
+        // Lines and connectors keep their kinds, so connectors stay glued.
         assert_eq!(preset_kind("straightConnector1"), ShapeKind::StraightConnector);
         assert_eq!(preset_kind("bentConnector3"), ShapeKind::ElbowConnector);
-        assert_eq!(preset_kind("wedgeRoundRectCallout"), ShapeKind::RoundedRectangle);
-        assert_eq!(preset_kind("wedgeEllipseCallout"), ShapeKind::Ellipse);
-        assert_eq!(preset_kind("wedgeRectCallout"), ShapeKind::Rectangle);
-        assert_eq!(preset_kind("flowChartDecision"), ShapeKind::Diamond);
+        assert_eq!(preset_kind("bentConnector4"), ShapeKind::ElbowConnector);
+        assert_eq!(preset_kind("lineInv"), ShapeKind::Line);
+        // The kinds KhianKrub always had, then every other standard shape as itself (owner,
+        // 2026-11-19: the shared shape library).
+        assert_eq!(preset_kind("rtTriangle"), ShapeKind::RightTriangle);
+        assert_eq!(preset_kind("star5"), ShapeKind::Star);
+        for prst in ["wedgeRoundRectCallout", "wedgeEllipseCallout", "flowChartDecision", "star24", "cloud"] {
+            assert_eq!(preset_kind(prst), ShapeKind::from_preset(prst).unwrap(), "{prst}");
+            assert!(matches!(preset_kind(prst), ShapeKind::Preset(id) if id.name() == prst), "{prst}");
+        }
+        // A name the library doesn't know: a rectangle.
+        assert_eq!(preset_kind("notAShape"), ShapeKind::Rectangle);
     }
 
     #[test]
@@ -238,14 +252,15 @@ mod tests {
         assert_eq!(vml_preset_kind(12), Some(ShapeKind::Star));
         assert_eq!(vml_preset_kind(32), Some(ShapeKind::Line));
         assert_eq!(vml_preset_kind(202), Some(ShapeKind::TextBox));
-        // The nearest shape, as `preset_kind` gives it: left arrow, right triangle, four-point
-        // star, rounded callout, elbow connector, a bevel (its box).
-        assert_eq!(vml_preset_kind(66), Some(ShapeKind::Arrow));
+        // As `preset_kind` gives it: the standard shape itself (left arrow, four-point star,
+        // rounded callout), the kinds KhianKrub always had, elbow connectors as connectors.
+        let own = |spt: u32, prst: &str| assert_eq!(vml_preset_kind(spt), ShapeKind::from_preset(prst), "{spt} = {prst}");
+        own(66, "leftArrow");
+        own(187, "star4");
+        own(62, "wedgeRoundRectCallout");
+        assert_eq!(vml_preset_kind(84), Some(ShapeKind::Rectangle), "a number the table doesn't name: its box");
         assert_eq!(vml_preset_kind(6), Some(ShapeKind::RightTriangle));
-        assert_eq!(vml_preset_kind(187), Some(ShapeKind::Star));
-        assert_eq!(vml_preset_kind(62), Some(ShapeKind::RoundedRectangle));
         assert_eq!(vml_preset_kind(34), Some(ShapeKind::ElbowConnector));
-        assert_eq!(vml_preset_kind(84), Some(ShapeKind::Rectangle));
         // No preset geometry: freeform, WordArt text, picture frame, host control, out of range.
         for spt in [0, 24, 31, 136, 175, 75, 201, 203, u32::MAX] {
             assert_eq!(vml_preset_kind(spt), None, "{spt}");

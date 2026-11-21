@@ -209,16 +209,32 @@ pub(crate) fn shape_pane(app: &mut SlideApp, ui: &mut Ui) {
     for edit in edits {
         apply(app, ui, &sh, &v, edit);
     }
-    // PhutKrub's own: whether Align lines objects up with the slide or with each other (the
-    // same choice as Arrange › Align on Home), then the former Shape Format tab's sections.
-    let selection = app.session.active().map(|d| d.selection.shapes.clone()).unwrap_or_default();
-    let to_slide = crate::ribbon::align_to_slide(app.align_to.as_ref(), &selection);
-    ui.horizontal_wrapped(|ui| {
-        for (label, slide) in [("Align to Slide", true), ("Align Selected Objects", false)] {
-            if ui.radio(to_slide == slide, tl!(label)).clicked() {
-                app.align_to = Some((selection.clone(), slide));
-            }
+    // PhutKrub's own, under the sub-panel each belongs to (owner, 2026-11-18): with Size and
+    // Position, whether Align lines objects up with the slide or with each other (the same
+    // choice as Arrange › Align on Home); with Fill and Line, the former Shape Format tab's
+    // sections.
+    use krub_icons::shape_pane::Tab;
+    match krub_icons::shape_pane::current_tab(ui.ctx(), CAPS) {
+        Tab::SizePosition => {
+            let selection = app.session.active().map(|d| d.selection.shapes.clone()).unwrap_or_default();
+            let to_slide = crate::ribbon::align_to_slide(app.align_to.as_ref(), &selection);
+            ui.horizontal_wrapped(|ui| {
+                for (label, slide) in [("Align to Slide", true), ("Align Selected Objects", false)] {
+                    if ui.radio(to_slide == slide, tl!(label)).clicked() {
+                        app.align_to = Some((selection.clone(), slide));
+                    }
+                }
+            });
         }
-    });
-    widgets::in_pane(|| crate::ribbon::shape_extras(app, ui));
+        Tab::FillLine => widgets::in_pane(|| crate::ribbon::shape_extras(app, ui)),
+        Tab::Effects => {}
+    }
+}
+
+/// Show the Shape pane's sub-panel `tab` (as a click on its slot does), for tests.
+#[cfg(test)]
+pub(crate) fn show_tab(ctx: &egui::Context, tab: krub_icons::shape_pane::Tab) {
+    let tabs = krub_icons::shape_pane::Tab::shown(CAPS);
+    let i = tabs.iter().position(|t| *t == tab).unwrap_or(0);
+    ctx.data_mut(|d| d.insert_persisted(krub_icons::pane_ui::id(("krub_shape_tab", tabs.len())), i));
 }

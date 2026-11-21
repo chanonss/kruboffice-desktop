@@ -31,13 +31,13 @@ impl SlideApp {
         }
     }
 
-    /// Upload the active presentation to Drive as a new file; the presentation stays as it is.
+    /// Upload the active presentation to Drive as a new file, which it then saves back to.
     fn save_copy_to_drive(&mut self) {
-        let Some((title, doc)) = self.session.active().map(|d| (d.title(), d.doc.clone())) else { return };
+        let Some((title, doc, uid, revision)) = self.session.active().map(|d| (d.title(), d.doc.clone(), d.uid, d.revision)) else { return };
         match deckcraft_engine::cmd::file::save_bytes(&doc, DRIVE_FORMAT) {
             Ok(bytes) => {
                 if let Some(drive) = &self.services.google_drive {
-                    (drive.save_copy)(format!("{title}.{DRIVE_FORMAT}"), bytes);
+                    (drive.save_copy)(uid, revision, format!("{title}.{DRIVE_FORMAT}"), bytes);
                 }
                 self.report_unembedded_fonts();
             }

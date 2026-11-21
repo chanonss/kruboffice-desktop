@@ -11,7 +11,7 @@ mod ribbon_layout;
 /// KhitKrub's own version number, shown on the Account page and in the About dialog and read by
 /// `packaging/web/publish.sh`. The GridCraft version this fork is based on is in the crates' own
 /// `Cargo.toml` (0.14.2 at the fork) and in `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.6.0";
+pub const APP_VERSION: &str = "0.7.0";
 
 /// GridCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
@@ -25,6 +25,8 @@ pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
 pub mod backstage;
 mod border_preview;
 mod cell_pictures;
+mod chart_pane;
+mod chartcache;
 pub mod chartview;
 pub mod code_editor;
 pub mod control;
@@ -42,6 +44,7 @@ pub mod fonts;
 pub mod form_controls;
 pub mod formula_bar;
 mod formula_locale;
+pub mod frame;
 pub mod function_library;
 pub mod grid;
 pub mod i18n;
@@ -60,11 +63,13 @@ pub mod ribbon;
 pub mod selection_glide;
 pub mod tabs;
 pub mod text_box;
+mod text_direction;
 pub mod theme;
 #[cfg(not(target_arch = "wasm32"))]
 mod updates_ui;
 pub mod widgets;
 mod window_ui;
+pub mod wordart;
 
 pub use window_ui::WindowUi;
 
@@ -86,6 +91,20 @@ pub use clock::{monotonic_ms, now_ms};
 pub use services::{BrowserDraft, BrowserRecoveryServices, Chrome, DraftAction, DriveServices, Inbox, Services};
 pub use state::{NoticeKind, OpenWindow, SaveAnswer, SheetView};
 pub mod desktop_theme;
+
+fn parse_resize_direction(value: &str) -> Option<egui::ResizeDirection> {
+    match value {
+        "north" => Some(egui::ResizeDirection::North),
+        "south" => Some(egui::ResizeDirection::South),
+        "east" => Some(egui::ResizeDirection::East),
+        "west" => Some(egui::ResizeDirection::West),
+        "northeast" => Some(egui::ResizeDirection::NorthEast),
+        "northwest" => Some(egui::ResizeDirection::NorthWest),
+        "southeast" => Some(egui::ResizeDirection::SouthEast),
+        "southwest" => Some(egui::ResizeDirection::SouthWest),
+        _ => None,
+    }
+}
 
 /// Persisted UI preferences.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -245,8 +264,9 @@ pub struct SheetApp {
     pub ui: UiState,
     /// The window chrome to draw (see [`Chrome`]).
     pub chrome: Chrome,
-    /// Scroll position per (window id, sheet index).
-    pub views: HashMap<(u64, usize), SheetView>,
+    /// Scroll position per (window id, sheet uid): each sheet keeps its own when sheets are
+    /// inserted, deleted or moved.
+    pub views: HashMap<(u64, u64), SheetView>,
     pub editor: Option<editor::EditState>,
     pub text_box_editor: Option<text_box::EditState>,
     pub dialog: Option<dialogs::Dialog>,
@@ -298,6 +318,9 @@ pub struct SheetApp {
     pub name_box: Option<String>,
     /// Transient ribbon keyboard navigation; never saved with UI preferences.
     pub keytips: keytips::KeyTips,
+    /// The ribbon's tabs in order this frame (File not included): a number keytip picks the tab
+    /// with that number, 1 first (`krub_icons::tab_keys`).
+    pub keytip_tabs: Vec<&'static str>,
     pub(crate) shots: control::Shots,
     /// Monotonic epoch of [`control::CaptureGeometry`]: any resize/DPI/zoom/surface change bumps
     /// it, including a change back to an earlier value, so a capture taken in another layout is
@@ -311,6 +334,8 @@ pub struct SheetApp {
     pub(crate) capture_geometry_from_raw: bool,
     /// The floating object selected on the sheet (chart, picture, shape, equation or slicer).
     pub selected_object: Option<gridcraft_engine::model::ObjRef>,
+    /// Rendered charts kept between frames ([`chartcache`]).
+    pub(crate) chart_cache: std::sync::Mutex<chartcache::ChartCache>,
     /// The system clipboard's text when GridCraft last copied without publishing to it (a
     /// control-channel or MCP `edit.copy`/`edit.cut`). While the system clipboard still holds this
     /// text, GridCraft's copy is the newer one and Paste uses it.
@@ -328,6 +353,10 @@ pub struct SheetApp {
     /// Every unsaved workbook has been answered for quitting (or `app.quit` asked): the next
     /// window close goes through.
     pub allow_close: bool,
+    /// Linux/BSD: the window has no system frame; the title bar draws minimize, maximize and
+    /// close, and the window resizes from its edges (`ribbon::window_frame`).
+    pub window_controls: bool,
+    viewport_commands: Vec<egui::ViewportCommand>,
     /// A quit question is waiting in the active window: [`doc_windows`] brings its native window
     /// to the front, also when the app is hidden or the window minimized (a Dock quit).
     pub bring_forward: bool,
@@ -362,4 +391,33 @@ pub fn clean_error(e: &str) -> String {
 
 pub fn cell(r: u32, c: u32) -> CellRef {
     CellRef::new(r, c)
+}
+
+#[cfg(test)]
+mod viewport_command_tests {
+    use super::parse_resize_direction;
+
+    #[test]
+    fn resize_direction_parser_accepts_all_edges_and_rejects_unknown_values() {
+        for name in ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest"] {
+            assert!(parse_resize_direction(name).is_some(), "{name}");
+        }
+        assert!(parse_resize_direction("middle").is_none());
+    }
+
+    #[test]
+    fn window_commands_queue_viewport_commands_without_a_workbook() {
+        use egui::ViewportCommand;
+        let mut a = crate::SheetApp::new(gridcraft_engine::Session::new(), crate::Services::default());
+        for (id, params, expected) in [
+            ("ui.window.minimize", serde_json::json!({}), ViewportCommand::Minimized(true)),
+            ("ui.window.maximize", serde_json::json!({"on": true}), ViewportCommand::Maximized(true)),
+            ("ui.window.close", serde_json::json!({}), ViewportCommand::Close),
+            ("ui.window.beginResize", serde_json::json!({"direction": "east"}), ViewportCommand::BeginResize(egui::ResizeDirection::East)),
+        ] {
+            assert!(a.run(id, params).is_ok(), "{id} should route without a workbook");
+            assert!(a.viewport_commands.contains(&expected), "{id} queues {expected:?}");
+        }
+        assert!(a.run("ui.window.beginResize", serde_json::json!({"direction": "diagonal"})).is_err());
+    }
 }

@@ -58,7 +58,7 @@ intermediate build that required inline `bytes` cannot read the new referenced r
 | SVG | yes (with PNG fallback) | **no** | The PNG fallback shows; SVG files can't be inserted |
 | EMF / WMF | yes | partial | Drawn as vectors (paths, pens, pattern and hatch brushes, bitmaps, text in the document's fonts with the file's character advances). Rectangle clip regions (`INTERSECTCLIPRECT`, `EXCLUDECLIPRECT`, `EXTSELECTCLIPRGN`) limit later drawing. EMF+ only pictures play every EMF+ drawing record (brushes incl. gradients and textures, pens, paths, curves, images, strings, transforms, clipping; see `crates/metafile/src/emfplus.rs` for the few exceptions). Legacy OLE objects (VML preview) and ActiveX controls show their pictures |
 | HEIC | yes (macOS) | no | |
-| Audio: MP3, AAC/M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus | yes (Ogg/Opus partly) | yes | Pure-Rust decoders in `crates/media`, `crates/opus` |
+| Audio: MP3, AAC/M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus | yes (Ogg/Opus partly) | yes | Pure-Rust decoders in `crates/media`; Opus from craft-audio (craft-libs) |
 | WMA | yes (Windows) | embedded, not playable | |
 | Video: H.264, HEVC in MP4/MOV | yes | yes | Pure-Rust, software decode |
 | Video: VP9, AV1 in WebM/MKV | partly (OS codecs) | yes | Ahead of PowerPoint for Mac |
@@ -86,7 +86,7 @@ the round trip even though DeckCraft doesn't model it.
 | Lines: dash, compound, caps, joins, arrowheads | yes | yes | |
 | Text: runs, paragraphs, bullets, numbering, levels, autofit, columns, vertical, RTL, script fonts, fields, hyperlinks | yes | yes | Run `lang` and `altLang` are independently retained through native and PPTX saves; other round-trip tests cover `justLow`, date fields and paragraph `defRPr` (the defaults a placeholder's runs inherit, including a link). A click or hover action keeps its sound, `endSnd`, and a custom show's "Show and return". Gradient and outline on a run, autofit, columns, vertical and RTL text, tab stops and line spacing round-trip (`corpus_style.rs`) |
 | Effects: shadow, glow, soft edges, reflection | yes | yes | On a run, inner shadow, reflection and soft edges are kept along with the outer shadow and glow |
-| 3-D: `scene3d`, `sp3d` | kept | kept | A bevel preset with no `sp3d` of its own is written back on shapes and theme effect styles. Bevels, cameras, face lighting and extrusion sides draw approximately |
+| 3-D: `scene3d`, `sp3d` | kept | kept | A bevel preset with no `sp3d` of its own is written back on shapes and theme effect styles. `scene3d`, `sp3d` and `flatTx` on a text body (`a:bodyPr`) and `scene3d` on a group (`p:grpSpPr`) are kept as raw XML too. Bevels, cameras, face lighting and extrusion sides draw approximately |
 | Text warp (`prstTxWarp`) | yes | yes | All 40 presets rendered (`crates/geom/src/warp.rs`); adjust values (`avLst`) round-trip |
 | Pictures with crop, recolour, duotone, alpha, luminance | yes | yes | |
 | Tables with styles | yes | yes | Merges, both diagonal borders and optional RTL column direction round-trip; Reuse Slides transfers definitions referenced by source tables, including grouped tables, with conflicting ids remapped |
@@ -94,7 +94,7 @@ the round trip even though DeckCraft doesn't model it.
 | Charts (`cx:` chartex: waterfall, funnel, treemap, sunburst, histogram, Pareto, box) | yes | yes | Unchanged parts kept, with their embedded workbook (#335); edited and new ones written from the model with a plain-chart fallback. Treemap and sunburst hierarchy levels kept; region maps kept, drawn as tiles (no map geometry) |
 | SmartArt (`dgm`) | the drawing part as a group (text laid out on its `dsp:txXfrm` rectangle), and the outline from the data model (Text Pane) | as a diagram: data model from the outline; layout, quick style and colour parts (the file's own kept until the layout is switched); the group as the cached drawing | DeckCraft's layout definitions are simple; a diagram without a cached drawing isn't drawn. SmartArt kept only as XML, without its relationship parts, still loses the drawing and data parts (#203) |
 | Equations (OMML, `a14:m`) | no | no | PR #55 open |
-| Audio / video (`p14:media`, trim, fades, bookmarks) | yes | partly | Playback options lost on save (#74) |
+| Audio / video (`p14:media`, trim, fades, bookmarks, playback options) | yes | yes | Volume, mute, autoplay, loop, rewind, play across slides, hide while not playing and full screen round-trip (`media_timing.rs`) |
 | Ink (`contentPart`) | yes | as a group of freeform lines | PowerPoint sees shapes, not ink |
 | Transitions incl. p14/p15 (Vortex, Morph…) | all 48 | all 48 | `every_transition_kind_round_trips` |
 | Animations: timing tree, build paragraphs, triggers, motion paths | yes (flattened to the Animation Pane list) | yes (rebuilt) | `every_animation_effect_survives`; repeat, triggers, bounce end and rewind kept |
@@ -121,6 +121,7 @@ the round trip even though DeckCraft doesn't model it.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-07 | trivial | A slide-list entry whose relationship is missing is reported in `lostSlides` like an unreadable slide part, so the deck opens as a repaired copy; slide lists over 10,000 entries are refused with an import-limit error rather than silently truncated (#1910) |
 | 2026-11-02 | minor | Optional table RTL direction is read and written as `a:tblPr/@rtl`; native and two PPTX saves preserve true, false and absent values with distinguishable column text |
 | 2026-11-02 | minor | Text runs preserve alternate-language metadata in native and PPTX round trips |
 | 2026-11-03 | trivial | Reuse Slides transfers referenced custom table styles from native and PPTX sources; grouped tables, undo, native save/reopen and style-id conflicts are covered |

@@ -30,9 +30,10 @@ fn drive(
         open: Box::new(move |doc, rev| o.borrow_mut().push((doc, rev))),
         files: Box::new(|| None),
         select_file: Box::new(|_, _, _| {}),
-        save_copy: Box::new(move |name, bytes| c.borrow_mut().push((name, bytes))),
+        save_copy: Box::new(move |_, _, name, bytes| c.borrow_mut().push((name, bytes))),
         linked_name: Box::new(move |doc| (linked.get() == Some(doc)).then(|| "แผนงาน.pptx".to_string())),
         save_over: Box::new(move |doc, rev, bytes| r.borrow_mut().push((doc, rev, bytes))),
+        ..Default::default()
     };
     (services, opened, copies, replaced)
 }

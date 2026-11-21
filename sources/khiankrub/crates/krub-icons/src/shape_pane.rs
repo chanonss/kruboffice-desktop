@@ -1,6 +1,8 @@
 //! The object (shape, text box) pane, the same in every KrubOffice app (owner, 2026-11-16; after
-//! LibreOffice's object Properties sidebar): folding sections Area, Line, Effect, and Position
-//! and Size, in that order, with the same rows and the same names.
+//! LibreOffice's object Properties sidebar). Owner, 2026-11-18: three sub-panels chosen with a
+//! segmented control ([`crate::pane_ui`]): Fill and Line (Area, Line), Effects (Shadow, Glow,
+//! Soft Edges) and Size and Position (Size, Arrange), each section under a shaded heading that
+//! folds it, with compact rows whose boxes line up.
 //!
 //! An app passes the selected object's current [`Values`], the rows it can store ([`Caps`]: a
 //! row it can't store is left out, never shown as a button that does nothing), a translator for
@@ -75,6 +77,18 @@ impl Dash {
             Dash::Dashed => "Dashed",
             Dash::LongDash => "Long dash",
             Dash::DashDot => "Dash dot",
+        }
+    }
+
+    /// How it is drawn in the Line style list.
+    pub fn look(self) -> crate::line_style::Look {
+        use crate::line_style::Look;
+        match self {
+            Dash::Solid => Look::Solid,
+            Dash::Dotted => Look::Dotted,
+            Dash::Dashed => Look::Dashed,
+            Dash::LongDash => Look::LongDash,
+            Dash::DashDot => Look::DashDot,
         }
     }
 }
@@ -178,7 +192,13 @@ pub const ICONS: [&str; 12] = [
 ];
 
 /// The English names the module shows, for the apps' translation tables.
-pub const NAMES: [&str; 44] = [
+pub const NAMES: [&str; 50] = [
+    "Fill and Line",
+    "Effects",
+    "Size and Position",
+    "Shadow",
+    "Size",
+    "Arrange",
     "Area",
     "Line",
     "Effect",
@@ -225,10 +245,52 @@ pub const NAMES: [&str; 44] = [
     "Send to Back",
 ];
 
-/// A section: its name as a heading that folds it, open at first.
-fn section(ui: &mut Ui, title: String, add: impl FnOnce(&mut Ui)) {
-    egui::CollapsingHeader::new(egui::RichText::new(title).strong()).id_salt("krub_shape_section").default_open(true).show(ui, add);
-    ui.add_space(2.0);
+/// A section under a shaded heading that folds it ([`crate::pane_ui::section`]); `key` keeps
+/// its folding apart from the other sections'.
+fn section(ui: &mut Ui, key: &str, title: String, open: bool, add: impl FnOnce(&mut Ui)) {
+    crate::pane_ui::section(ui, crate::pane_ui::id(("krub_shape_section", key)), &title, open, add);
+}
+
+/// A grid of label and box rows: the labels in one column of a fixed width, so the boxes of
+/// every section line up.
+fn rows(id: &str) -> egui::Grid {
+    egui::Grid::new(id).num_columns(2).spacing(vec2(8.0, crate::pane_ui::ROW_GAP)).min_col_width(crate::pane_ui::LABEL_W)
+}
+
+/// The sub-panels, in the segmented control's order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    FillLine,
+    Effects,
+    SizePosition,
+}
+
+impl Tab {
+    /// The tabs an app with `caps` shows (Effects only when it stores effects).
+    pub fn shown(caps: Caps) -> Vec<Tab> {
+        let mut v = vec![Tab::FillLine];
+        if caps.effects {
+            v.push(Tab::Effects);
+        }
+        v.push(Tab::SizePosition);
+        v
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Tab::FillLine => "shape-fill",
+            Tab::Effects => "effects",
+            Tab::SizePosition => "size",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Tab::FillLine => "Fill and Line",
+            Tab::Effects => "Effects",
+            Tab::SizePosition => "Size and Position",
+        }
+    }
 }
 
 /// One number box of the pane, for [`Host::number`].
@@ -254,24 +316,50 @@ pub fn drag_number(ui: &mut Ui, n: Number) -> Option<f32> {
     r.changed().then_some(v)
 }
 
-/// The shared sections, in order. Returns this frame's edits.
+/// Where the chosen sub-panel is kept for a pane showing `tabs`.
+fn tab_id(tabs: &[Tab]) -> egui::Id {
+    crate::pane_ui::id(("krub_shape_tab", tabs.len()))
+}
+
+/// The sub-panel the pane shows for `caps`, so an app can put its own sections under it.
+pub fn current_tab(ctx: &egui::Context, caps: Caps) -> Tab {
+    let tabs = Tab::shown(caps);
+    let i = ctx.data_mut(|d| *d.get_persisted_mut_or(tab_id(&tabs), 0usize));
+    tabs.get(i).copied().unwrap_or(Tab::FillLine)
+}
+
+/// The segmented control and the chosen sub-panel's sections. Returns this frame's edits.
 pub fn sections(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: &mut dyn Host) -> Vec<Edit> {
     let mut edits = Vec::new();
-    if caps.area && !v.open {
-        ui.push_id("krub_area", |ui| section(ui, tr("Area"), |ui| area(ui, v, tr, host, &mut edits)));
+    let tabs = Tab::shown(caps);
+    let segments: Vec<crate::pane_ui::Segment> = tabs.iter().map(|t| crate::pane_ui::Segment { icon: t.icon(), label: tr(t.name()) }).collect();
+    let picked = crate::pane_ui::segmented(ui, tab_id(&tabs), &segments, 0);
+    match tabs.get(picked).copied().unwrap_or(Tab::FillLine) {
+        Tab::FillLine => {
+            if caps.area && !v.open {
+                ui.push_id("krub_area", |ui| section(ui, "area", tr("Area"), true, |ui| area(ui, v, tr, host, &mut edits)));
+            }
+            if caps.line {
+                ui.push_id("krub_line", |ui| section(ui, "line", tr("Line"), true, |ui| line(ui, v, caps, tr, host, &mut edits)));
+            }
+        }
+        Tab::Effects => {
+            ui.push_id("krub_shadow", |ui| section(ui, "shadow", tr("Shadow"), true, |ui| host.shadow(ui)));
+            ui.push_id("krub_glow", |ui| section(ui, "glow", tr("Glow"), true, |ui| glow(ui, v, tr, host, &mut edits)));
+            ui.push_id("krub_soft", |ui| section(ui, "soft", tr("Soft Edges"), true, |ui| soft_edges(ui, v, tr, host, &mut edits)));
+        }
+        Tab::SizePosition => {
+            ui.push_id("krub_size", |ui| section(ui, "size", tr("Size"), true, |ui| size(ui, v, caps, tr, host, &mut edits)));
+            if caps.flip || caps.align || caps.arrange {
+                ui.push_id("krub_arrange", |ui| section(ui, "arrange", tr("Arrange"), true, |ui| arrange(ui, caps, tr, host, &mut edits)));
+            }
+        }
     }
-    if caps.line {
-        ui.push_id("krub_line", |ui| section(ui, tr("Line"), |ui| line(ui, v, caps, tr, host, &mut edits)));
-    }
-    if caps.effects {
-        ui.push_id("krub_effect", |ui| section(ui, tr("Effect"), |ui| effect(ui, v, tr, host, &mut edits)));
-    }
-    ui.push_id("krub_position", |ui| section(ui, tr("Position and Size"), |ui| position_size(ui, v, caps, tr, host, &mut edits)));
     edits
 }
 
 fn area(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
-    egui::Grid::new("krub_shape_area").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+    rows("krub_shape_area").show(ui, |ui| {
         ui.label(tr("Fill:"));
         host.color(ui, Slot::Fill, true);
         ui.end_row();
@@ -297,22 +385,21 @@ fn area(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn Hos
 }
 
 fn line(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
-    egui::Grid::new("krub_shape_line").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+    rows("krub_shape_line").show(ui, |ui| {
         let style_label = ui.label(tr("Line style:")).id;
-        let shown = if v.has_line { tr(v.dash.name()) } else { tr("None") };
-        // A fixed list of six that never changes while open, so egui's combo box is fine here
-        // (the apps' own wrappers can't be reached from this shared crate).
-        #[allow(clippy::disallowed_types)]
-        let combo = egui::ComboBox::from_id_salt("krub_shape_line_style").width(150.0).selected_text(shown).show_ui(ui, |ui| {
-            if ui.selectable_label(!v.has_line, tr("None")).clicked() && v.has_line {
-                edits.push(Edit::LineNone);
-            }
-            for d in Dash::ALL {
-                if ui.selectable_label(v.has_line && v.dash == d, tr(d.name())).clicked() {
-                    edits.push(Edit::LineDash(d));
-                }
-            }
-        });
+        // Each style drawn as a line (owner, 2026-11-19); None (no outline) by name.
+        let names: Vec<String> = Dash::ALL.iter().map(|d| tr(d.name())).collect();
+        let none = tr("None");
+        let mut items = vec![crate::line_style::Item::new(None, None, none.as_str())];
+        items.extend(Dash::ALL.iter().zip(&names).map(|(d, n)| crate::line_style::Item::new(Some(*d), Some(d.look()), n.as_str())));
+        let current = if v.has_line { Some(v.dash) } else { None };
+        let (resp, picked) = crate::line_style::combo(ui, crate::pane_ui::id("krub_shape_line_style"), 150.0, Some(current), &items);
+        match picked {
+            Some(None) if v.has_line => edits.push(Edit::LineNone),
+            Some(Some(d)) => edits.push(Edit::LineDash(d)),
+            _ => {}
+        }
+        let combo = egui::InnerResponse::new((), resp);
         let _ = combo.response.labelled_by(style_label);
         ui.end_row();
         let label = ui.label(tr("Thickness:")).id;
@@ -363,11 +450,8 @@ fn line(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: 
     });
 }
 
-fn effect(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
-    host.shadow(ui);
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new(tr("Glow")).strong());
-    egui::Grid::new("krub_shape_glow").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+fn glow(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
+    rows("krub_shape_glow").show(ui, |ui| {
         let label = ui.label(tr("Radius:")).id;
         let name = tr("Radius");
         if let Some(r) = host.number(
@@ -408,9 +492,10 @@ fn effect(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn H
         }
         ui.end_row();
     });
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new(tr("Soft Edges")).strong());
-    egui::Grid::new("krub_shape_soft").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+}
+
+fn soft_edges(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
+    rows("krub_shape_soft").show(ui, |ui| {
         let label = ui.label(tr("Radius:")).id;
         let name = tr("Radius");
         if let Some(r) = host.number(
@@ -423,8 +508,8 @@ fn effect(ui: &mut Ui, v: &Values, tr: &dyn Fn(&str) -> String, host: &mut dyn H
     });
 }
 
-fn position_size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
-    egui::Grid::new("krub_shape_size").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+fn size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
+    rows("krub_shape_size").show(ui, |ui| {
         let max = v.size_max.max(0.1);
         let label = ui.label(tr("Width:")).id;
         let name = tr("Width");
@@ -462,8 +547,11 @@ fn position_size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> Strin
             ui.end_row();
         }
     });
+}
+
+/// Flip, Align and the stacking order, each a row of buttons after its label.
+fn arrange(ui: &mut Ui, caps: Caps, tr: &dyn Fn(&str) -> String, host: &mut dyn Host, edits: &mut Vec<Edit>) {
     if caps.flip {
-        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(tr("Flip:"));
             if host.button(ui, "flipVertical", &tr("Vertically"), &tr("Vertically")) {
@@ -475,7 +563,6 @@ fn position_size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> Strin
         });
     }
     if caps.align {
-        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(tr("Align:"));
             let all = [
@@ -495,7 +582,6 @@ fn position_size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> Strin
         });
     }
     if caps.arrange {
-        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(tr("Arrange:"));
             for (icon, label, op) in [
@@ -519,9 +605,20 @@ mod tests {
     #[test]
     fn dashes_and_names_are_listed_in_order() {
         assert_eq!(Dash::ALL.map(Dash::name), ["Solid", "Dotted", "Dashed", "Long dash", "Dash dot"]);
-        for name in ["Area", "Line", "Effect", "Position and Size", "Line style:", "Keep ratio", "Arrange:"] {
+        for name in
+            ["Area", "Line", "Effect", "Position and Size", "Line style:", "Keep ratio", "Arrange:", "Fill and Line", "Effects", "Size and Position"]
+        {
             assert!(NAMES.contains(&name), "{name}");
         }
         assert_eq!(ICONS.len(), 12);
+    }
+
+    #[test]
+    fn effects_get_a_sub_panel_only_where_they_are_stored() {
+        assert_eq!(Tab::shown(Caps::ALL), [Tab::FillLine, Tab::Effects, Tab::SizePosition]);
+        assert_eq!(Tab::shown(Caps { effects: false, ..Caps::ALL }), [Tab::FillLine, Tab::SizePosition]);
+        for t in Tab::shown(Caps::ALL) {
+            assert!(NAMES.contains(&t.name()), "{:?}", t);
+        }
     }
 }

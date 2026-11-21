@@ -11,7 +11,14 @@ pub(super) fn chart_design(app: &mut SlideApp, ui: &mut Ui) {
                     ui.separator();
                     continue;
                 };
-                if ui.button(k.label()).clicked() {
+                let current = app.session.active().and_then(|d| {
+                    d.selected_shapes().into_iter().find_map(|s| match &s.kind {
+                        deckcraft_model::ShapeKind::Chart(c) => Some(c.kind),
+                        _ => None,
+                    })
+                });
+                let icon = krub_icons::chart_icons::id_for(&format!("{k:?}"), "");
+                if krub_icons::chart_icons::item(ui, icon, tl!(k.label()), current == Some(k), 190.0).clicked() {
                     // Replace the chart's type keeping its data.
                     if let Some(id) = app.session.active().and_then(|d| d.selection.shapes.first().copied()) {
                         let _ = app.run("chart.type", json!({"id": id.0, "type": format!("{k:?}")}));

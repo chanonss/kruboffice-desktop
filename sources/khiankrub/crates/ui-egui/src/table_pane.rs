@@ -3,7 +3,8 @@
 //! sections (styles, borders and shading, rows and columns, merge and split, cell size,
 //! alignment, data, table). It opens by itself when the caret enters a table and closes when it
 //! leaves; its × hides it until the caret leaves the table. It has the shared pane width
-//! ([`crate::panes::PANE_W`]).
+//! ([`crate::panes::PANE_W`]). Owner, 2026-11-18: a segmented control splits it into Styles,
+//! Borders, and Rows and Columns.
 
 use egui::{Ui, vec2};
 use serde_json::json;
@@ -55,38 +56,46 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         close(ui.ctx());
         return;
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("table_pane_scroll").show(ui, |ui| {
-        section(ui, "Table Styles", |ui| styles(app, ui));
-        section(ui, "Borders and Shading", |ui| borders(app, ui));
-        section(ui, "Rows & Columns", |ui| rows_columns(app, ui));
-        section(ui, "Merge and Split", |ui| {
-            buttons(ui, |ui| {
-                labeled(ui, app, "merge", "Merge Cells", "table.merge");
-                labeled(ui, app, "splitCells", "Split Cells", "table.split");
-                labeled(ui, app, "splitTable", "Split Table", "table.splitTable");
+    // Three sub-panels (owner, 2026-11-18, draft B), the same segmented control as the shape
+    // pane's (`krub_icons::pane_ui`).
+    let segments = [
+        krub_icons::pane_ui::Segment { icon: "table", label: tl!("Styles").to_string() },
+        krub_icons::pane_ui::Segment { icon: "borders", label: tl!("Borders").to_string() },
+        krub_icons::pane_ui::Segment { icon: "insertBelow", label: tl!("Rows and Columns").to_string() },
+    ];
+    let tab = krub_icons::pane_ui::segmented(ui, egui::Id::new("table_pane_tab"), &segments, 0);
+    egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("table_pane_scroll", tab)).show(ui, |ui| match tab {
+        0 => {
+            section(ui, "Table Styles", |ui| styles(app, ui));
+            section(ui, "Table", |ui| table(app, ui));
+        }
+        1 => section(ui, "Borders and Shading", |ui| borders(app, ui)),
+        _ => {
+            section(ui, "Rows & Columns", |ui| rows_columns(app, ui));
+            section(ui, "Merge and Split", |ui| {
+                buttons(ui, |ui| {
+                    labeled(ui, app, "merge", "Merge Cells", "table.merge");
+                    labeled(ui, app, "splitCells", "Split Cells", "table.split");
+                    labeled(ui, app, "splitTable", "Split Table", "table.splitTable");
+                });
             });
-        });
-        section(ui, "Cell Size", |ui| cell_size(app, ui));
-        section(ui, "Alignment", |ui| alignment(app, ui));
-        section(ui, "Data", |ui| {
-            buttons(ui, |ui| {
-                labeled(ui, app, "sort", "Sort", "table.sort");
-                labeled(ui, app, "formula", "Formula", "table.formula");
-                labeled(ui, app, "repeatHeader", "Repeat Header Rows", "table.repeatHeader");
-                labeled(ui, app, "toText", "Convert to Text", "table.toText");
+            section(ui, "Cell Size", |ui| cell_size(app, ui));
+            section(ui, "Alignment", |ui| alignment(app, ui));
+            section(ui, "Data", |ui| {
+                buttons(ui, |ui| {
+                    labeled(ui, app, "sort", "Sort", "table.sort");
+                    labeled(ui, app, "formula", "Formula", "table.formula");
+                    labeled(ui, app, "repeatHeader", "Repeat Header Rows", "table.repeatHeader");
+                    labeled(ui, app, "toText", "Convert to Text", "table.toText");
+                });
             });
-        });
-        section(ui, "Table", |ui| table(app, ui));
+        }
     });
 }
 
-/// A section: a heading that folds it, open at first.
+/// A section under a shaded heading that folds it, open at first (`krub_icons::pane_ui`).
 pub(crate) fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    egui::CollapsingHeader::new(egui::RichText::new(tl!(title)).font(crate::theme::semibold(12.5)))
-        .id_salt(("side_pane_section", title))
-        .default_open(true)
-        .show(ui, add);
-    ui.add_space(2.0);
+    krub_icons::pane_ui::section(ui, egui::Id::new(("side_pane_section", title)), tl!(title), true, add);
 }
 
 /// Buttons that wrap onto as many rows as the pane's width needs.
@@ -174,8 +183,216 @@ fn borders(app: &mut WordApp, ui: &mut Ui) {
             crate::colors::menu(ui, app, &theme, Target::cmd("table.shading").remember(Remember::Shading));
         });
         menu(ui, app, "borders", "Borders", "table.borders", border_items);
-        labeled(ui, app, "borderPainter", "Border Painter", "table.borderPainter");
     });
+    border_pen(app, ui);
+}
+
+/// The line styles the pen offers: OOXML name and label.
+const PEN_STYLES: [(&str, &str); 6] = [
+    ("single", "Solid line"),
+    ("dashed", "Dashed line"),
+    ("dotted", "Dotted line"),
+    ("double", "Double line"),
+    ("dotDash", "Dash-dot line"),
+    ("thick", "Thick line"),
+];
+/// The pen's Line style (owner, 2026-11-19: "show the real line, it says more than words"):
+/// the box and its menu show each style drawn as a line (`line_looks`).
+fn pen_style(app: &mut WordApp, ui: &mut Ui) {
+    crate::line_looks::names(ui, egui::Id::new("tp_pen_style"), 120.0, &mut app.border_pen.style, &PEN_STYLES);
+}
+
+/// The weights the pen offers, points.
+const PEN_WEIGHTS: [f32; 9] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0];
+
+/// Owner, 2026-11-17: a pen (line style, weight, color) for any of a table's lines. The line
+/// buttons and the small table below set the selected cells' edges, or with Whole table the
+/// table's own lines; Border Painter paints single lines on the page with it.
+fn border_pen(app: &mut WordApp, ui: &mut Ui) {
+    let enabled = crate::widgets::enabled(app, "table.borders");
+    ui.add_enabled_ui(enabled, |ui| {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(tl!("Pen")).small().weak());
+        egui::Grid::new("tp_pen").num_columns(2).spacing(vec2(8.0, 4.0)).show(ui, |ui| {
+            ui.label(tl!("Line style:"));
+            pen_style(app, ui);
+            ui.end_row();
+            ui.label(tl!("Line weight:"));
+            egui::ComboBox::from_id_salt("tp_pen_width").selected_text(format!("{} pt", app.border_pen.width)).width(120.0).show_ui(ui, |ui| {
+                for w in PEN_WEIGHTS {
+                    if ui.selectable_label((app.border_pen.width - w).abs() < 1e-3, format!("{w} pt")).clicked() {
+                        app.border_pen.width = w;
+                    }
+                }
+            });
+            ui.end_row();
+            ui.label(tl!("Line color:"));
+            pen_color(app, ui);
+            ui.end_row();
+        });
+        // On a line of its own, the two choices sharing the pane's width: beside the label
+        // they were wider than the pane and pushed it past its left edge.
+        ui.add_space(2.0);
+        ui.label(tl!("Apply to:"));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let half = ((ui.available_width() - 4.0) / 2.0).max(0.0);
+            for (whole, label) in [(false, "Selected cells"), (true, "Whole table")] {
+                let button = egui::Button::selectable(app.border_pen.whole_table == whole, tl!(label)).truncate();
+                if ui.add_sized(vec2(half, 22.0), button).clicked() {
+                    app.border_pen.whole_table = whole;
+                }
+            }
+        });
+        ui.add_space(4.0);
+        if let Some(kind) = pen_preview(app, ui) {
+            apply_pen(app, kind);
+        }
+        buttons(ui, |ui| {
+            for (kind, tip) in [
+                ("top", "Top Border"),
+                ("bottom", "Bottom Border"),
+                ("left", "Left Border"),
+                ("right", "Right Border"),
+                ("insideH", "Inside Horizontal Border"),
+                ("insideV", "Inside Vertical Border"),
+                ("outside", "Outside Borders"),
+                ("all", "All Borders"),
+                ("none", "No Border"),
+                ("diagDown", "Diagonal Down Border"),
+                ("diagUp", "Diagonal Up Border"),
+            ] {
+                if line_button(ui, kind, tl!(tip)).clicked() {
+                    apply_pen(app, kind);
+                }
+            }
+        });
+        ui.add_space(2.0);
+        let on = app.canvas.table_tool == Some(crate::table_pen::TableTool::Paint);
+        buttons(ui, |ui| toggle(ui, app, "borderPainter", "Border Painter", "table.borderPainter", on));
+    });
+}
+
+/// A line button: the Borders menu's picture of `kind`, framed while hovered.
+fn line_button(ui: &mut Ui, kind: &str, tip: &str) -> egui::Response {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 24.0), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 4.0, t.hover);
+    }
+    let pic = egui::Rect::from_center_size(r.center(), vec2(20.0, 17.0));
+    crate::ribbon::layout_picture(ui.painter(), pic, &format!("tb_{kind}"), t.icon, t.accent);
+    resp.on_hover_text(tip)
+}
+
+/// The pen's color: a swatch that opens Automatic and the palette.
+fn pen_color(app: &mut WordApp, ui: &mut Ui) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let fill = app.border_pen.color.as_deref().and_then(wordcraft_doc::Rgb::parse).map_or(t.text, |c| egui::Color32::from_rgb(c.0, c.1, c.2));
+    let label = app.border_pen.color.clone().unwrap_or_else(|| tl!("Automatic").to_string());
+    let resp = ui.add(egui::Button::new(egui::RichText::new(format!("■ {label}")).color(fill)).min_size(vec2(120.0, 0.0)));
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(200.0);
+        if ui.button(tl!("Automatic")).clicked() {
+            app.border_pen.color = None;
+        }
+        let theme = app.session.doc.settings.theme_colors.clone();
+        if let Some(crate::colors::Pick::Color(hex)) = crate::colors::palette(ui, &theme) {
+            app.border_pen.color = Some(hex.trim_start_matches('#').to_string());
+            ui.close();
+        }
+    });
+}
+
+/// `table.borders` with the pen: the selected cells' `kind` edges, or the whole table's.
+fn apply_pen(app: &mut WordApp, kind: &str) {
+    let scope = if app.border_pen.whole_table && !kind.starts_with("diag") { "table" } else { "selection" };
+    let params = app.border_pen.params(json!({"kind": kind, "scope": scope}));
+    if let Err(e) = app.run("table.borders", params) {
+        app.status(e);
+    }
+}
+
+/// A small three-by-three table; a click on one of its lines (top, bottom, left, right, the
+/// inside ones) is that line button. The line under the pointer shows in the pen.
+fn pen_preview(app: &WordApp, ui: &mut Ui) -> Option<&'static str> {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let w = ui.available_width().min(220.0);
+    let (r, resp) = ui.allocate_exact_size(vec2(w, 84.0), egui::Sense::click());
+    let painter = ui.painter_at(r.expand(4.0));
+    let inner = r.shrink(8.0);
+    let xs: Vec<f32> = (0..4).map(|i| inner.left() + inner.width() * i as f32 / 3.0).collect();
+    let ys: Vec<f32> = (0..4).map(|i| inner.top() + inner.height() * i as f32 / 3.0).collect();
+    if !app.border_pen.whole_table {
+        // The selected cells: the middle column, tinted.
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(xs[1], ys[0]), egui::pos2(xs[2], ys[3])), 0.0, t.selection);
+    }
+    let faint = egui::Stroke::new(1.0, t.border);
+    let lines: Vec<(&'static str, egui::Pos2, egui::Pos2)> = {
+        let mut v = Vec::new();
+        for (i, y) in ys.iter().enumerate() {
+            let kind = match i {
+                0 => "top",
+                3 => "bottom",
+                _ => "insideH",
+            };
+            v.push((kind, egui::pos2(xs[0], *y), egui::pos2(xs[3], *y)));
+        }
+        for (i, x) in xs.iter().enumerate() {
+            let kind = match i {
+                0 => "left",
+                3 => "right",
+                _ => "insideV",
+            };
+            v.push((kind, egui::pos2(*x, ys[0]), egui::pos2(*x, ys[3])));
+        }
+        v
+    };
+    let hover = resp.hover_pos();
+    let near = |a: egui::Pos2, b: egui::Pos2, p: egui::Pos2| {
+        let (lo, hi) = (a.min(b), a.max(b));
+        let d = if a.x == b.x { (p.x - a.x).abs() } else { (p.y - a.y).abs() };
+        d <= 5.0 && p.x >= lo.x - 5.0 && p.x <= hi.x + 5.0 && p.y >= lo.y - 5.0 && p.y <= hi.y + 5.0
+    };
+    let hot = hover.and_then(|p| lines.iter().find(|(_, a, b)| near(*a, *b, p)).map(|(k, ..)| *k));
+    let pen_color = app.border_pen.color.as_deref().and_then(wordcraft_doc::Rgb::parse).map_or(t.text, |c| egui::Color32::from_rgb(c.0, c.1, c.2));
+    let pen = egui::Stroke::new((app.border_pen.width * 1.5).clamp(1.0, 6.0), pen_color);
+    for (kind, a, b) in &lines {
+        if Some(*kind) == hot {
+            pen_line(&painter, *a, *b, pen, &app.border_pen.style);
+        } else {
+            painter.line_segment([*a, *b], faint);
+        }
+    }
+    let resp = resp.on_hover_text(tl!("Click a line to give it the pen's line"));
+    if hot.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() { hot } else { None }
+}
+
+/// A line from `a` to `b` drawn in border style `style`.
+fn pen_line(p: &egui::Painter, a: egui::Pos2, b: egui::Pos2, s: egui::Stroke, style: &str) {
+    match style {
+        "dashed" => {
+            p.extend(egui::Shape::dashed_line(&[a, b], s, 6.0, 4.0));
+        }
+        "dotted" => {
+            p.extend(egui::Shape::dotted_line(&[a, b], s.color, 4.0, s.width / 2.0 + 0.5));
+        }
+        "dotDash" => {
+            p.extend(egui::Shape::dashed_line_with_offset(&[a, b], s, &[8.0, 2.0], &[3.0, 3.0], 0.0));
+        }
+        "double" => {
+            let off = if a.x == b.x { vec2(1.8, 0.0) } else { vec2(0.0, 1.8) };
+            let thin = egui::Stroke::new((s.width / 2.0).max(1.0), s.color);
+            p.line_segment([a - off, b - off], thin);
+            p.line_segment([a + off, b + off], thin);
+        }
+        _ => {
+            p.line_segment([a, b], s);
+        }
+    }
 }
 
 fn rows_columns(app: &mut WordApp, ui: &mut Ui) {
@@ -266,6 +483,13 @@ mod tests {
 
     type H = egui_kittest::Harness<'static, WordApp>;
 
+    /// Show the pane's sub-panel `i` (0 Styles, 1 Borders, 2 Rows and Columns), as a click on
+    /// its slot does.
+    fn table_tab(h: &mut H, i: usize) {
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("table_pane_tab"), i));
+        h.run_steps(3);
+    }
+
     fn window(app: WordApp) -> H {
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
@@ -287,24 +511,25 @@ mod tests {
         app.run("caret.docEnd", json!({})).unwrap();
         app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
         let mut h = window(app);
-        assert!(h.query_by_label("Merge and Split").is_some(), "the pane is open in the table");
+        assert!(h.query_by_label("Rows and Columns").is_some(), "the pane is open in the table");
         assert!(!crate::ribbon::contextual_tabs(&h.state().session).contains(&"Table Design"));
         // A pane button runs its command.
         let rows = |h: &H| h.state().session.doc.body.iter().find_map(|b| b.as_table()).map(|t| t.rows.len());
+        table_tab(&mut h, 2);
         h.get_by_label("Insert Below").click();
         h.run_steps(3);
         assert_eq!(rows(&h), Some(3));
         close(&h.ctx);
         h.run_steps(3);
-        assert!(h.query_by_label("Merge and Split").is_none(), "closed");
+        assert!(h.query_by_label("Rows and Columns").is_none(), "closed");
         h.state_mut().run("caret.docStart", json!({})).unwrap();
         h.run_steps(3);
-        assert!(h.query_by_label("Merge and Split").is_none(), "outside a table");
+        assert!(h.query_by_label("Rows and Columns").is_none(), "outside a table");
         h.state_mut().run("caret.docEnd", json!({})).unwrap();
         h.state_mut().run("caret.up", json!({})).unwrap();
         h.run_steps(3);
         assert!(h.state().session.sel.focus.path.cell().is_some());
-        assert!(h.query_by_label("Merge and Split").is_some(), "back in a table, it opens again");
+        assert!(h.query_by_label("Rows and Columns").is_some(), "back in a table, it opens again");
     }
 
     /// Clicking into a table opens the pane, and the page keeps the keyboard: what is typed next
@@ -316,7 +541,7 @@ mod tests {
         app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
         app.run("caret.docStart", json!({})).unwrap();
         let mut h = window(app);
-        assert!(h.query_by_label("Merge and Split").is_none(), "no pane outside the table");
+        assert!(h.query_by_label("Rows and Columns").is_none(), "no pane outside the table");
         let cell = h.state_mut().session.layout().pages[0]
             .items
             .iter()
@@ -333,7 +558,7 @@ mod tests {
             h.step();
         }
         h.run_steps(3);
-        assert!(h.query_by_label("Merge and Split").is_some(), "the pane opened");
+        assert!(h.query_by_label("Rows and Columns").is_some(), "the pane opened");
         h.event(egui::Event::Text("Hi".into()));
         h.run_steps(2);
         let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
@@ -354,13 +579,13 @@ mod tests {
         h.state_mut().run("view.stylesPane", json!({"value": true})).unwrap();
         h.run_steps(3);
         assert_eq!(crate::panes::right_active(&h.ctx), Some("styles"), "the newest pane comes to the front");
-        assert!(h.query_by_label("Merge and Split").is_none(), "one pane at a time");
+        assert!(h.query_by_label("Rows and Columns").is_none(), "one pane at a time");
         assert_eq!(width(&h, "right_dock"), table_w, "the width stays");
         // The strip has a button for each open pane; the table's brings it back.
         h.get_by_label(tl!("Table")).click();
         h.run_steps(3);
         assert_eq!(crate::panes::right_active(&h.ctx), Some("table"));
-        assert!(h.query_by_label("Merge and Split").is_some());
+        assert!(h.query_by_label("Rows and Columns").is_some());
         assert!(h.state().session.view.styles_pane, "Styles stays open behind it");
         // Closing the front pane shows the one before it.
         close(&h.ctx);
@@ -370,5 +595,113 @@ mod tests {
         h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("krub_side_pane_w"), 340.0_f32));
         h.run_steps(3);
         assert!(width(&h, "right_dock").is_some_and(|w| w > table_w.unwrap_or(0.0) + 40.0));
+    }
+
+    /// Everything in the Table pane fits its width (owner, 2026-11-18: the pen's Apply to row
+    /// was wider than the pane, pushed its contents past the left edge and cut off "Table").
+    #[test]
+    fn the_table_pane_fits_the_shared_width() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        let mut h = window(app);
+        assert_eq!(crate::panes::right_active(&h.ctx), Some("table"));
+        let dock = egui::PanelState::load(&h.ctx, egui::Id::new("right_dock")).map(|p| p.outer_rect).unwrap();
+        for label in ["Table Styles", "Rows and Columns"] {
+            let r = h.get_by_label(tl!(label)).rect();
+            assert!(r.left() >= dock.left() && r.right() <= dock.right() + 0.5, "{label} at {r:?} is outside the pane {dock:?}");
+        }
+        table_tab(&mut h, 1);
+        for label in ["Borders and Shading", "Pen", "Line style:", "Apply to:", "Selected cells", "Whole table"] {
+            let r = h.get_by_label(tl!(label)).rect();
+            assert!(r.left() >= dock.left() && r.right() <= dock.right() + 0.5, "{label} at {r:?} is outside the pane {dock:?}");
+        }
+        // The widest row: the Apply to choices go under their label, not beside it, so a wider
+        // interface font (the web's) can't push the row past the pane.
+        let below = h.get_by_label(tl!("Apply to:")).rect().bottom();
+        for label in ["Selected cells", "Whole table"] {
+            assert!(h.get_by_label(tl!(label)).rect().top() >= below - 0.5, "{label} sits under Apply to:");
+        }
+    }
+
+    /// The pen's Line style menu shows drawn lines (owner, 2026-11-19); each keeps its name for
+    /// assistive technology, and picking one sets the pen.
+    #[test]
+    fn the_line_style_menu_picks_by_its_drawn_lines() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        let mut h = window(app);
+        table_tab(&mut h, 1);
+        h.get_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().as_deref() == Some("Solid line")).click();
+        h.run_steps(3);
+        for label in ["Solid line", "Dashed line", "Dotted line", "Double line", "Dash-dot line", "Thick line"] {
+            assert!(h.query_by_label(label).is_some(), "{label} is in the menu");
+        }
+        h.get_by_label("Dotted line").click();
+        h.run_steps(3);
+        assert_eq!(h.state().border_pen.style, "dotted");
+        assert!(h.query_by_label("Dashed line").is_none(), "the menu closes");
+        assert!(
+            h.query_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().as_deref() == Some("Dotted line")).is_some(),
+            "the box names the new style"
+        );
+    }
+
+    /// The dock is persistent (owner, 2026-11-17): Navigation shows while nothing is selected,
+    /// an object's pane takes its place at the same width and leaving the object brings
+    /// Navigation back; the chevron folds the dock to its strip, a selected object doesn't
+    /// unfold it, and its strip button (or View › Navigation Pane) does.
+    #[test]
+    fn the_dock_stays_with_navigation_and_folds() {
+        let app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Before")), crate::Services::default());
+        let mut h = window(app);
+        let width = |h: &H| egui::PanelState::load(&h.ctx, egui::Id::new("right_dock")).map(|p| p.outer_rect.width());
+        let active = |h: &H| crate::panes::right_active(&h.ctx);
+        assert_eq!(active(&h), Some("nav"), "Navigation is the home pane");
+        assert!(h.state().session.view.nav_pane);
+        let nav_w = width(&h);
+        assert!(nav_w.is_some());
+        h.state_mut().run("caret.docEnd", json!({})).unwrap();
+        h.state_mut().run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        h.run_steps(3);
+        assert_eq!(active(&h), Some("table"));
+        assert!(!h.state().session.view.nav_pane);
+        assert_eq!(width(&h), nav_w, "the same place, the same width");
+        assert!(h.state().session.sel.focus.path.cell().is_some());
+        h.state_mut().run("caret.docStart", json!({})).unwrap();
+        h.run_steps(3);
+        assert_eq!(active(&h), Some("nav"), "out of the table, back to Navigation");
+        // Fold it.
+        h.get_by_label(tl!("Collapse Side Panel")).click();
+        h.run_steps(3);
+        assert!(crate::panes::right_collapsed(&h.ctx));
+        assert!(!h.state().session.view.nav_pane, "View › Navigation Pane shows it folded");
+        // Into the table: still folded, the Table button waits in the strip.
+        h.state_mut().run("caret.docEnd", json!({})).unwrap();
+        h.state_mut().run("caret.up", json!({})).unwrap();
+        h.run_steps(3);
+        assert!(crate::panes::right_collapsed(&h.ctx), "a selection doesn't unfold the dock");
+        assert!(h.query_by_label("Rows and Columns").is_none());
+        h.get_by_label(tl!("Table")).click();
+        h.run_steps(3);
+        assert!(!crate::panes::right_collapsed(&h.ctx));
+        assert!(h.query_by_label("Rows and Columns").is_some());
+        // View › Navigation Pane brings Navigation to the front; off folds the dock.
+        h.state_mut().run("view.navigationPane", json!({"value": true})).unwrap();
+        h.run_steps(3);
+        assert_eq!(active(&h), Some("nav"));
+        h.state_mut().run("view.navigationPane", json!({"value": false})).unwrap();
+        h.run_steps(3);
+        assert!(crate::panes::right_collapsed(&h.ctx));
+        h.get_by_label(tl!("Expand Side Panel")).click();
+        h.run_steps(3);
+        assert!(!crate::panes::right_collapsed(&h.ctx));
+        assert!(h.state().session.view.nav_pane);
+        // The same from a script: ui.sidePanel.
+        h.state_mut().run("ui.sidePanel", json!({"value": false})).unwrap();
+        h.run_steps(3);
+        assert!(crate::panes::right_collapsed(&h.ctx));
+        h.state_mut().run("ui.sidePanel", json!({})).unwrap();
+        h.run_steps(3);
+        assert!(!crate::panes::right_collapsed(&h.ctx), "no value toggles");
     }
 }

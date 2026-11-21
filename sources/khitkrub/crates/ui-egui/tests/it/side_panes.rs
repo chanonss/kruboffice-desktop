@@ -86,15 +86,25 @@ fn a_shape_pane_has_the_shared_sections() {
     h.state_mut().selected_object = Some(shape);
     h.run_steps(3);
     assert_eq!(active_pane(&h.ctx), Some("obj:shape"));
+    // Three sub-panels (owner, 2026-11-18): Fill and Line, Effects, Size and Position.
+    use krub_icons::shape_pane::Tab;
     let top = |h: &Harness, label: &str| h.get_by_label(label).rect().top();
-    let order = ["Area", "Line", "Position and Size", "Properties"].map(|l| top(&h, l));
+    for tab in ["Fill and Line", "Effects", "Size and Position"] {
+        assert!(h.query_by_label(tab).is_some(), "the {tab} slot");
+    }
+    let order = ["Area", "Line"].map(|l| top(&h, l));
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-    for row in ["Fill:", "Line style:", "Thickness:", "Arrange:", "Flip:", "Keep ratio"] {
+    for row in ["Fill:", "Line style:", "Thickness:"] {
         assert!(h.query_by_label(row).is_some(), "{row}");
     }
-    let order = ["Line", "Effect", "Position and Size"].map(|l| top(&h, l));
-    assert!(order.windows(2).all(|w| w[0] < w[1]), "Effect sits between Line and Position and Size: {order:?}");
-    for row in ["Shadow ⏷", "Soft Edges"] {
+    crate::support::show_shape_tab(&mut h, Tab::SizePosition);
+    let order = ["Width:", "Flip:", "Properties"].map(|l| top(&h, l));
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "Size, Arrange, then KhitKrub's Properties: {order:?}");
+    for row in ["Arrange:", "Flip:", "Keep ratio"] {
+        assert!(h.query_by_label(row).is_some(), "{row}");
+    }
+    crate::support::show_shape_tab(&mut h, Tab::Effects);
+    for row in ["Shadow ⏷", "Soft Edges", "Glow"] {
         assert!(h.query_by_label(row).is_some(), "{row}");
     }
     // The Shadow menu's tiles set and remove the shadow.
@@ -109,6 +119,7 @@ fn a_shape_pane_has_the_shared_sections() {
     h.get_by_label("No Shadow").click();
     h.run_steps(2);
     assert_eq!(fmt(&h).shadow, None);
+    crate::support::show_shape_tab(&mut h, Tab::SizePosition);
     h.get_by_label("Bring to Front").click();
     h.run_steps(2);
     h.state_mut().run("shape.format", json!({"id": id, "fillTransparency": 30})).unwrap();

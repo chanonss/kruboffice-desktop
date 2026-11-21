@@ -151,6 +151,11 @@ pub struct ChartSpec {
     /// Show each point's value next to it.
     #[serde(default)]
     pub data_labels: bool,
+    /// How each part looks (owner, 2026-11-19: the shared chart pane, `krub_chart_format`):
+    /// fill, border, effects and text of the chart area, plot area, title, legend, axes,
+    /// gridlines and series. Everything automatic draws as before.
+    #[serde(default, skip_serializing_if = "krub_chart_format::Formats::is_auto")]
+    pub format: krub_chart_format::Formats,
 }
 
 impl ChartSpec {
@@ -172,6 +177,7 @@ impl ChartSpec {
             title: None,
             legend: Some(LegendPos::Bottom),
             data_labels: false,
+            format: Default::default(),
         }
     }
 

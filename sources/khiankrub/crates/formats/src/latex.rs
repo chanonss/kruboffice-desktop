@@ -243,8 +243,10 @@ impl Writer {
         }
         self.out.push_str("\\begin{verbatim}\n");
         for l in lines {
-            // The environment ends at the first `\end{verbatim}`, so keep it from appearing.
-            let l: String = l.replace("\\end{verbatim}", "\\end {verbatim}").chars().filter(|c| *c == '\t' || !c.is_control()).collect();
+            // The environment ends at the first `\end{verbatim}`, so keep it from appearing. The
+            // control characters go first: removing one afterwards could join a delimiter back up.
+            let l: String = l.chars().filter(|c| *c == '\t' || !c.is_control()).collect();
+            let l = l.replace("\\end{verbatim}", "\\end {verbatim}");
             self.out.push_str(&l);
             self.out.push('\n');
         }
@@ -2620,19 +2622,24 @@ fn table(toks: &[Tok], spec: &str, depth: usize) -> FTable {
         for cell_toks in r {
             let mut cell = Cell::default();
             let mut content = trim_cell(cell_toks);
-            // `\multicolumn{n}{spec}{content}`, `\multirow{n}{width}{content}`.
+            // `\multicolumn{n}{spec}{content}`, `\multirow{n}{width}{content}`. Each wrapper
+            // rescans its content, so only MAX_NEST of them are unwrapped (a cell nests one or
+            // two); further ones stay in the content.
             let mut sub = Parser::new(content, depth + 1);
+            let mut wrappers = 0usize;
             loop {
                 sub.skip_spaces();
                 match sub.t.get(sub.pos) {
-                    Some(Tok::Cmd(c)) if c == "multicolumn" => {
+                    Some(Tok::Cmd(c)) if c == "multicolumn" && wrappers < MAX_NEST => {
+                        wrappers += 1;
                         sub.pos += 1;
                         cell.colspan = sub.arg_raw().trim().parse::<u32>().unwrap_or(1).clamp(1, 63);
                         let _ = sub.arg_raw();
                         content = sub.arg_tokens();
                         sub = Parser::new(content, depth + 1);
                     }
-                    Some(Tok::Cmd(c)) if c == "multirow" || c == "multirow*" => {
+                    Some(Tok::Cmd(c)) if (c == "multirow" || c == "multirow*") && wrappers < MAX_NEST => {
+                        wrappers += 1;
                         sub.pos += 1;
                         let _ = sub.opt_arg();
                         cell.rowspan = sub.arg_raw().trim().parse::<i64>().map(|n| n.unsigned_abs().clamp(1, 1000) as u32).unwrap_or(1);

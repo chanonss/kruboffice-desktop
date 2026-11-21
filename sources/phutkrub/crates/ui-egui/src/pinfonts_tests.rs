@@ -39,7 +39,7 @@ fn pins(h: &Harness<'_, SlideApp>, prefix: &str) -> Vec<String> {
 #[test]
 fn fonts_pin_and_unpin_from_the_home_font_list() {
     let mut h = harness();
-    h.get_by_label("Comic Neue").click();
+    h.get_by_label("Font").click();
     h.run_steps(3);
     // The two theme fonts come first; pin the first of the whole list.
     let font = pins(&h, "Pin to Top: ").get(2).cloned().expect("the list shows its fonts");

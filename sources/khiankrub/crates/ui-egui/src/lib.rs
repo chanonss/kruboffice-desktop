@@ -36,6 +36,7 @@ pub mod credits;
 pub mod crop;
 pub mod desktop_theme;
 pub mod dialogs;
+pub mod dialogs_bullet;
 pub mod dialogs_character;
 pub mod dialogs_chart;
 pub mod dialogs_controls;
@@ -52,18 +53,22 @@ pub mod dialogs_smart_art;
 pub mod dialogs_style;
 pub mod dialogs_table_style;
 pub mod dialogs_templates;
+pub mod drag_readout;
 pub mod equation_tab;
 /// The built-in file browser, for desktops without a system file dialog (#576).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod file_browser;
 pub mod file_dialogs;
+pub mod font_download;
 pub mod frame;
 pub mod guides;
+pub mod hf_pane;
 pub mod i18n;
 pub mod icons;
 pub mod ink;
 pub mod keys;
 pub mod keytips;
+mod line_looks;
 pub mod mini_toolbar;
 pub mod number_select;
 pub mod number_text;
@@ -368,6 +373,9 @@ pub struct UiState {
     /// View › Switch Modes: show pages dark (white text on black), kept between runs. Only the
     /// pages: the interface follows [`UiState::theme`] (#312).
     pub dark_page: bool,
+    /// View › Text Boundaries and File › Options › General: the dotted lines round the text area
+    /// on every page, kept between runs (owner, 2026-11-20; on by default).
+    pub text_boundaries: bool,
     /// File › Options › Advanced › Animation: the caret glides to its new place and its blink
     /// fades, as Word's does on Windows (on, the default), or it jumps and blinks on and off
     /// (off).
@@ -412,6 +420,9 @@ pub struct UiState {
     pub update_skipped: String,
     /// File › Options › General: show the mini toolbar over a selection.
     pub mini_toolbar: bool,
+    /// File › Options › General: tell about a document's missing fonts KhianKrub knows where to
+    /// get ([`font_download`]); the box's "Don't show this again" turns it off.
+    pub font_download_notice: bool,
     /// File › Options › Advanced › Editing: moving a picture or shape snaps it to alignment
     /// guides (on by default; Alt moves freely).
     pub alignment_guides: bool,
@@ -471,6 +482,7 @@ impl Default for UiState {
             alt_pressed: false,
             alt_chord_used: false,
             dark_page: false,
+            text_boundaries: true,
             caret_animation: true,
             keyboard: wordcraft_engine::KeyMap::default(),
             ribbon: wordcraft_engine::RibbonLayout::default(),
@@ -487,6 +499,7 @@ impl Default for UiState {
             update_checked_on: String::new(),
             update_skipped: String::new(),
             mini_toolbar: true,
+            font_download_notice: true,
             alignment_guides: true,
             start_screen: true,
             print_backgrounds: false,
@@ -542,6 +555,14 @@ pub struct WordApp {
     /// Content control frames, check boxes and lists on the page.
     pub controls: content_controls::ControlUi,
     pub dialog: Option<dialogs::Dialog>,
+    /// Table Properties shows column widths on the page as they're typed (owner, 2026-11-17):
+    /// the document before the dialog's first change, and what was last applied over it.
+    pub(crate) table_preview: Option<dialogs::TablePreview>,
+    /// The grid columns of the caret's table that Table Properties is adjusting, tinted on the
+    /// page while it is open.
+    pub(crate) column_highlight: Vec<usize>,
+    /// The Table pane's border pen: what Border Painter and the line buttons draw with.
+    pub border_pen: table_pen::BorderPen,
     /// The Colors dialog (More Colors…), shown above any other dialog (#606).
     pub colors: Option<colors::ColorsDialog>,
     /// The Restrict Editing pane (#412).
@@ -572,6 +593,9 @@ pub struct WordApp {
     control_click: bool,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
+    /// The tab strip's tabs in order this frame, File first: a number keytip picks the tab at its
+    /// index (`krub_icons::tab_keys`).
+    pub(crate) keytip_tabs: Vec<String>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
     pub(crate) nav_search_focus: bool,
     styled: bool,
@@ -625,6 +649,11 @@ pub struct WordApp {
     /// The document's fonts that aren't installed, for the status bar and the font box, and the
     /// layout they were read from (#4770).
     pub missing_fonts: crate::chrome::MissingFontsMemo,
+    /// The documents (by id) the missing-fonts box has been considered for
+    /// ([`font_download::tick`]).
+    pub(crate) font_notice_seen: Vec<u64>,
+    /// Whether that box comes up by itself ([`WordApp::tell_about_font_downloads`]).
+    pub(crate) font_notices: bool,
     pub word_count: (u64, usize),
     last_autosave: f64,
     /// The tab shown before the Equation tab came up (restored when editing ends).
@@ -714,6 +743,9 @@ impl WordApp {
             canvas: canvas::CanvasState::default(),
             controls: Default::default(),
             dialog: None,
+            table_preview: None,
+            column_highlight: Vec::new(),
+            border_pen: Default::default(),
             colors: None,
             restrict: Default::default(),
             status_msg: None,
@@ -727,6 +759,7 @@ impl WordApp {
             synthetic: Vec::new(),
             control_click: false,
             keytip_rects: Vec::new(),
+            keytip_tabs: Vec::new(),
             nav_search_focus: false,
             styled: false,
             fonts_hans: false,
@@ -754,6 +787,8 @@ impl WordApp {
             quit_requested: false,
             autosave: true,
             missing_fonts: Default::default(),
+            font_notice_seen: Vec::new(),
+            font_notices: false,
             word_count: (0, 0),
             last_autosave: 0.0,
             equation_prev_tab: None,
@@ -823,6 +858,7 @@ impl WordApp {
         ui.read_aloud_rate = self.session.read_aloud.rate();
         ui.read_aloud_skip_citations = self.session.read_aloud.skip_citations;
         ui.dark_page = self.session.view.dark_mode;
+        ui.text_boundaries = self.session.view.text_boundaries;
         ui.keyboard = self.session.keymap.clone();
         ui.ribbon = self.session.ribbon.clone();
         ui.ink_pens = self.session.view.draw.pens.clone();
@@ -865,6 +901,7 @@ impl WordApp {
         self.session.read_aloud.set_rate(self.ui.read_aloud_rate);
         self.session.read_aloud.skip_citations = self.ui.read_aloud_skip_citations;
         self.session.view.dark_mode = self.ui.dark_page;
+        self.session.view.text_boundaries = self.ui.text_boundaries;
         // Keys for commands this version doesn't have are dropped.
         self.session.keymap = std::mem::take(&mut self.ui.keyboard);
         let reg = self.session.registry.clone();
@@ -1019,6 +1056,15 @@ impl WordApp {
                 }
                 self.session.run("file.encrypt", &json!({"password": pw})).map_err(|e| e.to_string())?;
             }
+            // Like a failed native save, a failed serialization or download keeps the save stamps
+            // (from WordCraft #6824).
+            let before_stamp = (
+                self.session.doc.settings.zoom,
+                self.session.doc.core.last_modified_by.clone(),
+                self.session.doc.core.created.clone(),
+                self.session.doc.core.modified.clone(),
+                self.session.doc.core.revision,
+            );
             // A save is a save, download or not: advance the revision and modified stamp (#262).
             if matches!(id, "file.save" | "file.saveAs") {
                 self.session.stamp_save();
@@ -1027,7 +1073,13 @@ impl WordApp {
             let password =
                 if matches!(id, "file.save" | "file.saveAs") { self.session.password.as_ref().map(wordcraft_engine::Password::as_str) } else { None };
             let opts = wordcraft_engine::cmd::file::export_options(&self.session, &params);
-            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts)?;
+            let bytes = match wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    self.restore_save_stamp(before_stamp);
+                    return Err(error);
+                }
+            };
             // A ticket left over from an earlier call isn't this save's.
             let saves = self.services.async_saves.clone();
             if let Some(saves) = &saves {
@@ -1036,6 +1088,7 @@ impl WordApp {
             if let Some(d) = &self.services.download
                 && let Err(e) = d(&name, &bytes)
             {
+                self.restore_save_stamp(before_stamp);
                 let msg = i18n::fmt(tl!("Couldn't download {name}: {error}"), &[("name", &name), ("error", &e)]);
                 log::error!("download of {name} failed: {e}");
                 self.status(msg.clone());
@@ -1526,6 +1579,14 @@ impl WordApp {
                 }
                 json!({"tab": self.ui.tab})
             }
+            // The right-hand side panel: `{"value": false}` folds it to its strip, `true`
+            // unfolds it, no value toggles.
+            "ui.sidePanel" => {
+                let Some(ctx) = self.ctx.clone() else { return Some(Err("the window isn't open yet".into())) };
+                let open = p.get("value").and_then(Value::as_bool).unwrap_or(crate::panes::right_collapsed(&ctx));
+                crate::panes::set_right_collapsed(&ctx, !open);
+                json!({"value": open})
+            }
             // Navigation pane tab: headings, pages or results. Opens the pane.
             "ui.navTab" => {
                 let tab = s("tab").unwrap_or("headings");
@@ -1592,6 +1653,9 @@ impl WordApp {
                 self.colors = None;
                 json!({})
             }
+            // Save as Picture (owner, 2026-11-20): the selected picture's own bytes, as a download
+            // on the web or to a file picked on the desktop.
+            "ui.savePicture" => return Some(self.save_picture()),
             "ui.changePicture" => {
                 let Some(media) = self.selected_picture_media() else {
                     return Some(Err("select a picture first".into()));
@@ -1946,6 +2010,31 @@ impl WordApp {
     }
 
     /// Media key of the selected picture, if any.
+    /// Save as Picture: the selected picture in its own format, named "Picture" in the
+    /// interface's language ("รูปภาพ.png").
+    fn save_picture(&mut self) -> Result<Value, String> {
+        let Some((name, bytes)) = wordcraft_engine::cmd::objects::selected_picture_file(&self.session) else {
+            return Err(tl!("Select a picture first.").to_string());
+        };
+        let ext = name.rsplit_once('.').map_or("png", |(_, e)| e);
+        let name = format!("{}.{ext}", tl!("Picture"));
+        if let Some(d) = &self.services.download {
+            return match d(&name, &bytes) {
+                Ok(()) => Ok(json!({"downloaded": name, "bytes": bytes.len()})),
+                Err(e) => {
+                    let msg = i18n::fmt(tl!("Couldn't download {name}: {error}"), &[("name", &name), ("error", &e)]);
+                    self.status(msg.clone());
+                    Err(msg)
+                }
+            };
+        }
+        match self.ask_file(file_dialogs::FileDialogRequest::Save { name }, file_dialogs::AfterPick::SavePicture) {
+            file_dialogs::Asked::Done(r) => r,
+            file_dialogs::Asked::Pending => Ok(json!({"pending": "savePicture"})),
+            file_dialogs::Asked::Busy => Ok(json!({"done": false})),
+        }
+    }
+
     pub(crate) fn selected_picture_media(&self) -> Option<String> {
         match wordcraft_engine::cmd::objects::selected(&self.session) {
             Some((_, wordcraft_doc::para::InlineObject::Image { media, .. })) => Some(media),
@@ -2019,6 +2108,15 @@ impl WordApp {
         r
     }
 
+    /// Puts back the zoom, author, dates and revision a save stamped, after the save failed.
+    #[allow(clippy::type_complexity)]
+    fn restore_save_stamp(&mut self, (zoom, by, created, modified, revision): (Option<wordcraft_doc::Zoom>, String, String, String, u32)) {
+        let doc = &mut self.session.doc;
+        doc.settings.zoom = zoom;
+        let core = &mut doc.core;
+        (core.last_modified_by, core.created, core.modified, core.revision) = (by, created, modified, revision);
+    }
+
     /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
     /// otherwise .docx.
     fn default_save_name(&self) -> String {
@@ -2080,14 +2178,17 @@ impl WordApp {
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
-        match &self.session.path {
+        let mut title = match &self.session.path {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
                 None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
                 None => self.session.doc.core.title.clone(),
             },
-        }
+        };
+        // X11 converts window titles to C strings, which cannot contain NUL (#3634, WordCraft #4301).
+        title.retain(|c| c != '\0');
+        if title.is_empty() { tl!("Document1").into() } else { title }
     }
 
     /// Terminal feedback also reaches the normal window when printing starts through control.
@@ -2234,6 +2335,8 @@ impl WordApp {
                 self.dialog = Some(dialogs::Dialog::MissingFont { dont_remind: false });
             }
         }
+        // A document from a file missing fonts KhianKrub knows where to get (once per document).
+        font_download::tick(self);
         // May KhianKrub check for updates at start-up? Asked once, after anything else that
         // opens at launch, and only where it can check (the desktop app).
         if self.services.latest_release.is_some() && !self.ui.update_asked && self.dialog.is_none() {
@@ -2500,16 +2603,18 @@ impl WordApp {
             }
             backstage::show(self, ui);
         } else if !self.has_document() {
-            // No document open (#1129): the ribbon greyed out but for Help, and no page.
-            chrome::title_bar(self, ui);
+            // No document open (#1129): the ribbon greyed out but for Help, and no page. The tab
+            // strip is the one bar (title and tabs in one row, owner 2026-11-18).
             ribbon::show(self, ui);
             updates::bar(self, ui);
             self.browser_recovery_bar(ui);
             chrome::status_bar(self, ui);
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
         } else {
-            chrome::title_bar(self, ui);
-            if !self.session.view.focus_mode {
+            // Focus keeps only the bar (without tabs) and the page.
+            if self.session.view.focus_mode {
+                chrome::title_bar(self, ui);
+            } else {
                 ribbon::show(self, ui);
                 updates::bar(self, ui);
                 self.browser_recovery_bar(ui);
@@ -2666,7 +2771,14 @@ impl WordApp {
         let Some(rx) = self.control_rx.take() else { return };
         while let Ok(req) = rx.try_recv() {
             let reply = req.reply.clone();
-            match control::handle(self, ctx, &req) {
+            // A document a script opened doesn't bring up the missing-fonts box.
+            let before = self.session.document_id();
+            let outcome = control::handle(self, ctx, &req);
+            let after = self.session.document_id();
+            if after != before {
+                font_download::skip(self, after);
+            }
+            match outcome {
                 control::Outcome::Done(v) => {
                     let _ = reply.send(v);
                 }
@@ -3013,6 +3125,25 @@ mod tests {
         assert_eq!(ctx.zoom_factor(), 1.0);
     }
 
+    /// #3634 (WordCraft #4301): every source of the title (path, file name, document title)
+    /// drops NUL, which X11 cannot put in a window title.
+    #[test]
+    fn title_stem_omits_nul_from_each_title_source() {
+        let mut app = app();
+        let fallback = app.title_stem();
+        for title in ["Résumé\u{0} notes", "\u{0}"] {
+            let expected = if title == "\u{0}" { fallback.as_str() } else { "Résumé notes" };
+            app.session.doc.core.title = title.into();
+            assert_eq!(app.title_stem(), expected);
+            app.session.file_name = Some(title.into());
+            assert_eq!(app.title_stem(), expected);
+            app.session.path = Some(std::path::PathBuf::from(format!("{title}.docx")));
+            assert_eq!(app.title_stem(), expected);
+            app.session.path = None;
+            app.session.file_name = None;
+        }
+    }
+
     /// Issue #117: a viewport command schedules a repaint, so resending the title every frame kept
     /// the app redrawing at the monitor's refresh rate while idle.
     #[test]
@@ -3264,6 +3395,11 @@ mod tests {
         h.run_steps(6);
         h.get_by_label("Document1 — Not saved").click();
         h.run_steps(2);
+        // The name opens its card (owner, 2026-11-18), which settles in place a frame later; Rename
+        // is in it.
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
+        h.run_steps(2);
         assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("renameDocument"));
         h.get_by_role_and_label(egui::accesskit::Role::Button, "Rename").click();
         h.run_steps(2);
@@ -3271,6 +3407,11 @@ mod tests {
         assert!(h.state().session.file_name.is_none());
         assert!(!h.state().session.dirty);
         h.get_by_label("Document1 — Not saved").click();
+        h.run_steps(2);
+        // The name opens its card (owner, 2026-11-18), which settles in place a frame later; Rename
+        // is in it.
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
         h.run_steps(2);
         h.event(egui::Event::Key {
             key: egui::Key::A,
@@ -3293,13 +3434,19 @@ mod tests {
         h.state_mut().run("file.rename", json!({"name": long_name})).unwrap();
         h.run_steps(2);
         h.get_by_label(&format!("{} — Not saved", long_name.trim())).click();
+        h.run_steps(4);
+        h.get_by_label("Rename…").click();
         h.run_steps(2);
         assert!(h.state().dialog.is_some());
         h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
         h.run_steps(2);
         assert!(h.state().dialog.is_none());
         assert_eq!(h.state().title_stem(), long_name.trim());
+        // The user icon's menu (owner, 2026-11-18): its first item, the name, opens Options.
         h.get_by_label("Account").click();
+        h.run_steps(2);
+        let name = h.state().session.author.clone();
+        h.get_by_label(if name.is_empty() { "Your name" } else { name.as_str() }).click();
         h.run_steps(2);
         assert!(h.state().ui.backstage);
         assert_eq!(h.state().ui.backstage_page, "options");
@@ -3648,9 +3795,13 @@ mod tests {
         h.get_by_label("Back").click();
         h.run_steps(4);
         assert!(!h.state().ui.backstage && !h.state().has_document(), "the empty window");
+        h.get_by_label("Account").click();
+        h.run_steps(4);
+        assert!(h.get_by_label("Comments").accesskit_node().is_disabled(), "Comments is: nothing to comment on");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
         let file = h.get_by_role_and_label(egui::accesskit::Role::Button, "File");
         assert!(!file.accesskit_node().is_disabled(), "File is not greyed out");
-        assert!(h.get_by_label("Comments").accesskit_node().is_disabled(), "Comments is: nothing to comment on");
         file.click();
         h.run_steps(4);
         assert!(h.state().ui.backstage, "File opens the Backstage");
@@ -3831,6 +3982,62 @@ mod tests {
         assert_eq!(table.rows[r].cells[other].props.shading, None);
     }
 
+    /// Owner, 2026-11-17: Table Properties shows a column width on the page as it changes,
+    /// before OK, and tints the column; Cancel takes it back, and OK makes it one undo step.
+    #[test]
+    fn table_properties_previews_column_widths_until_ok_or_cancel() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.run("insert.table", json!({"rows": 2, "cols": 3})).unwrap();
+        a.run("table.autofit", json!({"mode": "window"})).unwrap();
+        let grid = |a: &WordApp| a.session.doc.body.iter().find_map(|b| b.as_table()).unwrap().grid.clone();
+        let before = grid(&a);
+        let depth = a.session.undo_depth();
+        let open = |a: &mut WordApp, narrower: bool| {
+            a.run("table.properties", json!({})).unwrap();
+            if let Some(dialogs::Dialog::TableProperties { form, .. }) = &mut a.dialog {
+                form.page = 2;
+                if narrower {
+                    form.column_widths[0] *= 0.5;
+                }
+            }
+        };
+        let harness = |a: WordApp| {
+            egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            )
+        };
+        open(&mut a, true);
+        let mut h = harness(a);
+        h.run_steps(3);
+        // Shown before OK: the first column is half as wide, the table still fits the window.
+        let now = grid(h.state());
+        assert!((now[0] - before[0] * 0.5).abs() < 0.01, "{now:?}");
+        assert!((now.iter().sum::<f32>() - before.iter().sum::<f32>()).abs() < 0.01);
+        assert_eq!(h.state().column_highlight, vec![0], "the adjusted column is tinted");
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "the preview is one step, replaced as it changes");
+        h.get_by_label("Cancel").click();
+        h.run_steps(3);
+        assert_eq!(grid(h.state()), before, "Cancel takes the preview back");
+        assert_eq!(h.state().session.undo_depth(), depth);
+        assert!(h.state().column_highlight.is_empty());
+        // OK keeps it, as one undo step.
+        open(h.state_mut(), true);
+        h.run_steps(3);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert!((grid(h.state())[0] - before[0] * 0.5).abs() < 0.01);
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
+        let mut a = h.into_state();
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(grid(&a), before);
+    }
+
     #[test]
     fn table_properties_reset_discards_pending_changes_on_all_pages() {
         use egui_kittest::kittest::Queryable;
@@ -3960,7 +4167,10 @@ mod tests {
         let mut a = app();
         a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(4000)})).unwrap();
         a.run("caret.docStart", json!({})).unwrap();
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1313.0, 800.0));
+        // The same 1258 px page area as before the side panel was persistent (the pages' place
+        // is sensitive to its width): the panel folded to its strip, the window that much wider.
+        crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
             t += 1.0 / 60.0;
@@ -4795,6 +5005,8 @@ mod tests {
         }
         a.run("text.insert", json!({"text": "Last page"})).unwrap();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        // The page area at the full window width: the side panel folded to its strip.
+        crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp| {
             t += 1.0 / 60.0;
@@ -4835,6 +5047,8 @@ mod tests {
             a.run("insert.pageBreak", json!({})).unwrap();
         }
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        // The page area at the full window width: the side panel folded to its strip.
+        crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp| {
             t += 1.0 / 60.0;
@@ -6717,6 +6931,35 @@ mod tests {
         assert!(err.contains("browser"), "{err}");
     }
 
+    /// A web save that fails (the format can't be written, or the download is refused) keeps the
+    /// document's save stamps: revision, dates, author and zoom (from WordCraft #6824).
+    #[test]
+    fn failed_web_saves_restore_the_save_stamps() {
+        for id in ["file.save", "file.saveAs"] {
+            for name in ["draft.unsupported", "draft.docx"] {
+                let services = Services { download: Some(Box::new(|_: &str, _: &[u8]| Err("download refused".into()))), ..Default::default() };
+                let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+                a.run("text.insert", json!({"text": "Hello"})).unwrap();
+                a.session.doc.core.modified = "2020-01-02T03:04:05Z".into();
+                a.session.doc.core.last_modified_by = "Previous author".into();
+                a.session.doc.core.revision = 7;
+                let core_before = a.session.doc.core.clone();
+                let zoom_before = a.session.doc.settings.zoom;
+                assert!(a.run(id, json!({"path": name})).is_err(), "{id}: {name}");
+                assert_eq!(a.session.doc.core, core_before, "{id}: {name}");
+                assert_eq!(a.session.doc.settings.zoom, zoom_before, "{id}: {name}");
+                assert!(a.session.dirty, "{id}: {name}");
+            }
+            let services = Services { download: Some(Box::new(|_: &str, _: &[u8]| Ok(()))), ..Default::default() };
+            let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+            a.run("text.insert", json!({"text": "Hello"})).unwrap();
+            let revision_before = a.session.doc.core.revision;
+            a.run(id, json!({"path": "draft.docx"})).unwrap();
+            assert_eq!(a.session.doc.core.revision, revision_before.saturating_add(1));
+            assert!(!a.session.dirty);
+        }
+    }
+
     /// Cancelling the Open picker (Mod+O) left the document as it was but turned AutoSave off.
     #[test]
     fn cancelling_open_keeps_autosave() {
@@ -6799,6 +7042,22 @@ mod tests {
         let (name, bytes) = got.borrow_mut().pop().unwrap();
         assert_eq!(name, "m.docx");
         assert!(!wordcraft_engine::io::open_bytes(&name, &bytes).unwrap().passthrough.contains_key("word/vbaProject.bin"));
+    }
+
+    /// Text boundaries are shown or not as last chosen, from the View tab or File › Options
+    /// (owner, 2026-11-20), and settings from before the option show them.
+    #[test]
+    fn text_boundaries_survive_restart() {
+        let mut first = app();
+        assert!(first.session.view.text_boundaries, "on by default");
+        first.run("view.textBoundaries", json!({"value": false})).unwrap();
+        let saved = serde_json::to_vec(&first.prefs()).unwrap();
+        let mut second = app();
+        second.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        assert!(!second.session.view.text_boundaries);
+        let mut old = app();
+        old.apply_prefs(UiState::from_json(b"{}").unwrap());
+        assert!(old.session.view.text_boundaries, "older settings show them");
     }
 
     #[test]
@@ -7485,6 +7744,34 @@ mod tests {
         assert!(a.change_picture_target.is_none());
     }
 
+    /// Save as Picture (owner, 2026-11-20): on the web the selected picture's own bytes download as
+    /// "Picture.png"; on the desktop the picked path gets them. Nothing selected is an error.
+    #[test]
+    fn save_as_picture_downloads_or_writes_the_picture() {
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, Vec<u8>)>::new()));
+        let mut a = app();
+        assert!(a.run("ui.savePicture", json!({})).is_err());
+        insert_picture(&mut a, [200, 30, 30, 255]);
+        let (_, held) = wordcraft_engine::cmd::objects::selected_picture_file(&a.session).unwrap();
+        let sink = got.clone();
+        a.services.download = Some(Box::new(move |name: &str, bytes: &[u8]| {
+            sink.borrow_mut().push((name.to_string(), bytes.to_vec()));
+            Ok(())
+        }));
+        a.run("ui.savePicture", json!({})).unwrap();
+        assert_eq!(got.borrow().first().map(|(n, b)| (n.as_str(), b.as_slice())), Some(("Picture.png", held.as_slice())));
+        // Desktop: the picked path.
+        let dir = std::env::temp_dir().join(format!("khiankrub-ui-save-picture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("saved.png").to_string_lossy().to_string();
+        a.services.download = None;
+        let picked = target.clone();
+        a.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
+        a.run("ui.savePicture", json!({})).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), held.as_slice());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `ui.changePicture` needs a selected picture; cancelling the picker clears the target.
     #[test]
     fn change_picture_guards_and_cancel_clears() {
@@ -7930,7 +8217,8 @@ mod tests {
         for _ in 0..6 {
             h.step();
         }
-        let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_by_label(label).is_some();
+        // Navigation is both a strip button and the pane's title: any match counts.
+        let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_all_by_label(label).next().is_some();
         assert!(shown(&h, "Ruler"), "the View tab is showing");
         // The ribbon's Focus button (the status bar has one too; it is the lowest).
         h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Focus").min_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y)).unwrap().click();

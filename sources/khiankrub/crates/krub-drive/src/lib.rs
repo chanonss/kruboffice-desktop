@@ -10,10 +10,12 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod protocol;
+pub mod recent;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 pub use protocol::{backend, check_upload_size, multipart_upload, oauth_configuration, valid_file_id, valid_file_name};
+pub use recent::RecentDriveFile;
 #[cfg(target_arch = "wasm32")]
 pub use web::{Drive, Host};
 
@@ -53,6 +55,9 @@ pub struct Config {
 /// A file in the list Open shows without a Picker: (Drive id, name).
 pub type ListedFile = (String, String);
 
+/// [`DriveServices::recent`]: the list for an interface language.
+pub type RecentFiles = Box<dyn Fn(&str) -> Vec<RecentDriveFile>>;
+
 /// Google Drive actions the File pages offer. Saving is always an explicit click: a new copy,
 /// or replacing the Drive file the document was opened from.
 pub struct DriveServices {
@@ -66,12 +71,50 @@ pub struct DriveServices {
     /// The app's own files, listed when there is no Picker.
     pub files: Box<dyn Fn() -> Option<Vec<ListedFile>>>,
     pub select_file: Box<dyn Fn(String, u64, u64)>,
-    /// Upload a new file with this name and contents.
-    pub save_copy: Box<dyn Fn(String, Vec<u8>)>,
+    /// Upload the document (id, revision) as a new file with this name and contents; once it
+    /// is there, the document is that file (saved back to it from then on).
+    pub save_copy: Box<dyn Fn(u64, u64, String, Vec<u8>)>,
     /// The name of the Drive file a document (by id) was opened from, if it can be saved back.
     pub linked_name: Box<dyn Fn(u64) -> Option<String>>,
     /// Replace that Drive file with the document (id, revision) as these bytes.
     pub save_over: Box<dyn Fn(u64, u64, Vec<u8>)>,
+    /// The Drive files this browser opened or saved, newest first, their times written for the
+    /// interface language (`th`, `en`…). Home lists them.
+    pub recent: RecentFiles,
+    /// Open recent file (Drive ID) into the document (id, revision) on screen now, as it is on
+    /// Drive.
+    pub open_recent: Box<dyn Fn(String, u64, u64)>,
+    /// Take a file (Drive ID) off the recent list.
+    pub forget_recent: Box<dyn Fn(String)>,
+    /// The unsaved changes of document (id) are in this draft (`None`: in none): kept with the
+    /// Drive file it was opened from, so Home shows them on that file's row.
+    pub note_draft: Box<dyn Fn(u64, Option<String>)>,
+    /// A draft was reopened as document (id): if it holds a Drive file's unsaved changes, the
+    /// document is that file again (saved back only if Drive still has the version it was
+    /// opened at). Whether it was one.
+    pub relink_draft: Box<dyn Fn(String, u64) -> bool>,
+}
+
+impl Default for DriveServices {
+    /// No Drive: every action does nothing (tests, and builds without Drive).
+    fn default() -> Self {
+        DriveServices {
+            status: Box::new(|| STATUS[0]),
+            connect: Box::new(|| {}),
+            disconnect: None,
+            open: Box::new(|_, _| {}),
+            files: Box::new(|| None),
+            select_file: Box::new(|_, _, _| {}),
+            save_copy: Box::new(|_, _, _, _| {}),
+            linked_name: Box::new(|_| None),
+            save_over: Box::new(|_, _, _| {}),
+            recent: Box::new(|_| Vec::new()),
+            open_recent: Box::new(|_, _, _| {}),
+            forget_recent: Box::new(|_| {}),
+            note_draft: Box::new(|_, _| {}),
+            relink_draft: Box::new(|_, _| false),
+        }
+    }
 }
 
 /// What [`DriveServices::status`] says, in English (each app translates them).

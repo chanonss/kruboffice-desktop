@@ -670,6 +670,11 @@ struct Ctx<'a> {
     table_keys: Vec<(para::CellText, u64)>,
     /// Transparency decoded once per picture and bounded across the layout pass.
     alphas: contour::Alphas,
+    /// Each body floating object over the text (not inline, not behind): how many items before
+    /// its [`Placed::Object`] draw it and how many after are its text boxes' text, keyed by its
+    /// path and offset. [`lift_floats`] moves those groups above the page's text and inline
+    /// objects, as Word draws them.
+    float_groups: HashMap<(Vec<u32>, usize), (usize, usize)>,
 }
 
 /// Picture outlines by media name, bytes (address and length) and crop ([`LayoutCache`]), each
@@ -782,7 +787,7 @@ impl Ctx<'_> {
     }
 
     /// `p` laid out on its own, as the paragraph after a kept one is measured before it is placed
-    /// (no wrap areas, proofing, typed word or resized text boxes), through the cache when
+    /// (no wrap areas, typed word or resized text boxes), through the cache when
     /// [`Ctx::para_labelled`] would lay it out with those same inputs: it is then not laid out a
     /// second time when it is placed. Counts nothing (list labels, equation numbers, page totals).
     /// `None` when the inputs differ.
@@ -791,7 +796,7 @@ impl Ctx<'_> {
             .objects
             .iter()
             .any(|o| matches!(o, InlineObject::Shape { story: Some(_), float, .. } if float.wrap == Wrap::Inline && float.rot == 0.0));
-        if self.opts.proofing || self.boxes.inside() || resized || self.hide_deleted != self.opts.hides_deleted(StoryRef::Body) {
+        if self.boxes.inside() || resized || self.hide_deleted != self.opts.hides_deleted(StoryRef::Body) {
             return None;
         }
         let kept = (self.eq_count, self.uses_totals);
@@ -1426,23 +1431,13 @@ fn push_para(items: &mut Vec<Placed>, story: StoryRef, path: &[u32], pl: &Arc<Pa
     }
     items.push(Placed::Lines { story, path: Path(path.to_vec()), para: pl.clone(), l0, l1, x, y, turn: TextDirection::Horizontal });
     if pl.rp.borders.is_some() {
-        // Top and bottom reach the corners.
-        if let Some(t) = top_line {
-            let ty = y - t.space - t.width / 2.0;
-            items.push(Placed::Rule { x0: lx, y0: ty, x1: rx, y1: ty, border: t });
-        }
-        if let Some(t) = bottom_line {
-            let by = y + h + t.space + t.width / 2.0;
-            items.push(Placed::Rule { x0: lx, y0: by, x1: rx, y1: by, border: t });
-        }
-        if let Some(t) = b.left.filter(Border::is_visible) {
-            let bx = lx + t.width / 2.0;
-            items.push(Placed::Rule { x0: bx, y0: top, x1: bx, y1: bottom, border: t });
-        }
-        if let Some(t) = b.right.filter(Border::is_visible) {
-            let bx = rx - t.width / 2.0;
-            items.push(Placed::Rule { x0: bx, y0: top, x1: bx, y1: bottom, border: t });
-        }
+        // `lx`, `rx` are the side lines' outer edges; `box_rules` runs the top and bottom over
+        // the side lines to those edges and closes the corners (WordCraft 7831216b).
+        let half = |o: Option<Border>| o.filter(Border::is_visible).map_or(0.0, |t| t.width / 2.0);
+        let (cl, cr) = (lx + half(b.left), rx - half(b.right));
+        let ty = top_line.map_or(top, |t| y - t.space - t.width / 2.0);
+        let by = bottom_line.map_or(bottom, |t| y + h + t.space + t.width / 2.0);
+        box_rules(items, (cl, ty, cr, by), [top_line, bottom_line, b.left, b.right], [false; 2]);
     }
 }
 
@@ -1718,6 +1713,29 @@ impl NoteBox {
     }
 }
 
+/// The visible lines of a border box with corners `(x0, y0)` and `(x1, y1)` (`[top, bottom, left,
+/// right]`), ending square as Word draws them: a top or bottom line runs on over half the side
+/// line it meets, or half its own width where there is none, so single-line boxes close at the
+/// corners; a side line runs on to the outer edge of the top or bottom line it meets, or by half
+/// its own width where there is none, unless the box goes on there (`joined`: at the top, at the
+/// bottom). From WordCraft 7831216b.
+fn box_rules(items: &mut Vec<Placed>, (x0, y0, x1, y1): (f32, f32, f32, f32), sides: [Option<Border>; 4], joined: [bool; 2]) {
+    let [top, bottom, left, right] = sides.map(|b| b.filter(Border::is_visible));
+    let half = |t: &Border| display::rule_width(t) / 2.0;
+    for (t, y) in [(top, y0), (bottom, y1)] {
+        if let Some(t) = t {
+            let over = |side: Option<Border>| half(&side.unwrap_or(t));
+            items.push(Placed::Rule { x0: x0 - over(left), y0: y, x1: x1 + over(right), y1: y, border: t });
+        }
+    }
+    for (t, x) in [(left, x0), (right, x1)] {
+        if let Some(t) = t {
+            let end = |o: Option<Border>, joined: bool| if joined { 0.0 } else { half(&o.unwrap_or(t)) };
+            items.push(Placed::Rule { x0: x, y0: y0 - end(top, joined[0]), x1: x, y1: y1 + end(bottom, joined[1]), border: t });
+        }
+    }
+}
+
 /// Page borders, measured from the page edge (Word's default), so they surround the header,
 /// footer and line numbers. The first items of every printed page.
 fn page_border_rules(s: &SectionProps) -> Vec<Placed> {
@@ -1725,11 +1743,7 @@ fn page_border_rules(s: &SectionProps) -> Vec<Placed> {
     if let Some(b) = &s.page_borders {
         let sp = |e: &Option<Border>| e.map(|x| x.space).unwrap_or(24.0);
         let (x0, x1, y0, y1) = (sp(&b.left), s.page_w - sp(&b.right), sp(&b.top), s.page_h - sp(&b.bottom));
-        for (e, a, bb) in [(b.top, (x0, y0), (x1, y0)), (b.bottom, (x0, y1), (x1, y1)), (b.left, (x0, y0), (x0, y1)), (b.right, (x1, y0), (x1, y1))] {
-            if let Some(e) = e.filter(Border::is_visible) {
-                v.push(Placed::Rule { x0: a.0, y0: a.1, x1: bb.0, y1: bb.1, border: e });
-            }
-        }
+        box_rules(&mut v, (x0, y0, x1, y1), [b.top, b.bottom, b.left, b.right], [false; 2]);
     }
     v
 }
@@ -2102,6 +2116,7 @@ fn layout_pass(
         mirror: false,
         table_keys: Vec::new(),
         alphas: Default::default(),
+        float_groups: HashMap::new(),
     };
     let sections = doc.sections();
     let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
@@ -2358,6 +2373,7 @@ fn layout_pass(
     pb.carry.clear();
     let mut pages = pb.pages;
     for p in &mut pages {
+        lift_floats(&mut p.items, &ctx.float_groups);
         if let Some((_, s)) = sections.get(p.section)
             && !web
         {
@@ -2863,7 +2879,11 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
         InlineObject::Image { media, crop, .. } => {
             vec![Placed::Image { rect, media: media.clone(), crop: *crop, story, path: Path(path.to_vec()), off, spin }]
         }
-        InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
+        InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
+            // A flat line or connector (no height, or no width) is drawn flat: its frame is laid
+            // out at least 1 pt each way, and corner to corner of that it would slant.
+            let flat = |own: f32, laid: f32| if own.is_finite() && own < 1.0 { own.max(0.0) } else { laid };
+            let rect = if kind.is_open() { Rect::new(rect.x, rect.y, flat(*w, rect.w), flat(*h, rect.h)) } else { rect };
             vec![Placed::Shape {
                 rect,
                 kind: *kind,
@@ -3034,6 +3054,8 @@ fn place_objects(
                 display::inline_rect(Some(obj), cx, y + (line.baseline - fl.top), c.adv, c.obj_h)
             };
             let layer = if float.wrap == Wrap::BehindText { &mut behind } else { &mut front };
+            // Where this object's group starts among the items over the text (see `float_groups`).
+            let group_start = layer.len();
             // Floating ones are drawn here; inline ones with their line.
             if floating {
                 layer.extend(float_items(obj, rect, (Spin::default(), Point::default()), story, path, c.start));
@@ -3046,6 +3068,7 @@ fn place_objects(
             };
             // A box linked from another shows (and edits) that box's story.
             let shown = text_box.map(|id| textbox::shown_story(ctx, id));
+            let object_at = front.len();
             front.push(Placed::Object {
                 rect,
                 spin: float.spin(),
@@ -3076,9 +3099,54 @@ fn place_objects(
                 let layer = if float.wrap == Wrap::BehindText { &mut behind } else { &mut front };
                 layer.extend(items);
             }
+            if floating && float.wrap != Wrap::BehindText && story == StoryRef::Body {
+                let before = object_at.saturating_sub(group_start);
+                let after = front.len().saturating_sub(object_at + 1);
+                ctx.float_groups.insert((path.to_vec(), c.start), (before, after));
+            }
         }
     }
     (behind, front)
+}
+
+/// Move the body's floating objects over the text (their drawing, frame and text boxes' text) to
+/// the end of a page's items, keeping their order. Items are drawn in order and hit topmost-last
+/// first, so without this an In Front of Text shape anchored in a paragraph above an inline
+/// picture's would be drawn under the picture and clicks on it would select the picture.
+fn lift_floats(items: &mut Vec<Placed>, groups: &HashMap<(Vec<u32>, usize), (usize, usize)>) {
+    if groups.is_empty() {
+        return;
+    }
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut i = 0;
+    while i < items.len() {
+        let group = match items.get(i) {
+            Some(Placed::Object { story: StoryRef::Body, path, off, wrap, .. }) if !matches!(wrap, Wrap::Inline | Wrap::BehindText) => {
+                groups.get(&(path.0.clone(), *off)).copied()
+            }
+            _ => None,
+        };
+        if let Some((before, after)) = group {
+            let start = i.saturating_sub(before);
+            let end = i.saturating_add(after).saturating_add(1).min(items.len());
+            if ranges.last().is_none_or(|r| r.end <= start) {
+                ranges.push(start..end);
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if ranges.is_empty() {
+        return;
+    }
+    let mut keep = Vec::with_capacity(items.len());
+    let mut top = Vec::new();
+    for (i, it) in std::mem::take(items).into_iter().enumerate() {
+        if ranges.iter().any(|r| r.contains(&i)) { top.push(it) } else { keep.push(it) }
+    }
+    keep.extend(top);
+    *items = keep;
 }
 
 /// Footnotes referenced in a paragraph laid out as `pl`: in its text, and inside its text boxes

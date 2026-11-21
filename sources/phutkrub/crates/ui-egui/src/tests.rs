@@ -112,6 +112,27 @@ fn web_png_export_can_leave_the_background_transparent() {
     assert_eq!(corner_alpha(&got[2].1), 255, "JPEG has no transparency");
 }
 
+/// Every type File › Save As and Export › Change File Type list is one `export_as` writes:
+/// a listed type it doesn't know would only say "can't export" (#2019).
+#[test]
+fn every_listed_save_type_exports() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let got: Rc<RefCell<Vec<String>>> = Rc::default();
+    let log = got.clone();
+    let services = Services { download: Some(Box::new(move |name: &str, _: &[u8]| log.borrow_mut().push(name.to_string()))), ..Default::default() };
+    let mut app = SlideApp::new(Session::with_new(), services);
+    app.session.execute("slide.new", &json!({})).unwrap();
+    for (id, _, _) in crate::backstage::SAVE_TYPES {
+        assert!(app.export_as(id, json!({})), "{id} exports");
+    }
+    let title = app.session.active().unwrap().title();
+    let got = got.borrow();
+    for name in [format!("{title}1.jpg"), format!("{title}2.jpg"), format!("{title}1.png"), format!("{title}2.png")] {
+        assert!(got.contains(&name), "{name} downloaded, got {got:?}");
+    }
+}
+
 fn title_text(app: &SlideApp) -> String {
     let d = app.session.active().unwrap();
     let sh = &d.doc.slides[0].shapes[0];
@@ -415,9 +436,11 @@ fn title_bar_export_opens_the_export_dialog() {
     }
     harness.state_mut().run("app.qat", json!({"add": "app.exportDialog"})).unwrap();
     harness.run_steps(2);
-    // Quick access: Export alone, a small ribbon button wide, from x = 10.
-    let w = crate::ribbon_layout::SMALL_W;
-    let pos = egui::pos2(10.0 + w / 2.0, ribbon::TITLE_H / 2.0);
+    // Quick access, on the bar's left right after File (owner, 2026-11-18): Export alone.
+    let export = harness.get_by_role_and_label(egui::accesskit::Role::Button, "Export").rect();
+    let file = harness.get_by_role_and_label(egui::accesskit::Role::Button, "File").rect();
+    assert!(export.min.x > file.max.x && export.min.x < file.max.x + 20.0, "Export follows File: {export:?} after {file:?}");
+    let pos = export.center();
     harness.hover_at(pos);
     harness.run_steps(1);
     harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
@@ -768,7 +791,7 @@ fn preferences_cancel_restores_the_settings_done_keeps_them() {
 
 /// About dialog: Close and Cancel each close the dialog.
 #[test]
-fn about_dialog_close_and_cancel_close_it() {
+fn about_dialog_close_and_escape_close_it() {
     use egui_kittest::kittest::Queryable;
     let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
         |ui, app: &mut SlideApp| {
@@ -781,13 +804,10 @@ fn about_dialog_close_and_cancel_close_it() {
     harness.state_mut().run("app.about", json!({})).unwrap();
     harness.run_steps(2);
     assert!(harness.state().dialog.is_some());
-    harness
-        .query_all_by_role_and_label(egui::accesskit::Role::Button, "Cancel")
-        .next()
-        .unwrap_or_else(|| panic!("no Cancel button in About dialog"))
-        .click_accesskit();
+    // The shared About has one Close button (owner, 2026-11-18); Escape closes it too.
+    harness.key_press(egui::Key::Escape);
     harness.run_steps(2);
-    assert!(harness.state().dialog.is_none(), "Cancel closes About dialog");
+    assert!(harness.state().dialog.is_none(), "Escape closes About dialog");
 
     harness.state_mut().run("app.about", json!({})).unwrap();
     harness.run_steps(2);
@@ -1276,6 +1296,56 @@ fn step_app(services: Services) -> egui_kittest::Harness<'static, SlideApp> {
     );
     h.run_steps(2);
     h
+}
+
+/// #1855: text pasted into the focused speaker-notes field lands at its caret. While a stock
+/// field has the focus, `SlideApp::keyboard` leaves the batch to it and nothing in the app drops
+/// `Paste`, whether it arrives alone or inside the ⌘V batch egui-winit sends (V down, Paste, V up).
+#[test]
+fn paste_reaches_the_focused_notes_field() {
+    let mut h = step_app(Services::default());
+    let id = egui::Id::unique("notes_edit");
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(id)), "the notes field has the focus");
+    h.event(egui::Event::Text("ab".into()));
+    h.run_steps(2);
+    h.event(egui::Event::Paste("PASTED".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().notes_buf.2.text, "abPASTED", "a bare Paste event");
+    let v = |pressed| egui::Event::Key { key: egui::Key::V, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::COMMAND };
+    h.input_mut().events.extend([v(true), egui::Event::Paste("TWO".into()), v(false)]);
+    h.run_steps(2);
+    assert_eq!(h.state().notes_buf.2.text, "abPASTEDTWO", "the ⌘V batch");
+    // Leaving the field commits the notes to the slide.
+    h.ctx.memory_mut(|m| m.surrender_focus(id));
+    h.run_steps(3);
+    assert_eq!(h.state().session.active().unwrap().doc.slides[0].notes_text(), "abPASTEDTWO");
+}
+
+/// #1956: the ribbon's drop-downs are announced by their purpose, not by their value or an
+/// internal key. Animations › Start with a shape that has no animation was "astart"; Home's Font
+/// and Font size boxes were "font" and "size" while nothing told them a font or size.
+#[test]
+fn ribbon_dropdowns_are_named_by_purpose_even_when_empty() {
+    use egui::accesskit::Role;
+    let mut h = step_app(Services::default());
+    // A fresh shape, selected but not edited and without an animation.
+    h.state_mut().run("shape.insert", json!({"preset": "rect", "rect": [100.0, 100.0, 200.0, 100.0]})).unwrap();
+    h.state_mut().run("text.exit", json!({})).unwrap();
+    h.state_mut().ui.tab = "Animations".into();
+    h.run_steps(2);
+    let start = h.get_by_role_and_label(Role::ComboBox, "Start");
+    assert_eq!(start.value(), None, "no animation, no start value");
+    assert!(h.query_by_label("astart").is_none(), "the internal key is not a name");
+
+    h.state_mut().ui.tab = "Home".into();
+    h.state_mut().run("edit.select", json!({"ids": []})).unwrap();
+    h.run_steps(2);
+    for (name, key) in [("Font", "font"), ("Font size", "size")] {
+        assert!(h.query_by_role_and_label(Role::ComboBox, name).is_some(), "{name} is named while empty");
+        assert!(h.query_by_role_and_label(Role::ComboBox, key).is_none(), "{key} is not announced");
+    }
 }
 
 /// Copy of a bold selection offers HTML; paste of Pages-like HTML keeps the bold.
@@ -2542,8 +2612,80 @@ fn the_ribbon_is_the_krub_office_height() {
     );
     h.run_steps(3);
     let top = h.state().canvas_rect.expect("the slide area").top();
-    let title = if h.state().integrated_titlebar { krub_icons::chrome::MAC_TITLE_H } else { krub_icons::chrome::TITLE_H };
-    // The slide area keeps its own 8-point margin under the ribbon (154 = 38 + 108 + 8 before).
-    assert_eq!(top - title - 8.0, krub_icons::chrome::TABS_AND_RIBBON_H, "slide area at {top}, title bar {title}");
+    // One bar with the tabs (owner, 2026-11-18), then the ribbon; the slide area keeps its own
+    // 8-point margin under it.
+    let bar = krub_icons::chrome::ONE_BAR_H;
+    assert_eq!(top - bar - 8.0, krub_icons::chrome::RIBBON_H, "slide area at {top}, bar {bar}");
     assert_eq!(krub_icons::chrome::TABS_AND_RIBBON_H, 100.0);
+}
+
+/// Choosing a ribbon tab by its number (owner, 2026-11-19): a bare Alt tap lights the numbers,
+/// a number picks that tab and types nothing onto the slide, → steps on, Esc ends it.
+#[test]
+fn a_tap_then_a_number_switches_the_ribbon_tab() {
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
+        |ui, app: &mut SlideApp| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        },
+        SlideApp::new(Session::with_new(), Services::default()),
+    );
+    h.run_steps(3);
+    let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+    let alt = egui::Modifiers { alt: true, ..Default::default() };
+    h.input_mut().events.push(key(egui::Key::AltLeft, true, alt));
+    h.step();
+    h.input_mut().events.push(key(egui::Key::AltLeft, false, egui::Modifiers::NONE));
+    h.step();
+    assert!(h.state().tab_keys.choosing, "a bare Alt tap lights the tabs' numbers");
+    h.input_mut().events.extend([key(egui::Key::Num2, true, egui::Modifiers::NONE), egui::Event::Text("2".into())]);
+    h.run_steps(2);
+    let second = h.state().keytip_tabs[1];
+    assert_eq!(h.state().ui.tab, second, "2 picks the second tab");
+    assert!(!h.state().tab_keys.choosing);
+    h.input_mut().events.push(key(egui::Key::F10, true, egui::Modifiers::NONE));
+    h.step();
+    h.input_mut().events.push(key(egui::Key::ArrowRight, true, egui::Modifiers::NONE));
+    h.run_steps(2);
+    assert_eq!(h.state().ui.tab, h.state().keytip_tabs[2], "→ steps to the next tab");
+    h.input_mut().events.push(key(egui::Key::Escape, true, egui::Modifiers::NONE));
+    h.run_steps(2);
+    assert!(!h.state().tab_keys.choosing, "Esc ends choosing");
+}
+
+/// Save as Picture (owner, 2026-11-20): the selected picture's own bytes download on the web as
+/// "Picture.svg" and go to the picked path on the desktop; nothing selected is an error.
+#[test]
+fn save_as_picture_hands_over_the_pictures_own_bytes() {
+    let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' height='4' fill='red'/></svg>".to_vec();
+    let insert = |app: &mut SlideApp| {
+        let id = app.session.execute("insert.picture", &json!({"name": "a.svg", "data": deckcraft_engine::cmd::base64_encode(&svg)})).unwrap()["id"]
+            .clone();
+        app.session.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    };
+    // Web: a download.
+    let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+    let sink = got.clone();
+    let services =
+        Services { download: Some(Box::new(move |n: &str, b: &[u8]| sink.lock().unwrap().push((n.into(), b.to_vec())))), ..Default::default() };
+    let mut app = SlideApp::new(Session::with_new(), services);
+    assert!(app.run("app.saveMediaDialog", json!({})).is_err(), "nothing selected");
+    insert(&mut app);
+    app.run("app.saveMediaDialog", json!({})).unwrap();
+    assert_eq!(got.lock().unwrap().first().cloned(), Some(("Picture.svg".to_string(), svg.clone())));
+    // Desktop: the picked path.
+    let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+    let sink = written.clone();
+    let services = Services {
+        pick_save: Some(Box::new(|name: &str| Some(format!("/tmp/{name}")))),
+        write: Some(Box::new(move |p: &str, b: &[u8]| {
+            sink.lock().unwrap().push((p.into(), b.to_vec()));
+            Ok(())
+        })),
+        ..Default::default()
+    };
+    let mut app = SlideApp::new(Session::with_new(), services);
+    insert(&mut app);
+    app.run("app.saveMediaDialog", json!({})).unwrap();
+    assert_eq!(written.lock().unwrap().first().cloned(), Some(("/tmp/Picture.svg".to_string(), svg)));
 }

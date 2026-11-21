@@ -28,6 +28,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("table.draw", "Draw Table", "Insert › Tables", draw).params(
             r#"{"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt, "story"?: StoryRef} (a pen stroke in page points, 0-based page: a rectangle at least 12 pt each way outside any table inserts a one-cell table of that size at the paragraph under its start; a straight vertical or horizontal line inside a table splits the cells it crosses there. In the app the button turns the pen on.)"#,
         ),
+        CommandSpec::new("table.paintBorder", "Paint Border Line", "Table Design › Borders", paint_border).params(
+            r#"{"page": n, "x": pt, "y": pt, "style"?: string, "width"?: pt, "color"?: "RRGGBB"} (the cell edge within 4 pt of the point, outer or inner, takes that line (and the cell beside it the same on its facing edge); an edge that already has exactly that line loses it. In the app Table › Borders › Draw on the page turns this on.)"#,
+        ),
         CommandSpec::new("table.eraser", "Eraser", "Table Layout › Draw", eraser).params(
             r#"{"page": n, "x": pt, "y": pt} (removes the border between two cells within 4 pt of the point: cells that make one rectangle merge, including cells merged down the same rows; otherwise the border is hidden along the whole edge. In the app the button turns the eraser on.)"#,
         ),
@@ -440,6 +443,131 @@ fn finish(s: &mut Session, story: StoryRef, tp: &Path, r: usize, c: usize) -> Cm
     path.extend([r as u32, c as u32, 0]);
     s.sel = Selection::caret(s.doc.clamp(&Pos { story, path: Path(path), off: 0 }));
     super::table::touch_cells(s, tp)?;
+    sel_result(s)
+}
+
+/// A cell's side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellSide {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl CellSide {
+    fn facing(self) -> CellSide {
+        match self {
+            CellSide::Top => CellSide::Bottom,
+            CellSide::Bottom => CellSide::Top,
+            CellSide::Left => CellSide::Right,
+            CellSide::Right => CellSide::Left,
+        }
+    }
+}
+
+/// One cell edge the border painter would paint: its ends (page points), the cell and side, and
+/// the cell beside it sharing that edge (none at the table's outside).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTarget {
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+    story: StoryRef,
+    table: Path,
+    cell: (usize, usize),
+    side: CellSide,
+    beside: Option<(usize, usize)>,
+}
+
+/// The cell edge nearest page point (`x`, `y`) within [`ERASER_REACH`], outer edges included; in
+/// a nested table, the innermost table's.
+pub fn line_target(l: &DocLayout, page: usize, x: f32, y: f32) -> Option<LineTarget> {
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    let boxes = cell_boxes(l, page);
+    let mut best: Option<(f32, usize, LineTarget)> = None;
+    for a in &boxes {
+        let r = a.rect;
+        let same = |b: &&CellBox| b.story == a.story && b.table == a.table && !(b.row == a.row && b.cell == a.cell);
+        let overlap = |lo: f32, hi: f32, b_lo: f32, b_hi: f32| b_lo < hi - 0.5 && b_hi > lo + 0.5;
+        let edges = [
+            (CellSide::Left, (x - r.x).abs(), y >= r.y && y <= r.bottom(), (r.x, r.y), (r.x, r.bottom())),
+            (CellSide::Right, (x - r.right()).abs(), y >= r.y && y <= r.bottom(), (r.right(), r.y), (r.right(), r.bottom())),
+            (CellSide::Top, (y - r.y).abs(), x >= r.x && x <= r.right(), (r.x, r.y), (r.right(), r.y)),
+            (CellSide::Bottom, (y - r.bottom()).abs(), x >= r.x && x <= r.right(), (r.x, r.bottom()), (r.right(), r.bottom())),
+        ];
+        for (side, d, along, from, to) in edges {
+            if !along || d > ERASER_REACH {
+                continue;
+            }
+            let beside = boxes.iter().filter(same).find(|b| match side {
+                CellSide::Right => {
+                    (b.rect.x - r.right()).abs() <= 1.5
+                        && overlap(r.y, r.bottom(), b.rect.y, b.rect.bottom())
+                        && y >= b.rect.y
+                        && y <= b.rect.bottom()
+                }
+                CellSide::Left => {
+                    (b.rect.right() - r.x).abs() <= 1.5
+                        && overlap(r.y, r.bottom(), b.rect.y, b.rect.bottom())
+                        && y >= b.rect.y
+                        && y <= b.rect.bottom()
+                }
+                CellSide::Bottom => (b.rect.y - r.bottom()).abs() <= 1.5 && x >= b.rect.x && x <= b.rect.right(),
+                CellSide::Top => (b.rect.bottom() - r.y).abs() <= 1.5 && x >= b.rect.x && x <= b.rect.right(),
+            });
+            let t =
+                LineTarget { from, to, story: a.story, table: a.table.clone(), cell: (a.row, a.cell), side, beside: beside.map(|b| (b.row, b.cell)) };
+            let depth = a.table.0.len();
+            if best.as_ref().is_none_or(|(bd, bdepth, _)| d < *bd - 0.01 || (d <= *bd + 0.01 && depth > *bdepth)) {
+                best = Some((d, depth, t));
+            }
+        }
+    }
+    best.map(|b| b.2)
+}
+
+/// The border painter (owner, 2026-11-17): one cell edge takes the pen's line, or loses it when
+/// it already has exactly that line. The cell beside it gets the same on its facing edge, so the
+/// line is the same whichever cell decides it.
+fn paint_border(s: &mut Session, v: &Value) -> CmdResult {
+    let page = page_param(v)?;
+    let (x, y) = (p::req_f32(v, "x")?, p::req_f32(v, "y")?);
+    let pen = super::table::pen_border(v)?;
+    let l = s.layout();
+    if l.pages.get(page).is_none() {
+        return Err(CmdError::Params(format!("no page {page}")));
+    }
+    let target = line_target(&l, page, x, y).ok_or_else(|| CmdError::Failed("there's no table line there".into()))?;
+    let nil = wordcraft_doc::props::Border { style: wordcraft_doc::props::BorderStyle::None, width: 0.0, color: None, space: 0.0 };
+    let (story, tp) = (target.story, target.table.clone());
+    let t = s.doc.table_mut(story, &tp)?;
+    let get = |t: &Table, (r, c): (usize, usize), side: CellSide| {
+        t.rows.get(r).and_then(|row| row.cells.get(c)).and_then(|cell| cell.props.borders).and_then(|b| match side {
+            CellSide::Top => b.top,
+            CellSide::Bottom => b.bottom,
+            CellSide::Left => b.left,
+            CellSide::Right => b.right,
+        })
+    };
+    let line = if get(t, target.cell, target.side) == Some(pen) { nil } else { pen };
+    let set = |t: &mut Table, (r, c): (usize, usize), side: CellSide| {
+        if let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(c)) {
+            let b = cell.props.borders.get_or_insert_with(Default::default);
+            match side {
+                CellSide::Top => b.top = Some(line),
+                CellSide::Bottom => b.bottom = Some(line),
+                CellSide::Left => b.left = Some(line),
+                CellSide::Right => b.right = Some(line),
+            }
+        }
+    };
+    set(t, target.cell, target.side);
+    if let Some(other) = target.beside {
+        set(t, other, target.side.facing());
+    }
+    super::table::touch_cells(s, &tp)?;
     sel_result(s)
 }
 

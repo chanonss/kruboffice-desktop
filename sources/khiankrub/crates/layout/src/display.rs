@@ -609,26 +609,23 @@ fn border_stroke(s: BorderStyle) -> Stroke {
 }
 
 /// A border line from `(x0, y0)` to `(x1, y1)` (paragraph rules and character borders).
+/// The width a border line is drawn at.
+pub(crate) fn rule_width(b: &Border) -> f32 {
+    if b.style == BorderStyle::Thick { b.width.max(1.5) } else { b.width.max(0.25) }
+}
+
 fn rule(x0: f32, y0: f32, x1: f32, y1: f32, b: &Border, alpha: f32) -> Draw {
-    Draw::Line {
-        x0,
-        y0,
-        x1,
-        y1,
-        width: if b.style == BorderStyle::Thick { b.width.max(1.5) } else { b.width.max(0.25) },
-        color: b.color.unwrap_or(Rgb::BLACK),
-        stroke: border_stroke(b.style),
-        alpha,
-        text_bg: None,
-    }
+    Draw::Line { x0, y0, x1, y1, width: rule_width(b), color: b.color.unwrap_or(Rgb::BLACK), stroke: border_stroke(b.style), alpha, text_bg: None }
 }
 
 /// Closed box around one line segment of a character-border group, widened by `space`.
 // Note: border drawn outside text advance, reserve width in line breaking if overlap shows.
 fn char_box(b: &Border, x0: f32, x1: f32, top: f32, bottom: f32, alpha: f32, out: &mut Vec<Draw>) {
     let (l, r) = (x0 - b.space, x1 + b.space);
-    out.push(rule(l, top, r, top, b, alpha));
-    out.push(rule(l, bottom, r, bottom, b, alpha));
+    // The top and bottom lines run on over half the side lines, closing the corners.
+    let half = rule_width(b) / 2.0;
+    out.push(rule(l - half, top, r + half, top, b, alpha));
+    out.push(rule(l - half, bottom, r + half, bottom, b, alpha));
     out.push(rule(l, top, l, bottom, b, alpha));
     out.push(rule(r, top, r, bottom, b, alpha));
 }
@@ -712,6 +709,90 @@ fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer
             out.push(Draw::Turned { x: *x, y: *y, turn: *turn, items });
         }
         Placed::Lines { story, path, para, l0, l1, x, y, .. } => lines(doc, *story, path, para, *l0, *l1, *x, *y, opts, alpha, out),
+    }
+}
+
+/// A list number. It goes with its paragraph mark: when the item is deleted whole under Track
+/// Changes (its text and its mark), the number is drawn as deleted text is, in the deletion's
+/// colour and with its mark (struck through by default, a caret, #s), and not at all where
+/// deletions aren't shown (upstream #4828). A deleted mark alone joins the item to the next one;
+/// its text and number stay as they are.
+#[allow(clippy::too_many_arguments)]
+fn label(
+    doc: &Document,
+    para: Option<&wordcraft_doc::Paragraph>,
+    pl: &ParaLayout,
+    lab: &crate::para::Label,
+    gx: f32,
+    base: f32,
+    opts: &DisplayOptions,
+    alpha: f32,
+    out: &mut Vec<Draw>,
+) {
+    let m = &opts.revisions;
+    let whole = para.is_some_and(|p| p.runs.iter().all(|r| r.len == 0 || r.props.del.is_some()));
+    let mark_del = para.filter(|_| whole).and_then(|p| p.mark.del);
+    if mark_del.is_some() && (!opts.markup || m.hides_deletions()) {
+        return;
+    }
+    let deleted = mark_del.filter(|_| opts.markup && m.insertions_deletions);
+    let moved = deleted.is_some() && doc.move_name(deleted).is_some();
+    let del_mark = deleted.map(|_| if moved { DeleteMark::DoubleStrikethrough } else { m.delete_mark });
+    let del_color = deleted.map(|r| {
+        if moved {
+            MOVE_COLOR
+        } else {
+            m.delete_color.unwrap_or_else(|| revision_color(doc.revisions.get(r as usize).map(|v| author_index(doc, &v.author)).unwrap_or(0)))
+        }
+    });
+    let first = lab.runs.first().and_then(|r| pl.styles.get(r.style as usize));
+    if let (Some(DeleteMark::Caret), Some(color), Some(st)) = (del_mark, del_color, first) {
+        // A caret where the number was, instead of the number.
+        let (h, w, y) = (st.size * 0.3, (st.size / 18.0).max(0.6), base + 1.0);
+        for (x0, y0, x1, y1) in [(gx - h * 0.6, y, gx, y - h), (gx, y - h, gx + h * 0.6, y)] {
+            out.push(Draw::Line { x0, y0, x1, y1, width: w, color, stroke: Stroke::Solid, alpha, text_bg: None });
+        }
+        return;
+    }
+    // One draw per font run: a glyph id only means something in its own face.
+    for run in &lab.runs {
+        let Some(st) = pl.styles.get(run.style as usize) else { continue };
+        // Each deleted character shows as #.
+        let hash = (del_mark == Some(DeleteMark::Hash)).then(|| st.face.glyph_for('#'));
+        out.push(Draw::Glyphs {
+            face: st.face,
+            size: st.size,
+            glyphs: lab
+                .glyphs
+                .get(run.glyphs.clone())
+                .into_iter()
+                .flatten()
+                .map(|g| (hash.unwrap_or(g.gid), gx + g.dx, base - st.shift - g.dy))
+                .collect(),
+            color: del_color.unwrap_or_else(|| text_color(&st.rc.color, None)),
+            alpha,
+            synth_bold: st.synth_bold,
+            synth_italic: st.synth_italic,
+            text: run.text.clone(),
+            link: None,
+            ranges: Vec::new(),
+            text_bg: None,
+        });
+    }
+    // Struck through or underlined once, across the whole number, in its first run's size.
+    if let (Some(color), Some(mark), Some(st)) = (del_color, del_mark, first) {
+        let strike_y = base - st.shift - st.size * 0.28;
+        let under_y = base - st.shift + st.size * 0.12;
+        let line = match mark {
+            DeleteMark::Strikethrough => Some((strike_y, Stroke::Solid)),
+            DeleteMark::DoubleStrikethrough => Some((strike_y, Stroke::Double)),
+            DeleteMark::Underline => Some((under_y, Stroke::Solid)),
+            _ => None,
+        };
+        if let Some((y, stroke)) = line {
+            let width = (st.size / 18.0).max(0.5);
+            out.push(Draw::Line { x0: gx, y0: y, x1: gx + lab.width, y1: y, width, color, stroke, alpha, text_bg: None });
+        }
     }
 }
 
@@ -812,24 +893,7 @@ fn lines(
         if li == pl.label_line()
             && let Some(lab) = &pl.label
         {
-            let gx = x + lab.x;
-            // One draw per font run: a glyph id only means something in its own face.
-            for run in &lab.runs {
-                let Some(st) = pl.styles.get(run.style as usize) else { continue };
-                out.push(Draw::Glyphs {
-                    face: st.face,
-                    size: st.size,
-                    glyphs: lab.glyphs.get(run.glyphs.clone()).into_iter().flatten().map(|g| (g.gid, gx + g.dx, base - st.shift - g.dy)).collect(),
-                    color: text_color(&st.rc.color, None),
-                    alpha,
-                    synth_bold: st.synth_bold,
-                    synth_italic: st.synth_italic,
-                    text: run.text.clone(),
-                    link: None,
-                    ranges: Vec::new(),
-                    text_bg: None,
-                });
-            }
+            label(doc, para, pl, lab, x + lab.x, base, opts, alpha, out);
         }
         // Hyphen at a hyphenated line end.
         if let Some((si, gid, adv)) = line.hyphen
@@ -1706,8 +1770,12 @@ fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &Di
         InlineObject::Image { media, crop, alt, .. } => {
             spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, alt: alt.clone() }], out)
         }
-        InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
+        InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
             let effects = effects_in(*effects, own.within(outer));
+            // A flat line or connector (no height, or no width) is drawn flat: its laid-out frame
+            // is at least 1 pt each way, and corner to corner of that it would slant.
+            let flat = |own: f32, laid: f32| if own.is_finite() && own < 1.0 { own.max(0.0) } else { laid };
+            let rect = if kind.is_open() { Rect::new(rect.x, rect.y, flat(*w, rect.w), flat(*h, rect.h)) } else { rect };
             let mut items = Vec::new();
             shape_draws(rect, *kind, *fill, *stroke, *stroke_width, effects, freeform.as_deref(), extra, opts, &mut items);
             spun(own, rect, items, out)

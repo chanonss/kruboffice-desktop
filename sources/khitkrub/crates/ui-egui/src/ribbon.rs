@@ -38,7 +38,7 @@ use insert::{draw, insert};
 use page_layout::page_layout;
 use review::review;
 pub use shortcuts::shortcut;
-pub use title_bar::{MAC_CONTENT_LEFT, MAC_TITLE_BAR, TITLE_LEFT_PAD, title_bar};
+pub use title_bar::{MAC_CONTENT_LEFT, MAC_TITLE_BAR, TITLE_LEFT_PAD, title_bar, window_frame};
 use title_bar::{TITLE_BAR_H, TITLE_CONTROL_H};
 use view::view;
 
@@ -71,7 +71,13 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let b = t.on_band();
     let collapsed = app.ui.ribbon_collapsed;
     // The KrubOffice heights (`krub_icons::chrome`): the tab strip, and the ribbon under it.
-    let h = if collapsed { TAB_STRIP_H } else { krub_icons::chrome::TABS_AND_RIBBON_H };
+    // The one bar (owner, 2026-11-18) holds the tabs, with room above them, then the ribbon.
+    // A host that draws its own title bar (`Chrome::title_bar` off) gets the tabs alone: no room
+    // above them, no file pill, user icon or Quick Access Toolbar.
+    let window_bar = app.chrome.title_bar;
+    let bar_h = if window_bar { krub_icons::chrome::ONE_BAR_H } else { TAB_STRIP_H };
+    let gap = if window_bar { krub_icons::chrome::ONE_BAR_GAP } else { 0.0 };
+    let h = if collapsed { bar_h } else { bar_h + krub_icons::chrome::RIBBON_H };
     // A contextual tab exists only while its object is selected (Excel hides Table Design once the
     // cell leaves the table); a remembered one that is gone would draw an empty ribbon.
     if CONTEXTUAL_TABS.contains(&app.ui.ribbon_tab.as_str()) && !contextual_tabs(app).contains(&app.ui.ribbon_tab.as_str()) {
@@ -99,15 +105,31 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
             // ribbon below it is flat, so the active tab runs on into it.
             let screen = ui.ctx().content_rect();
             let top = ui.cursor().min.y;
-            let strip = Rect::from_min_max(pos2(screen.left(), top), pos2(screen.right(), top + TAB_STRIP_H));
-            ui.painter().rect_filled(strip, CornerRadius::ZERO, t.band);
+            let band_rect = Rect::from_min_max(pos2(screen.left(), top), pos2(screen.right(), top + bar_h));
+            let strip = Rect::from_min_max(pos2(screen.left(), top + gap), band_rect.right_bottom());
+            ui.painter().rect_filled(band_rect, CornerRadius::ZERO, t.band);
+            // The bar's empty parts drag the window (the title bar used to).
+            if window_bar {
+                title_bar::window_drag(ui, band_rect);
+            }
             if !collapsed {
                 let bottom = top + h;
                 ui.painter().line_segment([pos2(screen.left(), bottom - 0.5), pos2(screen.right(), bottom - 0.5)], Stroke::new(1.0, t.ribbon_border));
             }
 
-            let tabs_rect = Rect::from_min_max(pos2(screen.left() + 8.0, strip.top()), pos2(screen.right() - 8.0, strip.bottom()));
-            let action_left = ribbon_actions(app, ui, tabs_rect, &b);
+            // On macOS the tabs start after the traffic lights.
+            let left_pad = if window_bar { TITLE_LEFT_PAD } else { 8.0 };
+            let tabs_rect = Rect::from_min_max(pos2(screen.left() + left_pad, strip.top()), pos2(screen.right() - 8.0, strip.bottom()));
+            let action_left = if window_bar {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(tabs_rect).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+                    title_bar::bar_right(app, ui)
+                })
+                .inner
+            } else {
+                tabs_rect.right()
+            };
+            // The file pill keeps at least its narrowest width after the tabs.
+            let pill_room = if window_bar { krub_icons::chrome::PILL_MIN_W + 2.0 * krub_icons::chrome::PILL_MARGIN } else { 0.0 };
             let file_end = if app.chrome.file_tab {
                 let file_rect = Rect::from_min_size(tabs_rect.min, vec2(72.0, 30.0));
                 ui.scope_builder(egui::UiBuilder::new().max_rect(file_rect).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
@@ -118,6 +140,16 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
             } else {
                 tabs_rect.left()
             };
+            // Save, Undo and Redo follow File (owner, 2026-11-18).
+            let file_end = if window_bar {
+                let qat = Rect::from_min_size(pos2(file_end, tabs_rect.top()), vec2(title_bar::QUICK_ACCESS_W + 8.0, tabs_rect.height()));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(qat).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+                    title_bar::bar_quick_access(app, ui)
+                });
+                qat.right() + 4.0
+            } else {
+                file_end
+            };
             let ctx_tabs = contextual_tabs(app);
             let tabs: Vec<_> = TABS
                 .iter()
@@ -127,6 +159,9 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                 .collect();
             let lang = app.ui.language;
             let show_numbers = app.ui.show_ribbon_tab_numbers;
+            // Keytips are choosing a tab: the numbers on the tabs are the keys (owner, 2026-11-19).
+            let choosing = app.keytips.prefix() == Some("");
+            app.keytip_tabs = tabs.clone();
             let font = theme::ui_font(13.5);
             let metrics: Vec<_> = tabs
                 .iter()
@@ -137,7 +172,9 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                 })
                 .collect();
             let tab_row = Rect::from_min_size(pos2(tabs_rect.left(), strip.top() + 1.0), vec2(tabs_rect.width(), TAB_STRIP_H - 1.0));
-            let (slots, overflow) = crate::ribbon_layout::tab_slots(tab_row, file_end, action_left - 4.0, &metrics, app.ui.ribbon_tabs_centered);
+            let (slots, overflow) =
+                crate::ribbon_layout::tab_slots(tab_row, file_end, action_left - 4.0 - pill_room, &metrics, app.ui.ribbon_tabs_centered);
+            let tabs_end = slots.iter().flatten().chain(overflow.iter()).map(|r| r.right()).fold(file_end, f32::max);
             for (index, (&tab, slot)) in tabs.iter().zip(&slots).enumerate() {
                 let Some(r) = *slot else { continue };
                 let active = app.ui.ribbon_tab == tab;
@@ -164,6 +201,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     if active { theme::ui_bold(13.5) } else { font.clone() },
                     color,
                     show_numbers.then_some((index + 1, t.band_ink)),
+                    choosing.then_some(b.accent),
                 );
                 if active && !joined {
                     ui.painter().rect_filled(Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(24.0, 3.0)), 1.5, b.accent);
@@ -175,7 +213,15 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                 if resp.double_clicked() {
                     app.ui.ribbon_collapsed = !collapsed;
                 }
-                if app.keytips.prefix() == Some("")
+                // Choosing a tab: its number is the key (gold above); a tab without a shown number
+                // gets a badge with its number, or its letter past the tenth.
+                if choosing && !show_numbers {
+                    let badge = krub_icons::tab_keys::tab_badge(index + 1);
+                    if let Some(sequence) = badge.as_deref().or(keytip_table::tab_sequence(tab)) {
+                        keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
+                    }
+                } else if choosing
+                    && index + 1 > 10
                     && let Some(sequence) = keytip_table::tab_sequence(tab)
                 {
                     keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
@@ -194,6 +240,10 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                         }
                     }
                 });
+            }
+            // The file pill, centred between the last tab and the right end.
+            if window_bar {
+                title_bar::file_pill(app, ui, krub_icons::chrome::pill_area(strip, tabs_end, action_left - 8.0));
             }
             if collapsed {
                 return;
@@ -359,45 +409,6 @@ fn file_menu(app: &mut SheetApp, ui: &mut Ui) -> f32 {
     r.right()
 }
 
-fn ribbon_actions(app: &mut SheetApp, ui: &mut Ui, strip: Rect, b: &Tokens) -> f32 {
-    let lang = app.ui.language;
-    let right = strip.right();
-    let action = |offset: f32, icon, label: &str, primary| {
-        let rect = Rect::from_center_size(pos2(right - offset, strip.center().y), vec2(28.0, 24.0));
-        let response = ui.interact(rect, ui.scope_id().with(("ribbon_action", label)), Sense::click());
-        let fill = if primary {
-            if response.hovered() { b.accent.gamma_multiply(0.85) } else { b.accent }
-        } else if response.hovered() {
-            b.hover
-        } else {
-            Color32::TRANSPARENT
-        };
-        ui.painter().rect_filled(rect, 4.0, fill);
-        icons::paint_flat(ui.painter(), rect.shrink2(vec2(6.0, 4.0)), icon, if primary { b.on_accent } else { b.text }, b.band);
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, lang.tr(label)));
-        response.on_hover_text(lang.tr(label))
-    };
-    let share = action(14.0, Icon::Share, "Share", true);
-    let comments = action(46.0, Icon::Comment, "Comments", false);
-    controls::control_keytip(app, ui, &comments, "comments");
-    if comments.clicked() {
-        app.open_dialog("comments", json!({}));
-    }
-    egui::Popup::menu(&share).show(|ui| {
-        if ui.button(lang.tr("Export as PDF…")).clicked() {
-            app.run_or_alert("file.exportPdf", json!({}));
-        }
-        for (label, format) in
-            [("Save a Copy as Excel Workbook (.xlsx)…", "xlsx"), ("Export as CSV…", "csv"), ("Export as Web Page (.html)…", "html")]
-        {
-            if ui.button(lang.tr(label)).clicked() {
-                app.open_dialog("saveCopy", json!({"format": format}));
-            }
-        }
-    });
-    right - 60.0
-}
-
 /// System / Light / Dark, as in the View tab's Display theme box (`view.theme`).
 fn theme_choices(app: &mut SheetApp, ui: &mut Ui) {
     let lang = app.ui.language;
@@ -434,9 +445,29 @@ pub fn object_panes(app: &SheetApp) -> Vec<&'static str> {
     v
 }
 
+/// The chart pane's Chart sub-panel: the former Chart Design controls.
+pub(crate) fn chart_design_pane(app: &mut SheetApp, ui: &mut Ui) {
+    crate::widgets::in_pane(|| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+            chart_design(app, ui);
+        });
+    });
+}
+
+/// The workbook's theme colours, for a colour menu.
+pub(crate) fn theme_colors_for(app: &SheetApp) -> [u32; 12] {
+    controls::theme_colors(app)
+}
+
 /// An object pane's commands: the former contextual tab's controls, wrapped to the pane's width,
 /// with a heading for each group.
 pub fn object_pane(app: &mut SheetApp, ui: &mut Ui, id: &str) {
+    // The chart pane shared by the three apps (owner, 2026-11-19).
+    if id == "chart" {
+        crate::chart_pane::show(app, ui);
+        return;
+    }
     // A picture's and a shape's pane: the layout shared by the three apps.
     if matches!(id, "picture" | "shape") {
         crate::widgets::in_pane(|| contextual::object_pane(app, ui));

@@ -186,8 +186,10 @@ pub(super) fn chart_design(app: &mut SheetApp, ui: &mut Ui) {
             ("Funnel", "funnel", ""),
             ("Treemap", "treemap", ""),
         ] {
-            if ui.button(label).clicked() {
+            let lang = crate::i18n::current(ui.ctx());
+            if krub_icons::chart_icons::item(ui, krub_icons::chart_icons::id_for(k, s), lang.tr(label), false, 180.0).clicked() {
                 act(app, "chart.set", json!({"chart": id, "type": k, "subtype": s}));
+                ui.close();
             }
         }
     });
@@ -532,20 +534,22 @@ pub(super) fn object_pane(app: &mut SheetApp, ui: &mut Ui) {
             Edit::Align(_) => {}
         }
     }
+    // KhitKrub's own: how the object moves and sizes with the cells, under Size and Position
+    // with the shared heading (owner, 2026-11-18).
+    if krub_icons::shape_pane::current_tab(ui.ctx(), caps) != krub_icons::shape_pane::Tab::SizePosition {
+        return;
+    }
     let mode = a.mode;
-    egui::CollapsingHeader::new(egui::RichText::new(lang.tr("Properties")).strong()).id_salt("object_pane_properties").default_open(true).show(
-        ui,
-        |ui| {
-            use gridcraft_engine::model::AnchorMode;
-            for (label, m, value) in [
-                ("Move and size with cells", AnchorMode::MoveAndSize, "moveAndSize"),
-                ("Move but don't size with cells", AnchorMode::MoveOnly, "moveOnly"),
-                ("Don't move or size with cells", AnchorMode::Absolute, "absolute"),
-            ] {
-                if ui.radio(mode == m, lang.tr(label)).clicked() && mode != m {
-                    act(app, "object.setAnchorMode", json!({"kind": kind, "id": o.id, "mode": value}));
-                }
+    krub_icons::pane_ui::section(ui, krub_icons::pane_ui::id("object_pane_properties"), lang.tr("Properties"), true, |ui| {
+        use gridcraft_engine::model::AnchorMode;
+        for (label, m, value) in [
+            ("Move and size with cells", AnchorMode::MoveAndSize, "moveAndSize"),
+            ("Move but don't size with cells", AnchorMode::MoveOnly, "moveOnly"),
+            ("Don't move or size with cells", AnchorMode::Absolute, "absolute"),
+        ] {
+            if ui.radio(mode == m, lang.tr(label)).clicked() && mode != m {
+                act(app, "object.setAnchorMode", json!({"kind": kind, "id": o.id, "mode": value}));
             }
-        },
-    );
+        }
+    });
 }

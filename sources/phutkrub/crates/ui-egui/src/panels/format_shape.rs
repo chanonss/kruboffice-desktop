@@ -476,8 +476,21 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(tl!("Dash"));
-                for (l, d) in [("—", "solid"), ("···", "sysDot"), ("- -", "dash"), ("-·-", "dashDot"), ("— —", "lgDash")] {
-                    if ui.small_button(l).clicked() {
+                // Each dash drawn as a line (owner, 2026-11-19), named for screen readers.
+                use krub_icons::line_style::{Look, swatch};
+                let now = match sh.line.as_ref().and_then(|l| l.dash.as_ref()) {
+                    Some(deckcraft_model::style::Dash::Preset { name }) => name.as_str(),
+                    Some(_) => "",
+                    None => "solid",
+                };
+                for (l, d, look) in [
+                    ("Solid", "solid", Look::Solid),
+                    ("Round Dot", "sysDot", Look::Dotted),
+                    ("Dash", "dash", Look::Dashed),
+                    ("Dash Dot", "dashDot", Look::DashDot),
+                    ("Long Dash", "lgDash", Look::LongDash),
+                ] {
+                    if swatch(ui, vec2(36.0, 20.0), Some(look), tl!(l), now == d).clicked() {
                         run(app, "shape.line", json!({"dash": d}));
                     }
                 }
@@ -485,6 +498,22 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
             line_details(app, ui, &sh);
         }
     }
+}
+
+/// [`line_choice`] for line styles: the box and rows show each drawn as a line (owner,
+/// 2026-11-19).
+fn line_look_choice(app: &mut SlideApp, ui: &mut Ui, label: &str, key: &str, current: &str, items: &[(&str, &str, krub_icons::line_style::Look)]) {
+    use krub_icons::line_style::{Item, combo};
+    ui.horizontal(|ui| {
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(tl!(label)));
+        let list: Vec<Item<&str>> = items.iter().map(|(l, v, look)| Item::new(*v, Some(*look), tl!(*l))).collect();
+        let now = items.iter().map(|(_, v, _)| *v).find(|v| *v == current);
+        let (resp, picked) = combo(ui, krub_icons::pane_ui::id(("fmt-line", key)), 120.0, now, &list);
+        if let Some(v) = picked {
+            run(app, "shape.line", json!({key: v}));
+        }
+        let _ = resp.labelled_by(field.id);
+    });
 }
 
 /// A labelled drop-down on the Format Shape pane: picks one of `items` (label, value) and runs
@@ -516,14 +545,23 @@ fn line_details(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
         Compound::ThinThick => "thinThick",
         Compound::Triple => "triple",
     };
-    line_choice(
-        app,
-        ui,
-        "Compound type",
-        "compound",
-        compound,
-        &[("Single", "single"), ("Double", "double"), ("Thick Thin", "thickThin"), ("Thin Thick", "thinThick"), ("Triple", "triple")],
-    );
+    {
+        use krub_icons::line_style::Look;
+        line_look_choice(
+            app,
+            ui,
+            "Compound type",
+            "compound",
+            compound,
+            &[
+                ("Single", "single", Look::Solid),
+                ("Double", "double", Look::Double),
+                ("Thick Thin", "thickThin", Look::ThickThin),
+                ("Thin Thick", "thinThick", Look::ThinThick),
+                ("Triple", "triple", Look::ThickBetweenThin),
+            ],
+        );
+    }
     let cap = match l.cap.unwrap_or_default() {
         LineCap::Flat => "flat",
         LineCap::Round => "round",

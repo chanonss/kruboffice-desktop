@@ -82,7 +82,7 @@ fn buttons_with_tip(h: &mut Harness, tip: &str) -> usize {
     let (mut count, mut inside) = (0, false);
     let mut x = 2.0;
     while x < WIDTH {
-        h.input_mut().events.push(Event::PointerMoved(pos2(x, 120.0)));
+        h.input_mut().events.push(Event::PointerMoved(pos2(x, RIBBON_Y)));
         h.run_steps(6);
         let shown = h.query_all_by_value(tip).next().is_some();
         if shown && !inside {
@@ -93,6 +93,9 @@ fn buttons_with_tip(h: &mut Harness, tip: &str) -> usize {
     }
     count
 }
+
+/// The middle of the ribbon's buttons: the one bar, then half the ribbon.
+const RIBBON_Y: f32 = krub_icons::chrome::ONE_BAR_H + krub_icons::chrome::RIBBON_H / 2.0;
 
 #[test]
 fn review_has_a_single_show_comments_button() {

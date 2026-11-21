@@ -1,6 +1,7 @@
 //! Format code parsing: sections, bracket tags and tokens.
 
 use crate::FormatColor;
+use crate::calendar::Calendar;
 
 /// At most this many sections are honoured (`pos;neg;zero;text`); extra ones are ignored.
 const MAX_SECTIONS: usize = 4;
@@ -8,6 +9,9 @@ const MAX_SECTIONS: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum DatePart {
     Year(u8),
+    /// `bb` or `bbbb`: the year in the Buddhist Era (the Gregorian year plus 543), as Excel's Thai
+    /// date codes write it (`[$-th-TH]d mmmm bbbb`: 30 ธันวาคม 2569).
+    YearBE(u8),
     Month(u8),
     Minute(u8),
     Day(u8),
@@ -24,8 +28,13 @@ pub(crate) enum DatePart {
 }
 
 impl DatePart {
+    /// `[h]`, `[m]` or `[s]`.
+    pub(crate) fn is_elapsed(self) -> bool {
+        matches!(self, DatePart::ElapsedH(_) | DatePart::ElapsedM(_) | DatePart::ElapsedS(_))
+    }
+
     pub(crate) fn is_calendar(self) -> bool {
-        matches!(self, DatePart::Year(_) | DatePart::Month(_) | DatePart::Day(_))
+        matches!(self, DatePart::Year(_) | DatePart::YearBE(_) | DatePart::Month(_) | DatePart::Day(_))
     }
 }
 
@@ -54,18 +63,28 @@ pub(crate) enum Tok {
 }
 
 impl Tok {
+    /// Appends the text this token shows when it has no special meaning in its section.
+    pub(crate) fn push_literal(&self, out: &mut String) {
+        match self {
+            Tok::Lit(s) | Tok::FixedDenom(s) => out.push_str(s),
+            Tok::Digit(c) => out.push(*c),
+            Tok::Point => out.push('.'),
+            Tok::Comma => out.push(','),
+            Tok::Percent => out.push('%'),
+            Tok::Exp { upper, plus } => {
+                out.push(if *upper { 'E' } else { 'e' });
+                out.push(if *plus { '+' } else { '-' });
+            }
+            Tok::Slash => out.push('/'),
+            Tok::Fill(_) | Tok::At | Tok::General | Tok::Date(_) => {}
+        }
+    }
+
     /// The text this token shows when it has no special meaning in its section.
     pub(crate) fn literal_text(&self) -> String {
-        match self {
-            Tok::Lit(s) | Tok::FixedDenom(s) => s.clone(),
-            Tok::Digit(c) => c.to_string(),
-            Tok::Point => ".".into(),
-            Tok::Comma => ",".into(),
-            Tok::Percent => "%".into(),
-            Tok::Exp { upper, plus } => format!("{}{}", if *upper { 'E' } else { 'e' }, if *plus { '+' } else { '-' }),
-            Tok::Slash => "/".into(),
-            Tok::Fill(_) | Tok::At | Tok::General | Tok::Date(_) => String::new(),
-        }
+        let mut s = String::new();
+        self.push_literal(&mut s);
+        s
     }
 }
 
@@ -122,6 +141,17 @@ pub(crate) struct Section {
     pub fraction: bool,
     pub currency: bool,
     pub fill: bool,
+    /// Date sections: the most digits of any `.0`/`.00`/`.000` part (at most 3), which decides how
+    /// the time of day is rounded.
+    pub sub_digits: u8,
+    /// Date sections: has a year, month or day part, so the serial's date is needed.
+    pub needs_date: bool,
+    /// Date sections: has `AM/PM` or `A/P`, so hours show on the 12-hour clock.
+    pub ampm: bool,
+    pub calendar: Calendar,
+    /// Excel rejects the whole code because of this section: a `B` and digit that is not a
+    /// calendar prefix, or a prefix before a number format (`B20.00`).
+    pub invalid: bool,
 }
 
 /// Splits a code into sections at unquoted, unescaped, unbracketed semicolons.
@@ -251,17 +281,63 @@ struct Raw {
     color: Option<FormatColor>,
     cond: Option<Cond>,
     currency: bool,
+    calendar: Calendar,
+    /// The section's calendar prefix as written, `'1'` or `'2'` (whether or not a locale tag
+    /// cancels it).
+    prefix: Option<char>,
+    /// An unquoted `B` and digit that is not a calendar prefix: Excel rejects the code.
+    invalid: bool,
+    /// A Thai locale tag: dates show Thai month and day names (unless the section is Hijri).
+    thai: bool,
+}
+
+/// Where a section's body starts: after its leading `[...]` tags, read as `tokenize` reads them.
+/// Also whether one of those tags is a `[$...]` locale tag.
+fn after_leading_brackets(cs: &[char]) -> (usize, bool) {
+    let mut i = 0usize;
+    let mut locale = false;
+    while cs.get(i) == Some(&'[') {
+        match cs.get(i + 1..).and_then(|r| r.iter().position(|&d| d == ']')) {
+            Some(p) => {
+                locale |= cs.get(i + 1) == Some(&'$');
+                i += p + 2;
+            }
+            None => break,
+        }
+    }
+    (i, locale)
 }
 
 fn tokenize(src: &str) -> Raw {
     let cs: Vec<char> = src.chars().collect();
-    let mut raw = Raw { toks: Vec::new(), color: None, cond: None, currency: false };
+    let mut raw =
+        Raw { toks: Vec::new(), color: None, cond: None, currency: false, calendar: Calendar::Gregorian, prefix: None, invalid: false, thai: false };
     let toks = &mut raw.toks;
     // With no `]` at or after a `[`, that `[` is a literal; checking this once keeps the scan linear.
     let last_close = cs.iter().rposition(|&c| c == ']');
+    let (body_start, locale_first) = after_leading_brackets(&cs);
+    // Where the next calendar prefix may stand: the body's start, or right after another prefix.
+    let mut prefix_at = body_start;
     let mut i = 0usize;
     while let Some(&c) = cs.get(i) {
         match c {
+            // A calendar prefix, never shown: `B1` or `B2`, any case, which Excel accepts repeated
+            // (`B2B2`) but not mixed (`B2B1`) or with more digits (`B12`, `B02`).
+            'B' | 'b' if i == prefix_at && cs.get(i + 1).is_some_and(char::is_ascii_digit) => {
+                let d = cs.get(i + 1).copied();
+                let ok = matches!(d, Some('1' | '2')) && !cs.get(i + 2).is_some_and(char::is_ascii_digit) && raw.prefix.is_none_or(|p| Some(p) == d);
+                raw.invalid |= !ok;
+                raw.prefix = d;
+                i += 2;
+                prefix_at = i;
+                continue;
+            }
+            // Any other `B` and digit (`B3dd`, `dd/mm/yyyyB2`, `dd B2 mm`, `B2[Red]B2`) makes Excel
+            // reject the code.
+            'B' | 'b' if cs.get(i + 1).is_some_and(char::is_ascii_digit) => {
+                raw.invalid = true;
+                push_lit(toks, c.encode_utf8(&mut [0; 4]));
+            }
             '"' => {
                 let mut s = String::new();
                 i += 1;
@@ -283,6 +359,8 @@ fn tokenize(src: &str) -> Raw {
                     if is_currency_char(d) {
                         raw.currency = true;
                     }
+                    // Excel rejects an escaped `\B2` as well.
+                    raw.invalid |= matches!(d, 'B' | 'b') && cs.get(i + 2).is_some_and(char::is_ascii_digit);
                     push_lit(toks, d.encode_utf8(&mut [0; 4]));
                 }
                 i += 2;
@@ -306,7 +384,10 @@ fn tokenize(src: &str) -> Raw {
                 let close = if last_close.is_some_and(|l| l > i) { cs.get(i + 1..).and_then(|r| r.iter().position(|&d| d == ']')) } else { None };
                 if let Some(p) = close {
                     let content: String = cs.get(i + 1..i + 1 + p).unwrap_or(&[]).iter().collect();
-                    bracket(&mut raw_parts(toks, &mut raw.color, &mut raw.cond, &mut raw.currency), &content);
+                    bracket(
+                        &mut RawParts { toks, color: &mut raw.color, cond: &mut raw.cond, currency: &mut raw.currency, thai: &mut raw.thai },
+                        &content,
+                    );
                     i += p + 2;
                 } else {
                     push_lit(toks, "[");
@@ -356,7 +437,8 @@ fn tokenize(src: &str) -> Raw {
                 i += 3;
                 continue;
             }
-            'y' | 'Y' | 'm' | 'M' | 'd' | 'D' | 'h' | 'H' | 's' | 'S' | 'e' | 'E' => {
+            // `b`/`bbbb` is the Buddhist-era year; a `B` and a digit was taken as a calendar prefix above.
+            'y' | 'Y' | 'm' | 'M' | 'd' | 'D' | 'h' | 'H' | 's' | 'S' | 'e' | 'E' | 'b' | 'B' => {
                 let lc = c.to_ascii_lowercase();
                 let mut n = 0usize;
                 while cs.get(i + n).is_some_and(|d| d.to_ascii_lowercase() == lc) {
@@ -366,6 +448,7 @@ fn tokenize(src: &str) -> Raw {
                 toks.push(Tok::Date(match lc {
                     'y' => DatePart::Year(n8),
                     'e' => DatePart::Year(4),
+                    'b' => DatePart::YearBE(if n <= 2 { 2 } else { 4 }),
                     'm' => DatePart::Month(n8),
                     'd' => DatePart::Day(n8),
                     'h' => DatePart::Hour(n8),
@@ -383,7 +466,22 @@ fn tokenize(src: &str) -> Raw {
         }
         i += 1;
     }
+    // Excel keeps the date Gregorian when a `[$-401]`-style locale or currency tag comes before
+    // `B2` (`B2[$-401]` is still Hijri).
+    raw.calendar = section_calendar(raw.prefix, locale_first, raw.thai);
     raw
+}
+
+/// The calendar of a section: Hijri for a `B2` prefix before any locale tag, Gregorian with Thai
+/// names for a Thai locale tag, else Gregorian.
+fn section_calendar(prefix: Option<char>, locale_first: bool, thai: bool) -> Calendar {
+    if prefix == Some('2') && !locale_first {
+        Calendar::Hijri
+    } else if thai {
+        Calendar::Thai
+    } else {
+        Calendar::Gregorian
+    }
 }
 
 struct RawParts<'a> {
@@ -391,10 +489,8 @@ struct RawParts<'a> {
     color: &'a mut Option<FormatColor>,
     cond: &'a mut Option<Cond>,
     currency: &'a mut bool,
-}
-
-fn raw_parts<'a>(toks: &'a mut Vec<Tok>, color: &'a mut Option<FormatColor>, cond: &'a mut Option<Cond>, currency: &'a mut bool) -> RawParts<'a> {
-    RawParts { toks, color, cond, currency }
+    /// A Thai locale tag (`[$-th-TH]`, `[$-41E]`).
+    thai: &'a mut bool,
 }
 
 /// Handles the content of a `[...]` tag.
@@ -411,6 +507,15 @@ fn bracket(p: &mut RawParts<'_>, content: &str) {
         return;
     }
     if let Some(body) = content.strip_prefix('$') {
+        // `[$-th-TH]`, `[$-th]`, `[$-41E]` (LCID 0x041E), with or without a calendar after a comma
+        // or in the high digits (`[$-th-TH,107]`, `[$-107041E]`): Thai month and day names.
+        if let Some(locale) = body.split('-').nth(1) {
+            let locale = locale.split(',').next().unwrap_or("").to_ascii_lowercase();
+            let lcid = u32::from_str_radix(&locale, 16).ok().map(|n| n & 0xFFFF);
+            if locale == "th" || locale.starts_with("th-") || lcid == Some(0x041E) {
+                *p.thai = true;
+            }
+        }
         let sym = body.split('-').next().unwrap_or("");
         if !sym.is_empty() {
             *p.currency = true;
@@ -438,7 +543,7 @@ fn date_part(t: &Tok) -> Option<DatePart> {
 }
 
 fn analyze(raw: Raw) -> Section {
-    let Raw { toks, color, cond, currency } = raw;
+    let Raw { toks, color, cond, currency, calendar, prefix, invalid, thai: _ } = raw;
     let is_date = toks.iter().any(|t| matches!(t, Tok::Date(_)));
     let has_general = toks.iter().any(|t| matches!(t, Tok::General));
     let mut sec = Section {
@@ -455,6 +560,11 @@ fn analyze(raw: Raw) -> Section {
         fraction: false,
         currency,
         fill: toks.iter().any(|t| matches!(t, Tok::Fill(_))),
+        sub_digits: 0,
+        needs_date: false,
+        ampm: false,
+        calendar,
+        invalid,
     };
     if is_date {
         sec.kind = SecKind::Date;
@@ -469,6 +579,9 @@ fn analyze(raw: Raw) -> Section {
         sec.kind = SecKind::Text;
         return analyze_text(toks, sec);
     }
+    // Number section. Excel rejects a calendar prefix before digits (`B20.00`, `B1#,##0`);
+    // `B2General`, `B2@` and `B2"x"` show as without the prefix.
+    sec.invalid |= prefix.is_some() && sec.has_digits;
     analyze_number(toks, sec)
 }
 
@@ -508,6 +621,9 @@ fn analyze_date(mut toks: Vec<Tok>, mut sec: Section) -> Section {
         }
         i += 1;
     }
+    sec.sub_digits = out.iter().filter_map(|t| if let Tok::Date(DatePart::SubSec(n)) = t { Some(*n) } else { None }).max().unwrap_or(0).min(3);
+    sec.needs_date = out.iter().any(|t| matches!(t, Tok::Date(d) if d.is_calendar()));
+    sec.ampm = out.iter().any(|t| matches!(t, Tok::Date(DatePart::AmPm | DatePart::AP(..))));
     sec.toks = out;
     sec
 }

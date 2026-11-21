@@ -139,3 +139,70 @@ fn wordart_is_inserted_styled_and_bent() {
     );
     run(&mut s, "wordArt.transform", json!({"preset": "none"}));
 }
+
+/// Insert › Shapes › Line goes in straight across (flat, not 1 pt slanted) and floating in front
+/// of the text; widening it keeps it flat; dragging one end (`shape.lineEnds`) moves only that
+/// end, also past the other one (the frame flips), and the other end stays put.
+#[test]
+fn a_line_goes_in_straight_and_its_ends_move_freely() {
+    let mut s = Session::new(Document::from_text("Some text here"));
+    run(&mut s, "insert.shape", json!({"kind": "line"}));
+    let pos = crate::cmd::objects::object_selection(&s).map(|(p, _)| p).unwrap();
+    let ends_now = |s: &mut Session| {
+        let hit = s.layout().object(&pos, 0).unwrap();
+        let Some(InlineObject::Shape { float, w, h, .. }) = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned() else { panic!() };
+        let r = hit.rect;
+        let (a, b) = ends(r.x, r.y, w, h, float.flip_h, float.flip_v);
+        let round = |p: (f32, f32)| ((p.0 * 100.0).round() / 100.0, (p.1 * 100.0).round() / 100.0);
+        (round(a), round(b), h, float.wrap)
+    };
+    let (a, b, h, wrap) = ends_now(&mut s);
+    assert_eq!(h, 0.0, "flat");
+    // And drawn flat: the laid-out frame is at least 1 pt tall, the line isn't (owner, 2026-11-17).
+    let drawn = |s: &mut Session| {
+        let l = s.layout();
+        let hit = l.object(&pos, 0).unwrap();
+        let obj = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned().unwrap();
+        let draws = wordcraft_layout::display::object_display(&s.doc, &l.pages[hit.page], &obj, hit.rect, None, &Default::default());
+        draws
+            .iter()
+            .find_map(|d| match d {
+                wordcraft_layout::display::Draw::Shape { rect, kind: ShapeKind::Line, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the line is drawn")
+    };
+    assert_eq!(drawn(&mut s).h, 0.0, "drawn level, not corner to corner of a 1 pt box");
+    // On the page too (what the screen and PDF draw).
+    let on_page = s.layout().pages[0]
+        .items
+        .iter()
+        .find_map(|it| match it {
+            wordcraft_layout::Placed::Shape { rect, kind: ShapeKind::Line, .. } => Some(*rect),
+            _ => None,
+        })
+        .expect("the line is on the page");
+    assert_eq!(on_page.h, 0.0, "the page draws it level");
+    assert_eq!(a.1, b.1, "straight across");
+    assert!(b.0 - a.0 > 100.0);
+    assert_eq!(wrap, Wrap::InFrontOfText);
+    // Widened from the Width box (or a handle): still flat.
+    run(&mut s, "arrange.bounds", json!({"width": 200}));
+    let (a, b, h, _) = ends_now(&mut s);
+    assert_eq!((h, a.1), (0.0, b.1));
+    // The end dragged up and back past the start: the start stays.
+    let to = (a.0 - 50.0, a.1 - 30.0);
+    run(&mut s, "shape.lineEnds", json!({"end": {"x": to.0, "y": to.1}}));
+    let (a2, b2, ..) = ends_now(&mut s);
+    assert_eq!((a2, b2), (a, to));
+    // The start dragged level with the end again: flat once more.
+    run(&mut s, "shape.lineEnds", json!({"start": {"x": to.0 + 120.0, "y": to.1}}));
+    let (_, _, h, _) = ends_now(&mut s);
+    assert_eq!(h, 0.0);
+    // Undo takes one end move back; bad params are refused, other shapes aren't lines.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(ends_now(&mut s).1, to);
+    assert!(s.run("shape.lineEnds", &json!({"end": {"x": 5}})).is_err());
+    run(&mut s, "insert.shape", json!({"kind": "rectangle"}));
+    assert!(s.run("shape.lineEnds", &json!({"end": {"x": 5, "y": 5}})).is_err(), "not a line");
+}

@@ -67,7 +67,7 @@ fn title(id: &str) -> &'static str {
         "customShow" => "Custom Shows",
         "chartData" => "Chart Data",
         "trim" => "Trim Media",
-        "smartart" => "Choose a SmartArt Graphic",
+        "smartart" => "Insert Diagram",
         "bullets" => "Bullets and Numbering",
         "action" => "Action Settings",
         "quit" => "DeckCraft",
@@ -81,6 +81,14 @@ fn title(id: &str) -> &'static str {
 /// state as its close path requires.
 pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
     let Some(mut d) = app.dialog.take() else { return };
+    // About is the dialog shared by the three KrubOffice apps (`krub_icons::about`), drawn with
+    // its own frame.
+    if d.id == "about" {
+        if !about::window(ctx, &mut d) {
+            app.dialog = Some(d);
+        }
+        return;
+    }
     let mut open = true;
     let mut close = false;
     let mut window = egui::Window::new(tl!(title(&d.id)))
@@ -207,6 +215,7 @@ mod alt_text;
 pub(crate) mod body;
 mod columns;
 mod date_time;
+mod diagram;
 mod equation;
 mod export;
 mod find;
@@ -225,7 +234,7 @@ mod theme_fonts;
 mod trim;
 mod zoom;
 
-pub use about::{about, description, paint_logo, project_links, version_line};
+pub use about::{description, paint_logo, project_links, version_line};
 use body::body;
 #[cfg(test)]
 use hyperlink::{
@@ -270,6 +279,20 @@ fn choice(ui: &mut Ui, d: &mut Dialog, salt: &str, name: &str, key: &str, choice
         }
     });
     combo.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name));
+}
+
+/// [`choice`] for line styles: the box and rows show each style drawn as a line (owner,
+/// 2026-11-19); `choices` are (key, label, how it looks; `None` shows the label).
+fn line_choice(ui: &mut Ui, d: &mut Dialog, salt: &str, name: &str, key: &str, choices: &[(&str, &str, Option<krub_icons::line_style::Look>)]) {
+    use krub_icons::line_style::{Item, combo};
+    let cur = d.get(key, "");
+    let items: Vec<Item<&str>> = choices.iter().map(|(v, l, look)| Item::new(*v, *look, tl!(*l))).collect();
+    let now = choices.iter().map(|(v, ..)| *v).find(|v| *v == cur);
+    let (resp, picked) = combo(ui, krub_icons::pane_ui::id(salt), 140.0, now, &items);
+    if let Some(v) = picked {
+        d.fields.insert((*key).into(), v.into());
+    }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name));
 }
 
 fn labeled_text(ui: &mut Ui, d: &mut Dialog, label: &str, key: &str, width: f32) -> String {

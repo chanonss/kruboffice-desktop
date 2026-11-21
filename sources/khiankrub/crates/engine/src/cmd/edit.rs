@@ -62,6 +62,9 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel),
         CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C / Mod+Insert").pure(),
+        CommandSpec::new("edit.dropText", "Drag Selected Text", "Home › Clipboard", drop_text)
+            .params(r#"{"page": n, "x": pt, "y": pt, "copy"?: bool} (the selected text dragged and dropped at that page point, 0-based page: moved there, or copied with `copy` (Option on macOS, Ctrl elsewhere); the clipboard is untouched; dropped inside the selection it stays where it is. One undo step; the dropped text is selected.)"#)
+            .when(has_sel),
         CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V / Shift+Insert").params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.pasteText", "Paste: Keep Text Only", "Home › Clipboard › Paste", paste_text)
             .params(r#"{"text"?: string}"#)
@@ -153,6 +156,68 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.pasteFormat", "Paste Formatting", "Home › Clipboard", paste_format).key("Mod+Shift+V"),
     ]
+}
+
+/// Text after `pos` in its story: what follows it in its paragraph and every later paragraph
+/// (one for each paragraph break). It doesn't change when text before `pos` is removed or added,
+/// so a place after the dragged text is found again once that text has moved.
+fn distance_to_end(s: &Session, pos: &Pos) -> Option<usize> {
+    let paths = s.doc.para_paths(pos.story);
+    let i = paths.iter().position(|q| *q == pos.path)?;
+    let len = |q: &Path| s.doc.para(pos.story, q).map_or(0, wordcraft_doc::Paragraph::len);
+    let after: usize = paths.iter().skip(i + 1).map(|q| len(q) + 1).sum();
+    Some(after + len(&pos.path).saturating_sub(pos.off))
+}
+
+/// The place [`distance_to_end`] `d` from the end of `story`.
+fn at_distance_to_end(s: &Session, story: StoryRef, mut d: usize) -> Option<Pos> {
+    for q in s.doc.para_paths(story).into_iter().rev() {
+        let len = s.doc.para(story, &q).map_or(0, wordcraft_doc::Paragraph::len);
+        if d <= len {
+            return Some(Pos { story, path: q, off: len - d });
+        }
+        d -= len + 1;
+    }
+    None
+}
+
+/// Drag and drop of selected text (owner, 2026-11-17: between table cells too): the selection
+/// moves (or with `copy` is copied) to where it's dropped, as one step, without the clipboard.
+fn drop_text(s: &mut Session, v: &Value) -> CmdResult {
+    let page =
+        p::u64(v, "page").map(|n| usize::try_from(n).unwrap_or(usize::MAX)).ok_or_else(|| CmdError::Params("`page` (number) is required".into()))?;
+    let (x, y) = (p::req_f32(v, "x")?, p::req_f32(v, "y")?);
+    let copy = p::bool(v, "copy").unwrap_or(false);
+    if s.cell_range().is_some() || s.column_segments().is_some() {
+        return Err(CmdError::Disabled("whole cells or a column of text can't be dragged".into()));
+    }
+    let (a, b) = s.sel.ordered();
+    if a == b {
+        return Err(CmdError::Disabled("select the text to drag first".into()));
+    }
+    let story = a.story;
+    let l = s.layout();
+    let to = l.hit(page, x, y, story).ok_or_else(|| CmdError::Failed("there's no text there to drop into".into()))?;
+    let order = |p: &Pos, q: &Pos| p.cmp(q);
+    // Into the selection itself: nothing moves (Word leaves it as it is), and no undo step.
+    if order(&to, &a).is_gt() && order(&to, &b).is_lt() || (!copy && (to == a || to == b)) {
+        return Err(CmdError::Disabled("dropped onto the selection itself: nothing moves".into()));
+    }
+    let frag = s.doc.copy_range(&a, &b);
+    let after = order(&to, &b).is_ge();
+    let keep = if after { distance_to_end(s, &to) } else { None };
+    if !copy {
+        delete_selection(s)?;
+    }
+    let to = match keep {
+        Some(d) => at_distance_to_end(s, story, d).ok_or_else(|| CmdError::Failed("the drop point moved".into()))?,
+        None => to,
+    };
+    s.sel = Selection::caret(to.clone());
+    super::paste::insert(s, frag)?;
+    let end = s.sel.focus.clone();
+    s.sel = Selection { anchor: to, focus: end };
+    sel_result(s)
 }
 
 fn copy(s: &mut Session, _: &Value) -> CmdResult {

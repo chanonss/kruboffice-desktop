@@ -77,7 +77,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"color": "RRGGBB" | null}"#)),
         t(CommandSpec::new("table.borders", "Borders", "Table Design › Borders", borders)
-            .params(r#"{"kind": "all|outside|inside|none|top|bottom|left|right|insideH|insideV|diagDown|diagUp", "width"?: pt, "color"?: "RRGGBB"}"#)),
+            .params(r#"{"kind": "all|outside|inside|none|top|bottom|left|right|insideH|insideV|diagDown|diagUp", "width"?: pt, "color"?: "RRGGBB", "style"?: "single|dashed|dotted|double|thick|dotDash|triple|wave", "scope"?: "selection|table"} (the selected cells' edges, or with scope `table` the whole table's lines whatever is selected)"#)),
         t(CommandSpec::new("table.cellAlign", "Alignment", "Table Layout › Alignment", |s, v| {
             let (h, va) = match p::str(v, "value").unwrap_or("topLeft") {
                 "topLeft" => (Align::Left, VAlign::Top),
@@ -124,7 +124,11 @@ pub fn specs() -> Vec<CommandSpec> {
         t(CommandSpec::new("table.columnWidth", "Table Column Width", "Table Layout › Cell Size", |s, v| {
             let w = p::req_f32(v, "width")?.clamp(6.0, 1584.0);
             let cells = selected_cells(s);
-            with_table(s, |t| set_column_widths(t, &cells, w))
+            with_table(s, |t| {
+                let (old, pct) = (t.grid.clone(), t.props.width_pct);
+                set_column_widths(t, &cells, w);
+                keep_fit(t, pct, &old);
+            })
         })
         .params(
             r#"{"width": pt} (every column the selection covers, the caret cell's without one; the table's preferred width is cleared so the columns get exactly this)"#,
@@ -246,17 +250,54 @@ fn autofit(s: &mut Session, v: &Value) -> CmdResult {
 /// (saved to .docx) agree with the grid.
 pub(crate) fn sync_cell_widths(t: &mut Table) {
     let grid = t.grid.clone();
+    // Automatic columns stay automatic: they share what the fixed ones leave of the table.
+    let auto = t.auto_columns();
     for row in &mut t.rows {
         let mut g = 0usize;
         for c in &mut row.cells {
             let span = c.span();
             let w: f32 = grid.get(g..g.saturating_add(span).min(grid.len())).unwrap_or(&[]).iter().sum();
-            if w > 0.0 {
+            if span == 1 && auto.get(g).copied().unwrap_or(false) {
+                c.props.width = None;
+            } else if w > 0.0 {
                 c.props.width = Some(w);
             }
             g += span;
         }
     }
+}
+
+/// After some columns of `t` got new widths (`old`: the grid before), a table that fit the window
+/// (`pct`, its percentage width before) still does: the columns that kept their widths share the
+/// difference in proportion, or the automatic columns take it, and the percentage stays. Without
+/// such columns (all changed) or room for them, the table keeps the new widths as they are.
+pub(crate) fn keep_fit(t: &mut Table, pct: Option<f32>, old: &[f32]) {
+    let Some(pct) = pct.filter(|p| *p > 0.0) else { return };
+    if t.grid.len() != old.len() {
+        return;
+    }
+    let total: f32 = old.iter().sum();
+    if t.auto_columns().iter().any(|a| *a) {
+        t.props.width = None;
+        t.props.width_pct = Some(pct);
+        return;
+    }
+    let changed: Vec<bool> = t.grid.iter().zip(old).map(|(a, b)| (a - b).abs() > 0.01).collect();
+    let set: f32 = t.grid.iter().zip(&changed).filter(|(_, c)| **c).map(|(w, _)| *w).sum();
+    let others: f32 = t.grid.iter().zip(&changed).filter(|(_, c)| !**c).map(|(w, _)| *w).sum();
+    let count = changed.iter().filter(|c| !**c).count() as f32;
+    let rest = total - set;
+    if count == 0.0 || others <= 0.0 || rest < 6.0 * count {
+        return;
+    }
+    for (w, c) in t.grid.iter_mut().zip(&changed) {
+        if !*c {
+            *w *= rest / others;
+        }
+    }
+    t.props.width = None;
+    t.props.width_pct = Some(pct);
+    sync_cell_widths(t);
 }
 
 /// Set the width of the grid column cell `c` of row `r` starts in. The table's preferred width
@@ -274,6 +315,55 @@ fn set_column_widths(t: &mut Table, cells: &[(usize, usize)], w: f32) {
         }
     }
     if any {
+        t.props.width = None;
+        t.props.width_pct = None;
+        sync_cell_widths(t);
+    }
+}
+
+/// Every grid column's width, `None` making it automatic ([`Table::auto_columns`]): its single
+/// cells lose their preferred width and it keeps its grid width as its share until the table is
+/// laid out. A table with automatic columns and no width of its own takes the window's.
+fn set_column_widths_or_auto(t: &mut Table, widths: &[Option<f32>]) {
+    for (g, w) in widths.iter().enumerate() {
+        if let (Some(w), Some(x)) = (w, t.grid.get_mut(g)) {
+            *x = *w;
+        }
+    }
+    let autos: Vec<usize> = widths.iter().enumerate().filter(|(_, w)| w.is_none()).map(|(g, _)| g).collect();
+    let mut cleared = false;
+    for r in 0..t.rows.len() {
+        for &g in &autos {
+            if let Some(c) = t.cell_at_grid(r, g)
+                && t.grid_col(r, c) == g
+                && let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(c))
+                && cell.span() == 1
+            {
+                cell.props.width = None;
+                cell.props.width_pct = None;
+                cleared = true;
+            }
+        }
+    }
+    // Cells whose column got a width keep it explicitly, so the automatic ones are told apart.
+    for r in 0..t.rows.len() {
+        for (g, w) in widths.iter().enumerate() {
+            if let (Some(w), Some(c)) = (w, t.cell_at_grid(r, g))
+                && t.grid_col(r, c) == g
+                && let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(c))
+                && cell.span() == 1
+            {
+                cell.props.width = Some(*w);
+                cell.props.width_pct = None;
+            }
+        }
+    }
+    let has_auto = t.auto_columns().iter().any(|a| *a);
+    if cleared && has_auto {
+        if t.props.width.is_none() && t.props.width_pct.is_none() {
+            t.props.width_pct = Some(100.0);
+        }
+    } else {
         t.props.width = None;
         t.props.width_pct = None;
         sync_cell_widths(t);
@@ -356,13 +446,18 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
     let column_width = p::f32(v, "columnWidth").map(|x| x.clamp(6.0, 1584.0));
     let cell_width = size("cellWidth", 6.0, 1584.0);
     let keep_with_next = p::bool(v, "keepWithNext");
-    let column_widths: Option<Vec<f32>> = match v.get("columnWidths") {
+    // A width per grid column; `null` makes that column automatic (it takes what the others
+    // leave of the table's width).
+    let column_widths: Option<Vec<Option<f32>>> = match v.get("columnWidths") {
         None => None,
         Some(Value::Array(a)) => Some(
             a.iter()
-                .map(|x| x.as_f64().map(|f| f as f32).filter(|f| f.is_finite()).map(|f| f.clamp(6.0, 1584.0)))
-                .collect::<Option<Vec<f32>>>()
-                .ok_or_else(|| CmdError::Params("columnWidths must be numbers".into()))?,
+                .map(|x| match x {
+                    Value::Null => Some(None),
+                    x => x.as_f64().map(|f| f as f32).filter(|f| f.is_finite()).map(|f| Some(f.clamp(6.0, 1584.0))),
+                })
+                .collect::<Option<Vec<Option<f32>>>>()
+                .ok_or_else(|| CmdError::Params("columnWidths must be numbers or null".into()))?,
         ),
         Some(_) => return Err(CmdError::Params("columnWidths must be an array".into())),
     };
@@ -428,14 +523,14 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
         if let Some(i) = indent {
             t.props.indent = Some(i);
         }
+        let (old_grid, old_pct) = (t.grid.clone(), t.props.width_pct);
         if let Some(cw) = column_width {
             set_column_widths(t, &cells, cw);
+            keep_fit(t, old_pct, &old_grid);
         }
         if let Some(widths) = &column_widths {
-            t.grid = widths.clone();
-            t.props.width = None;
-            t.props.width_pct = None;
-            sync_cell_widths(t);
+            set_column_widths_or_auto(t, widths);
+            keep_fit(t, old_pct, &old_grid);
         }
         if let Some(on) = keep_with_next {
             set_keep_with_next(t, on);
@@ -847,11 +942,30 @@ fn split_table(s: &mut Session, _: &Value) -> CmdResult {
     sel_result(s)
 }
 
+/// The border a command's `style`, `width` and `color` describe (single 0.5 pt automatic by default).
+pub(crate) fn pen_border(v: &Value) -> Result<Border, CmdError> {
+    let w = p::f32(v, "width").unwrap_or(0.5);
+    let w = if w.is_finite() { w.clamp(0.25, 6.0) } else { 0.5 };
+    let color = p::str(v, "color").and_then(Rgb::parse);
+    let style = match p::str(v, "style") {
+        None => BorderStyle::Single,
+        Some("none") => BorderStyle::None,
+        Some(x) => match BorderStyle::from_ooxml(x) {
+            st if st.ooxml() == x => st,
+            _ => return Err(CmdError::Params(format!("unknown border style `{x}`"))),
+        },
+    };
+    Ok(Border { style, width: w, color, space: 0.0 })
+}
+
 fn borders(s: &mut Session, v: &Value) -> CmdResult {
     let kind = p::str(v, "kind").unwrap_or("all");
-    let w = p::f32(v, "width").unwrap_or(0.5).clamp(0.25, 6.0);
-    let color = p::str(v, "color").and_then(Rgb::parse);
-    let b = Border { style: BorderStyle::Single, width: w, color, space: 0.0 };
+    let b = pen_border(v)?;
+    let whole_table = match p::str(v, "scope") {
+        None | Some("selection") => false,
+        Some("table") => true,
+        Some(x) => return Err(CmdError::Params(format!("`scope` is selection or table, not `{x}`"))),
+    };
     let none = Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 };
     // The diagonals belong to the selected cells, and switch off when every one of them has it.
     if let Some(down) = match kind {
@@ -873,7 +987,7 @@ fn borders(s: &mut Session, v: &Value) -> CmdResult {
     let cells = selected_cells(s);
     let t = s.doc.table(s.sel.focus.story, &tp).ok_or_else(|| CmdError::Disabled("the cursor isn't in a table".into()))?;
     let total: usize = t.rows.iter().map(|r| r.cells.len()).sum();
-    if !cells.is_empty() && cells.len() < total {
+    if !whole_table && !cells.is_empty() && cells.len() < total {
         return cell_borders(s, &tp, &cells, kind, b, none);
     }
     with_table(s, |t| {
@@ -1242,12 +1356,27 @@ fn select_column(s: &mut Session, _: &Value) -> CmdResult {
 /// are, so the app shades them and, when they aren't one run of the text (part of a column),
 /// edits and formatting leave the cells between the corners alone.
 pub(crate) fn select_range(s: &mut Session, story: StoryRef, tp: &Path, rows: (usize, usize), cols: (usize, usize)) -> CmdResult {
+    select_ranges(s, story, tp, rows, cols, Vec::new())
+}
+
+/// [`select_range`] with `more` grid column spans over the same rows (columns that aren't side by
+/// side, picked with Cmd/Ctrl). Such a selection is never one run of the text: text edits and
+/// formatting go cell by cell.
+pub(crate) fn select_ranges(
+    s: &mut Session,
+    story: StoryRef,
+    tp: &Path,
+    rows: (usize, usize),
+    cols: (usize, usize),
+    more: Vec<(usize, usize)>,
+) -> CmdResult {
     let t = s.doc.table(story, tp).ok_or_else(|| CmdError::Failed("there's no table there".into()))?;
     let (last_row, last_col) = (t.rows.len().saturating_sub(1), t.cols().saturating_sub(1));
     let rows = (rows.0.min(rows.1).min(last_row), rows.0.max(rows.1).min(last_row));
     let cols = (cols.0.min(cols.1).min(last_col), cols.0.max(cols.1).min(last_col));
-    let stream = rows.0 == rows.1 || (cols.0 == 0 && cols.1 == last_col);
-    let range = crate::CellRange { story, table: tp.clone(), rows, cols, stream };
+    let more: Vec<(usize, usize)> = more.into_iter().map(|(a, b)| (a.min(b).min(last_col), a.max(b).min(last_col))).collect();
+    let stream = more.is_empty() && (rows.0 == rows.1 || (cols.0 == 0 && cols.1 == last_col));
+    let range = crate::CellRange { story, table: tp.clone(), rows, cols, stream, more };
     let picked: std::collections::BTreeSet<(usize, usize)> = range.cells(t).into_iter().collect();
     // Every paragraph of the picked cells (nested tables' too), in document order.
     let depth = tp.0.len();

@@ -685,7 +685,20 @@ fn number_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
     let resp = ui.add_sized([150.0, 24.0], egui::Button::new(egui::RichText::new(lang.tr(&current)).font(theme::ui_font(12.5))));
     control_keytip(app, ui, &resp, "home.numberFormat");
     let forced = invoke(app, "home.numberFormat");
-    let names = ["General", "Number", "Currency", "Accounting", "Short Date", "Long Date", "Time", "Percentage", "Fraction", "Scientific", "Text"];
+    let names = [
+        "General",
+        "Number",
+        "Currency",
+        "Accounting",
+        "Short Date",
+        "Long Date",
+        "Thai Long Date",
+        "Time",
+        "Percentage",
+        "Fraction",
+        "Scientific",
+        "Text",
+    ];
     let items: Vec<(&str, String)> = names
         .iter()
         .map(|n| {

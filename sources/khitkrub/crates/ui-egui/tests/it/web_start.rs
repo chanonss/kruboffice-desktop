@@ -254,3 +254,53 @@ fn without_browser_drafts_there_is_no_start_screen() {
     assert!(h.query_by_label("Hello! What would you like to work on?").is_none());
     h.run_steps(1);
 }
+
+/// Owner, 2026-11-17: the start screen lists the Google Drive files this browser opened or saved.
+/// A file opens from Drive in a new tab (`./?drive=<id>`), so it is saved back there; a file with
+/// unsaved changes here says so, its draft isn't listed again as a draft of its own, and a click
+/// asks whether to open those changes or the Drive version (which leaves them behind).
+#[test]
+fn the_start_screen_lists_google_drive_files_with_their_unsaved_changes() {
+    let asked: Asked = Rc::default();
+    let log = asked.clone();
+    let drafts = two_drafts();
+    let services = Services {
+        browser_recovery: Some(BrowserRecoveryServices {
+            drafts: Box::new(move |_| Some(drafts.clone())),
+            act: Box::new(move |what, id| log.borrow_mut().push((what, id.to_string()))),
+            fragile: Box::new(|| false),
+            open_draft: Box::new(|| None),
+        }),
+        google_drive: Some(gridcraft_ui_egui::DriveServices {
+            recent: Box::new(|_| {
+                vec![
+                    krub_drive::RecentDriveFile { id: "1sales".into(), name: "Sales.xlsx".into(), when: "17/11/2026".into(), draft: None },
+                    krub_drive::RecentDriveFile {
+                        id: "1marks".into(),
+                        name: "Marks.xlsx".into(),
+                        when: "16/11/2026".into(),
+                        draft: Some("doc-2".into()),
+                    },
+                ]
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut app = prepare(SheetApp::new(blank_session(), services));
+    app.ui.language = Language::En;
+    app.set_web_start_screen(true);
+    let mut h = harness_with(builder().with_size(egui::vec2(1440.0, 1100.0)), app, 4);
+    assert!(h.query_by_label_contains("Saving goes back to the file on Drive").is_some());
+    assert!(h.query_by_label("Class marks (draft)").is_none(), "the Drive file's changes aren't a draft of their own");
+    assert!(h.query_by_label("Monthly report.xlsx (draft)").is_some(), "other drafts stay");
+    assert_eq!(click_and_collect(&mut h, "Sales.xlsx"), [("./?drive=1sales".to_string(), true)]);
+    let marks = "Marks.xlsx (Unsaved changes in this browser)";
+    h.get_by_label(marks).click();
+    h.run_steps(2);
+    assert_eq!(click_and_collect(&mut h, "Open with the unsaved changes"), [("./?draft=doc-2".to_string(), true)]);
+    h.get_by_label(marks).click();
+    h.run_steps(2);
+    assert_eq!(click_and_collect(&mut h, "Open the Google Drive version"), [("./?drive=1marks".to_string(), true)]);
+    assert_eq!(asked.borrow().last(), Some(&(DraftAction::Discard, "doc-2".to_string())));
+}

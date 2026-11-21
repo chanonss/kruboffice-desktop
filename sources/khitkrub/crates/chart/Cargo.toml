@@ -9,6 +9,7 @@ description = "GridCraft charts: data resolution, layout into toolkit-free primi
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
 gridcraft-core = { workspace = true }
 gridcraft-model = { workspace = true }
 gridcraft-calc = { workspace = true }

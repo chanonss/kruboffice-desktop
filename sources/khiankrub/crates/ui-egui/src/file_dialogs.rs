@@ -62,6 +62,8 @@ pub(crate) enum AfterPick {
     Recipients,
     /// Add the picked font file (#582).
     Font,
+    /// Save as Picture: write the selected picture there.
+    SavePicture,
     /// Hand the picked path to the open dialog (`WordApp::dialog_pick`): Templates and Add-ins,
     /// Organizer (#377).
     ForDialog,
@@ -193,6 +195,10 @@ impl WordApp {
                     return Ok(json!({"cancelled": true}));
                 };
                 self.insert_or_change_picture(json!({"path": path}))
+            }
+            AfterPick::SavePicture => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                self.run("picture.save", json!({"path": path}))
             }
             AfterPick::Font => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };

@@ -1,38 +1,49 @@
-use super::{Color32, CornerRadius, Rect, SlideApp, Stroke, Tokens, Ui, pos2, theme, vec2};
+use super::{Color32, CornerRadius, Rect, Stroke, Tokens, Ui, pos2, vec2};
 
-/// Room the About credits need for their table; the About tab keeps its compact size.
-pub(super) const CREDITS_SIZE: egui::Vec2 = vec2(820.0, 380.0);
+/// PhutKrub's tables for the shared About dialog: who wrote DeckCraft and which AI models helped.
+struct Host;
 
-/// The Contributors / Models body in a block of its own fixed size, below the tab row. Sizing the
-/// dialog's `ui` instead (`set_min_size` / `set_max_height`) squeezed the tab row and the first
-/// credits row together, so the text was garbled and the tabs stopped answering (#843).
-pub(super) fn credits_block(ui: &mut Ui, models: bool) -> Rect {
-    ui.allocate_ui(CREDITS_SIZE, |ui| {
-        ui.set_min_size(CREDITS_SIZE);
-        if models { crate::credits::models_ui(ui) } else { crate::credits::contributors_ui(ui) }
-    })
-    .response
-    .rect
+impl krub_icons::about::Host for Host {
+    fn contributors(&mut self, ui: &mut Ui) {
+        crate::credits::contributors_ui(ui);
+    }
+    fn models(&mut self, ui: &mut Ui) {
+        crate::credits::models_ui(ui);
+    }
 }
 
-pub fn about(_app: &mut SlideApp, ui: &mut Ui) {
-    // The same About as KhianKrub's and KhitKrub's: name, version, what it is, where it comes from.
-    let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!("PhutKrub")).font(theme::bold(22.0)));
-    ui.label(version_line());
-    ui.label(description());
-    ui.add_space(6.0);
-    project_links(ui);
-    ui.add_space(6.0);
-    krub_icons::tabler_credit(ui, tl!("Icons from Tabler Icons by Paweł Kuna (MIT License)"), tl!("Tabler Icons license"));
-    ui.add_space(6.0);
-    ui.label(
-        egui::RichText::new(tl!(
-            "MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the DeckCraft contributors. Modifications copyright (c) 2026 Chanon Sarasuk."
-        ))
-        .size(11.0)
-        .color(t.text_faint),
-    );
+/// The About dialog's tabs as kept in the dialog's `tab` field, in the shared order.
+const TABS: [&str; 4] = ["about", "contributors", "models", "licences"];
+
+/// About PhutKrub (owner, 2026-11-18): the About dialog shared by the three KrubOffice apps
+/// (`krub_icons::about`), drawn with its own frame. `true` once it closed.
+pub(super) fn window(ctx: &egui::Context, d: &mut super::Dialog) -> bool {
+    let t = Tokens::get(ctx);
+    let sha = option_env!("DECKCRAFT_BUILD_SHA").map(|s| s.get(..9).unwrap_or(s)).filter(|s| !s.is_empty());
+    let (source_label, source_url) = if cfg!(target_arch = "wasm32") {
+        ("github.com/chanonss/phutkrub-web".to_string(), "https://github.com/chanonss/phutkrub-web")
+    } else {
+        (tl!("KrubOffice on GitHub").to_string(), "https://github.com/chanonss/kruboffice-desktop")
+    };
+    let info = krub_icons::about::Info {
+        name: tl!("PhutKrub").to_string(),
+        english: "PhutKrub",
+        letter: "พ",
+        color: t.band,
+        version: crate::APP_VERSION,
+        build: sha,
+        tagline: tl!("A free, open-source presentation app for Thai and English.").to_string(),
+        upstream: "DeckCraft",
+        upstream_url: "https://github.com/storytold/deckcraft",
+        source_label,
+        source_url,
+        credits: Vec::new(),
+    };
+    let current = d.fields.get("tab").cloned().unwrap_or_default();
+    let mut tab = TABS.iter().position(|k| *k == current).unwrap_or(0);
+    let closed = krub_icons::about::show(ctx, &info, &mut tab, &|s: &str| tl!(s).to_string(), &mut Host);
+    d.fields.insert("tab".into(), TABS.get(tab).copied().unwrap_or("about").into());
+    closed
 }
 
 /// What PhutKrub is, in one line, and where it comes from (shared by the About window and File › About).
@@ -90,7 +101,6 @@ mod about_credits_tests {
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
-    use super::{CREDITS_SIZE, credits_block};
     use crate::dialogs::Dialog;
     use crate::{Services, SlideApp};
 
@@ -100,7 +110,7 @@ mod about_credits_tests {
     }
 
     /// The reported symptom (#843): in the real dialog the tabs stopped answering once Contributors
-    /// or Models was open. Click through Contributors, Models and back to About.
+    /// or Models was open. Click through every tab of the shared About and back.
     #[test]
     fn about_dialog_tabs_keep_responding() {
         let mut app = SlideApp::new(deckcraft_engine::Session::with_new(), Services::default());
@@ -114,30 +124,15 @@ mod about_credits_tests {
         );
         h.run_steps(4);
         assert_eq!(tab_of(&h), "about");
-        for label in ["Contributors", "Models", "About", "Models", "Contributors"] {
+        for (label, key) in
+            [("Contributors", "contributors"), ("AI models", "models"), ("Licences", "licences"), ("AI models", "models"), ("About", "about")]
+        {
             h.get_by_label(label).click();
             h.run_steps(3);
-            assert_eq!(tab_of(&h), label.to_lowercase(), "clicking {label} switches the tab");
+            assert_eq!(tab_of(&h), key, "clicking {label} switches the tab");
         }
-    }
-
-    #[test]
-    fn credits_get_their_own_block_below_the_tab_row() {
-        for models in [false, true] {
-            let ctx = egui::Context::default();
-            let mut tabs = egui::Rect::NOTHING;
-            let mut block = egui::Rect::NOTHING;
-            let mut whole = egui::Rect::NOTHING;
-            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                tabs = ui.label("About").rect;
-                block = credits_block(ui, models);
-                whole = ui.min_rect();
-            });
-            out.textures_delta.clear();
-            assert_eq!(block.size(), CREDITS_SIZE, "models={models}");
-            assert!(block.min.y >= tabs.max.y, "the credits start below the tab row (models={models})");
-            assert!(whole.max.y >= block.max.y, "the dialog grows to hold the block (models={models})");
-            assert!(whole.height() > CREDITS_SIZE.y, "the tab row is not squeezed into the credits height (models={models})");
-        }
+        h.get_by_label("Close").click();
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none(), "Close closes it");
     }
 }

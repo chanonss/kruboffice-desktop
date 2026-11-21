@@ -63,6 +63,9 @@ pub struct CanvasState {
     dragging: bool,
     /// Alt+drag: where the column (block) selection started (page, x, y) and its last end.
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
+    /// Selected text being dragged (owner, 2026-11-17): pressed inside the selection, it moves
+    /// (or with Option/Ctrl is copied) to where the button goes up (`edit.dropText`).
+    pub(crate) text_drag: Option<TextDrag>,
     /// The last primary press on the page (time, screen point, clicks in a row), to count
     /// double- and triple-presses as they go down (egui reports them on release).
     last_press: Option<(f64, Pos2, u8)>,
@@ -148,6 +151,8 @@ pub struct CanvasState {
     pub(crate) pasted: bool,
     /// Draw Table or Eraser is on (`table_pen`): presses draw instead of moving the caret.
     pub table_tool: Option<crate::table_pen::TableTool>,
+    /// The line the border painter last painted in this drag (not again until another).
+    pub(crate) painting: Option<wordcraft_engine::cmd::table_draw::LineTarget>,
     /// The Draw Table stroke (or eraser press) in progress.
     pub(crate) table_stroke: Option<crate::table_pen::PenStroke>,
     /// A table border or the table's resize handle being dragged (`table_resize`).
@@ -174,12 +179,23 @@ pub struct CanvasState {
     pub(crate) tab_drag: Option<crate::ruler_tabs::TabDrag>,
 }
 
+/// A press on selected text: where it was, and once the pointer has moved, where it would drop.
+#[derive(Clone, Debug)]
+pub(crate) struct TextDrag {
+    /// The press, screen and page (page, x, y).
+    from: Pos2,
+    at: (usize, f32, f32),
+    /// Set once the pointer moved past a click's reach: the drop point (page, x, y).
+    drop: Option<(usize, f32, f32)>,
+}
+
 impl CanvasState {
     /// Stop a text-selection drag when the pointer gesture becomes an object drag.
     pub(crate) fn cancel_text_drag(&mut self) {
         self.dragging = false;
         self.column_drag = None;
         self.unit_drag = None;
+        self.text_drag = None;
     }
 
     /// How many pages have a cached rendering.
@@ -208,6 +224,7 @@ impl Default for CanvasState {
             caret_bg: None,
             dragging: false,
             column_drag: None,
+            text_drag: None,
             last_press: None,
             unit_drag: None,
             last_highlight: "yellow".into(),
@@ -257,6 +274,7 @@ impl Default for CanvasState {
             balloon_h: 0.0,
             balloon_rects: Vec::new(),
             table_tool: None,
+            painting: None,
             table_stroke: None,
             table_resize: None,
             link_from: None,
@@ -767,6 +785,29 @@ const DRAWING_GRID_MAX_LINES: usize = 2000;
 /// The View › Gridlines drawing grid over a page's text area, in document points: the x of each
 /// vertical line and the y of each horizontal line, starting at the margins and `step` (across,
 /// down) apart, never outside the margins. Drawn on screen only — never printed or exported.
+/// Whether View › Gridlines shows the drawing grid (Print Layout, not Read Mode).
+pub(crate) fn gridlines_shown(app: &WordApp) -> bool {
+    app.session.view.gridlines && app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode
+}
+
+/// The spacing (across, down; points) of the drawing grid shown on `page` at `page_scale`: a
+/// section with a document grid (`w:docGrid`) shows that grid, lines at the line pitch and, for a
+/// character grid, columns at the character pitch (else none across: infinite); otherwise the
+/// document's drawing grid. Lines it would draw closer than a few pixels are spaced wider.
+pub(crate) fn grid_step(app: &WordApp, page: &Page, page_scale: f32) -> (f32, f32) {
+    let settings = &app.session.doc.settings;
+    let sections = app.session.doc.sections();
+    let sect = sections.get(page.section).map(|(_, s)| *s);
+    match sect.and_then(|s| s.grid_line_pitch().map(|lp| (s, lp))) {
+        Some((s, lp)) => {
+            let size = app.session.doc.styles.resolve_char(Some("Normal"), &Default::default()).size;
+            let cp = s.grid_char_pitch(size).map_or(f32::INFINITY, |cp| drawing_grid_step(cp, page_scale));
+            (cp, drawing_grid_step(lp, page_scale))
+        }
+        None => (drawing_grid_step(settings.grid_h, page_scale), drawing_grid_step(settings.grid_v, page_scale)),
+    }
+}
+
 fn drawing_grid(body: wordcraft_geom::Rect, step: (f32, f32)) -> (Vec<f32>, Vec<f32>) {
     let axis = |start: f32, len: f32, step: f32| -> Vec<f32> {
         if !(step.is_finite() && step > 0.0 && start.is_finite() && len.is_finite() && len >= 0.0) {
@@ -785,6 +826,82 @@ fn gridline_cells(page: &Page) -> impl Iterator<Item = wordcraft_geom::Rect> + '
         Placed::Cell { rect, covered: false, .. } => Some(*rect),
         _ => None,
     })
+}
+
+/// The table gridline segments to draw on a page, in document points: the edges of the
+/// [`gridline_cells`] minus the parts a printed border already draws. Word shows gridlines only
+/// where a cell has no border; drawn over a border, the thin blue guide tinted every bordered
+/// table blue and made its lines look uneven when zoomed out (upstream #6048).
+fn gridline_segments(page: &Page) -> Vec<(wordcraft_geom::Point, wordcraft_geom::Point)> {
+    use wordcraft_geom::Point;
+    // A rule this close to a cell edge (points) is drawn on it.
+    const ON_EDGE: f32 = 0.25;
+    // Rules by the line they run along (horizontal or not, coordinate in quarter points), so
+    // each cell edge looks only at the rules on its own line.
+    let key = |c: f32| (c * 4.0).round() as i64;
+    let mut rules: std::collections::HashMap<(bool, i64), Vec<(f32, f32, f32)>> = std::collections::HashMap::new();
+    for it in page.items.iter().chain(&page.header).chain(&page.footer) {
+        let Placed::Rule { x0, y0, x1, y1, border } = it else { continue };
+        if !border.is_visible() {
+            continue;
+        }
+        let (horizontal, c0, c1, s0, s1) = if (y0 - y1).abs() <= ON_EDGE { (true, *y0, *y1, *x0, *x1) } else { (false, *x0, *x1, *y0, *y1) };
+        if (c0 - c1).abs() <= ON_EDGE && c0.is_finite() {
+            rules.entry((horizontal, key(c0))).or_default().push((c0, s0.min(s1), s0.max(s1)));
+        }
+    }
+    // The rules covering the line at `at`, sorted and merged into disjoint spans. Cells share their
+    // edges, so each distinct line is sorted once (not once per cell edge) and every edge then
+    // binary-searches its start.
+    let mut merged: std::collections::HashMap<(bool, u32), Vec<(f32, f32)>> = std::collections::HashMap::new();
+    // The parts of [a, b] along a line at `at` that no rule on the same line covers; `horizontal`
+    // picks rules running along x at y = `at`, otherwise along y at x = `at`.
+    let mut uncovered = |horizontal: bool, at: f32, a: f32, b: f32| -> Vec<(f32, f32)> {
+        let covers = merged.entry((horizontal, at.to_bits())).or_insert_with(|| {
+            let k = key(at);
+            let mut covers: Vec<(f32, f32)> = (k - 1..=k + 1)
+                .filter_map(|k| rules.get(&(horizontal, k)))
+                .flatten()
+                .filter(|(c, _, _)| (c - at).abs() <= ON_EDGE)
+                .map(|&(_, s0, s1)| (s0, s1))
+                .collect();
+            covers.sort_by(|p, q| p.0.total_cmp(&q.0));
+            let mut spans: Vec<(f32, f32)> = Vec::with_capacity(covers.len());
+            for (c0, c1) in covers {
+                match spans.last_mut() {
+                    Some(last) if c0 <= last.1 + ON_EDGE => last.1 = last.1.max(c1),
+                    _ => spans.push((c0, c1)),
+                }
+            }
+            spans
+        });
+        let mut out = Vec::new();
+        let mut from = a;
+        for &(c0, c1) in &covers[covers.partition_point(|s| s.1 < a)..] {
+            if c0 > from + ON_EDGE {
+                out.push((from, c0.min(b)));
+            }
+            from = from.max(c1);
+            if from >= b {
+                break;
+            }
+        }
+        if from + ON_EDGE < b {
+            out.push((from, b));
+        }
+        out
+    };
+    let mut segs = Vec::new();
+    for r in gridline_cells(page) {
+        let (l, t, rt, bt) = (r.x, r.y, r.x + r.w, r.y + r.h);
+        for y in [t, bt] {
+            segs.extend(uncovered(true, y, l, rt).into_iter().map(|(a, b)| (Point::new(a, y), Point::new(b, y))));
+        }
+        for x in [l, rt] {
+            segs.extend(uncovered(false, x, t, bt).into_iter().map(|(a, b)| (Point::new(x, a), Point::new(x, b))));
+        }
+    }
+    segs
 }
 
 /// The drawing grid's spacing in points at a screen scale: the document's spacing (`w:drawingGrid*Spacing`;
@@ -1227,20 +1344,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
             // View › Gridlines: the drawing grid over the text area (Print Layout, on screen only).
-            if app.session.view.gridlines && app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode {
-                let settings = &app.session.doc.settings;
-                // A section with a document grid (`w:docGrid`) shows that grid: lines at the line
-                // pitch and, for a character grid, columns at the character pitch.
-                let sections = app.session.doc.sections();
-                let sect = sections.get(page.section).map(|(_, s)| *s);
-                let step = match sect.and_then(|s| s.grid_line_pitch().map(|lp| (s, lp))) {
-                    Some((s, lp)) => {
-                        let size = app.session.doc.styles.resolve_char(Some("Normal"), &Default::default()).size;
-                        let cp = s.grid_char_pitch(size).map_or(f32::INFINITY, |cp| drawing_grid_step(cp, page_scale));
-                        (cp, drawing_grid_step(lp, page_scale))
-                    }
-                    None => (drawing_grid_step(settings.grid_h, page_scale), drawing_grid_step(settings.grid_v, page_scale)),
-                };
+            if gridlines_shown(app) {
+                let step = grid_step(app, page, page_scale);
                 let (xs, ys) = drawing_grid(page.body, step);
                 let stroke = Stroke::new(1.0, t.blue.linear_multiply(0.22));
                 let (x0, x1) = (visual_sr.min.x + page.body.x * page_scale, visual_sr.min.x + page.body.right() * page_scale);
@@ -1265,12 +1370,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
             // Table Layout › View Gridlines: table cell outlines (on screen only).
             if app.session.view.table_gridlines {
-                for rect in gridline_cells(page) {
-                    let r = Rect::from_min_size(
-                        pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
-                        vec2(rect.w * page_scale, rect.h * page_scale),
-                    );
-                    painter.rect_stroke(r, 0.0, Stroke::new(0.5, t.blue.linear_multiply(0.6)), egui::StrokeKind::Middle);
+                // Only where no border is: drawn over a border, the blue guide tinted the table.
+                let at = |p: wordcraft_geom::Point| pos2(visual_sr.min.x + p.x * page_scale, visual_sr.min.y + p.y * page_scale);
+                for (a, b) in gridline_segments(page) {
+                    painter.line_segment([at(a), at(b)], Stroke::new(0.5, t.blue.linear_multiply(0.6)));
                 }
             }
         }
@@ -1478,6 +1581,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         crate::ink::paint(app, &painter, &rects, &layout, geo.scale);
         crate::table_pen::paint(app, &painter, &t, &layout, &rects, geo.scale);
         crate::table_resize::paint(app, &painter, &t, &layout, &rects, geo.scale);
+        crate::dialogs::paint_column_highlight(app, &painter, &t, &layout, &rects, geo.scale);
+        paint_text_drop(app, &painter, &t, &layout, &rects, geo.scale);
         crate::table_mouse::paint(app, &painter, &t, &layout, &rects, geo.scale);
         (resp, rects)
     });
@@ -2411,6 +2516,28 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             }
             return;
         }
+        // A press on selected text starts dragging it (it moves, or with Option/Ctrl held is
+        // copied, where the button goes up); released without moving, it's a click. Inside a
+        // selection the copy key drags a copy rather than starting a column selection.
+        let copy_key = drop_copies(ui);
+        if clicks == 1
+            && !mods.shift
+            && (!mods.alt || copy_key)
+            && (!mods.command || copy_key)
+            && !app.session.sel.is_collapsed()
+            && app.session.cell_range().is_none()
+            && app.session.column_segments().is_none()
+            && pos.story == app.session.sel.focus.story
+            && {
+                let (a, b) = app.session.sel.ordered();
+                a <= pos && pos <= b
+            }
+        {
+            app.canvas.text_drag = Some(TextDrag { from: p, at: (page, x, y), drop: None });
+            app.canvas.dragging = true;
+            app.session.page_hint = page;
+            return;
+        }
         let pj = serde_json::to_value(&pos).unwrap_or_default();
         // Alt+drag selects a column (block) of text.
         if mods.alt && !mods.shift && !mods.command {
@@ -2439,6 +2566,44 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.session.page_hint = page;
         app.canvas.dragging = true;
         // Format painter applies on mouse up.
+    } else if app.canvas.dragging
+        && ui.input(|i| i.pointer.primary_down())
+        && let Some(d) = app.canvas.text_drag.as_mut()
+    {
+        let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
+        if d.drop.is_some() || (p - d.from).length() > reach {
+            d.drop = Some((page, x, y));
+        }
+        let moving = d.drop.is_some();
+        let copy = drop_copies(ui);
+        ui.ctx().set_cursor_icon(if !moving {
+            egui::CursorIcon::Default
+        } else if copy {
+            egui::CursorIcon::Copy
+        } else {
+            egui::CursorIcon::Grabbing
+        });
+    } else if app.canvas.dragging
+        && ui.input(|i| i.pointer.primary_released())
+        && let Some(d) = app.canvas.text_drag.take()
+    {
+        app.canvas.dragging = false;
+        match d.drop {
+            Some((page, x, y)) => {
+                // Dropped onto the selection itself it stays where it is (no undo step).
+                let params = json!({"page": page, "x": x, "y": y, "copy": drop_copies(ui)});
+                if app.run("edit.dropText", params).is_ok() {
+                    app.session.page_hint = page;
+                }
+            }
+            None => {
+                // A click: the caret goes there.
+                let (page, x, y) = d.at;
+                if let Some(pos) = layout.hit(page, x, y, story) {
+                    let _ = app.run("caret.set", json!({"pos": pos}));
+                }
+            }
+        }
     } else if app.canvas.dragging
         && ui.input(|i| i.pointer.primary_down())
         && let Some((from, last)) = app.canvas.column_drag
@@ -2501,6 +2666,27 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             ui.label(tip);
         });
     }
+}
+
+/// Whether a text drag copies instead of moving: Option on macOS, Ctrl elsewhere, as in Word.
+fn drop_copies(ui: &Ui) -> bool {
+    let m = ui.input(|i| i.modifiers);
+    if ui.ctx().os() == egui::os::OperatingSystem::Mac { m.alt } else { m.ctrl }
+}
+
+/// While selected text is dragged, a caret where it would drop.
+fn paint_text_drop(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLayout, rects: &[Rect], scale: f32) {
+    let Some((page, x, y)) = app.canvas.text_drag.as_ref().and_then(|d| d.drop) else { return };
+    let story = app.session.sel.focus.story;
+    let Some(pos) = layout.hit(page, x, y, story) else { return };
+    let Some(c) = layout.caret_on(&pos, page) else { return };
+    let (Some(top), Some(bottom)) = (
+        crate::table_resize::to_screen(rects, layout, scale, c.page, c.x, c.top),
+        crate::table_resize::to_screen(rects, layout, scale, c.page, c.x, c.top + c.height),
+    ) else {
+        return;
+    };
+    painter.line_segment([top, bottom], Stroke::new(2.0, t.accent));
 }
 
 /// Horizontal and vertical rulers for the caret's page and paragraph.
@@ -2969,6 +3155,7 @@ fn context_menu_icon(id: &str, params: &serde_json::Value) -> &'static str {
         "fields.toggleCode" => "quickParts",
         "view.altTextPane" => "altText",
         "ui.changePicture" => "picture",
+        "ui.savePicture" => "save",
         "ui.tab" | "ui.crop" => "crop",
         "table.insertColumnLeft" => "insertLeft",
         "table.insertColumnRight" => "insertRight",
@@ -3110,8 +3297,18 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     if picture || object {
         ui.separator();
     }
+    // Where the picture, shape or text box sits on its page, without moving it.
+    if (picture || object)
+        && let Some(lines) = crate::drag_readout::menu_lines(app)
+    {
+        for l in lines {
+            ui.label(egui::RichText::new(l).weak());
+        }
+        ui.separator();
+    }
     if picture {
         item(ui, app, "Change Picture…", "ui.changePicture", json!({}));
+        item(ui, app, "Save as Picture…", "ui.savePicture", json!({}));
         item(ui, app, "Reset Picture", "picture.reset", json!({}));
         item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
         item(ui, app, "Crop", "ui.crop", json!({}));
@@ -3314,7 +3511,142 @@ fn is_followable_link(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Upstream #6048 (#5967): gridlines show only where a cell has no printed border, as in Word; drawn over the
+    /// border they tinted every bordered table blue.
+    #[test]
+    fn table_gridlines_skip_edges_a_border_draws() {
+        use wordcraft_geom::Point;
+        let cell = Placed::Cell {
+            rect: wordcraft_geom::Rect::new(0.0, 0.0, 10.0, 20.0),
+            covered: false,
+            table: Default::default(),
+            row: 0,
+            cell: 0,
+            story: StoryRef::Body,
+            clip: false,
+        };
+        let rule = |x0, y0, x1, y1, border| Placed::Rule { x0, y0, x1, y1, border };
+        let line = wordcraft_doc::props::Border::single(0.5);
+        let none = wordcraft_doc::props::Border::single(0.0);
+        let page = Page {
+            items: vec![
+                // Top border over the whole edge (run on past the corners, as layout draws it).
+                rule(-0.25, 0.0, 10.25, 0.0, line),
+                // Left border over the top half only.
+                rule(0.0, 0.0, 0.0, 10.0, line),
+                // A zero-width border draws nothing, so the right edge keeps its gridline.
+                rule(10.0, 0.0, 10.0, 20.0, none),
+                cell,
+            ],
+            ..Default::default()
+        };
+        // Overlapping rules out of order on one line leave only the gap between them: the bottom
+        // edge keeps 4..6 alone.
+        let mut gapped = page.clone();
+        gapped.items.extend([
+            rule(5.0, 20.0, 10.0, 20.0, line),
+            rule(-0.25, 20.0, 3.0, 20.0, line),
+            rule(1.0, 20.0, 4.0, 20.0, line),
+            rule(6.0, 20.0, 5.5, 20.0, line),
+        ]);
+        assert_eq!(gridline_segments(&gapped).first(), Some(&(Point::new(4.0, 20.0), Point::new(5.0, 20.0))));
+        assert_eq!(gridline_segments(&gapped).len(), 3);
+        let segs = gridline_segments(&page);
+        assert_eq!(
+            segs,
+            [
+                (Point::new(0.0, 20.0), Point::new(10.0, 20.0)), // bottom: no border
+                (Point::new(0.0, 10.0), Point::new(0.0, 20.0)),  // left: below the border
+                (Point::new(10.0, 0.0), Point::new(10.0, 20.0)), // right: invisible border
+            ]
+        );
+    }
+
+    /// Upstream #6048 (#5967): the gridlines of a table with very many rows are found in one pass over the rules, not
+    /// by re-sorting every rule on a line for each cell edge on it (a long table repainted slowly).
+    #[test]
+    fn table_gridlines_of_a_many_row_table_are_fast() {
+        const ROWS: usize = 30_000;
+        let line = wordcraft_doc::props::Border::single(0.5);
+        let mut items = Vec::new();
+        for i in 0..ROWS {
+            let y = i as f32 * 10.0;
+            items.push(Placed::Cell {
+                rect: wordcraft_geom::Rect::new(0.0, y, 10.0, 10.0),
+                covered: false,
+                table: Default::default(),
+                row: i,
+                cell: 0,
+                story: StoryRef::Body,
+                clip: false,
+            });
+            // One border piece per row on each side, so both vertical lines carry a rule per row.
+            for x in [0.0, 10.0] {
+                items.push(Placed::Rule { x0: x, y0: y, x1: x, y1: y + 10.0, border: line });
+            }
+        }
+        let page = Page { items, ..Default::default() };
+        let start = std::time::Instant::now();
+        let segs = gridline_segments(&page);
+        // Both sides are covered; the top and bottom of every cell are not.
+        assert_eq!(segs.len(), 2 * ROWS);
+        assert!(segs.iter().all(|(a, b)| a.y == b.y));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "took {:?}", start.elapsed());
+    }
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
+
+    /// A real mouse drag of selected text: pressed on it, moved and released over another cell.
+    fn drag_text(h: &mut H, from: Pos2, to: Pos2, modifiers: egui::Modifiers) {
+        h.event(egui::Event::ModifiersChanged(modifiers));
+        h.event(egui::Event::PointerMoved(from));
+        h.step();
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers });
+        h.step();
+        for k in 1..=6 {
+            h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 6.0)));
+            h.step();
+        }
+        h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers });
+        steps(h, 3);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.step();
+    }
+
+    fn cell_text(h: &H, c: usize) -> String {
+        let t = h.state().session.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        t.rows[0].cells[c].blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect()
+    }
+
+    /// Owner, 2026-11-17: text selected in a table cell drags into another cell (one undo step),
+    /// and with Option (macOS) or Ctrl it is copied there instead; a press on the selection that
+    /// doesn't move is a click that puts the caret there.
+    #[test]
+    fn selected_text_drags_from_one_cell_into_another() {
+        let mut h = table_window();
+        let (a, b) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1));
+        let depth = h.state().session.undo_depth();
+        let from = screen(&mut h, a.x + 12.0, a.y + a.h / 2.0);
+        let to = screen(&mut h, b.x + 8.0, b.y + b.h / 2.0);
+        drag_text(&mut h, from, to, egui::Modifiers::NONE);
+        assert_eq!((cell_text(&h, 0).as_str(), cell_text(&h, 1).as_str()), ("", "Product"));
+        assert_eq!(h.state().session.selected_text(), "Product");
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
+        assert!(h.state().canvas.text_drag.is_none());
+        // Copied back with the copy key.
+        let b = cell(&mut h, 0, 1);
+        let from = screen(&mut h, b.x + 12.0, b.y + b.h / 2.0);
+        let to = screen(&mut h, a.x + 8.0, a.y + a.h / 2.0);
+        let copy = if h.ctx.os() == egui::os::OperatingSystem::Mac { egui::Modifiers::ALT } else { egui::Modifiers::CTRL };
+        drag_text(&mut h, from, to, copy);
+        assert_eq!((cell_text(&h, 0).as_str(), cell_text(&h, 1).as_str()), ("Product", "Product"));
+        // A press on the selection without moving: the caret goes there.
+        let a = cell(&mut h, 0, 0);
+        let at = screen(&mut h, a.x + 12.0, a.y + a.h / 2.0);
+        drag_text(&mut h, at, at, egui::Modifiers::NONE);
+        assert!(h.state().session.sel.is_collapsed());
+        assert_eq!((cell_text(&h, 0).as_str(), cell_text(&h, 1).as_str()), ("Product", "Product"));
+    }
 
     /// What `page_image` replaced: the raster un-premultiplied, for egui to premultiply again.
     fn by_straight_alpha(img: &wordcraft_render::Rendered) -> egui::ColorImage {

@@ -29,19 +29,21 @@ pub(super) fn insert(app: &mut SheetApp, ui: &mut Ui) {
     });
     let shapes = big_button(ui, Icon::Shapes, "Shapes", "Shapes", true);
     anchor_keytip(app, ui, &shapes, &["insert.shape"]);
+    // The shared Insert › Shapes menu (owner, 2026-11-19; `krub_icons::shape_gallery`): the
+    // standard shapes by group; the text box is in Basic Shapes, a line with an arrowhead at the
+    // end of Lines.
     egui::Popup::menu(&shapes).show(|ui| {
-        for (label, kind) in [
-            ("Rectangle", "rectangle"),
-            ("Rounded Rectangle", "roundedRectangle"),
-            ("Oval", "ellipse"),
-            ("Triangle", "triangle"),
-            ("Line", "line"),
-            ("Arrow", "arrow"),
-            ("Text Box", "textBox"),
-        ] {
-            if ui.button(app.ui.language.tr(label)).clicked() {
-                act(app, "insert.shape", json!({"kind": kind}));
-            }
+        let lang = app.ui.language;
+        let tools = [("lineArrow", lang.tr("Arrow"))];
+        let opts = krub_icons::shape_gallery::Options { action_buttons: false, line_tools: &tools, extras: &[] };
+        let picked = egui::ScrollArea::vertical()
+            .max_height(440.0)
+            .show(ui, |ui| krub_icons::shape_gallery::show(ui, &|s| lang.tr(s).to_string(), &opts))
+            .inner;
+        if let Some(name) = picked {
+            let kind = if name == "lineArrow" { "arrow".to_string() } else { name };
+            act(app, "insert.shape", json!({"kind": kind}));
+            ui.close();
         }
     });
     let icn = big_button(ui, Icon::InsertIcons, "Icons", "Insert an icon", true);
@@ -107,9 +109,12 @@ pub(super) fn insert(app: &mut SheetApp, ui: &mut Ui) {
                 control_keytip(app, ui, &r, cid);
                 let forced_c = invoke(app, cid);
                 egui::Popup::menu(&r).open_memory(popup_command(forced_c, r.clicked())).show(|ui| {
+                    // Each type with its drawn icon (owner, 2026-11-19; `krub_icons::chart_icons`).
+                    let lang = crate::i18n::current(ui.ctx());
                     for (label, k, s) in &subs {
-                        if ui.button(*label).clicked() {
+                        if krub_icons::chart_icons::item(ui, krub_icons::chart_icons::id_for(k, s), lang.tr(label), false, 180.0).clicked() {
                             act(app, "insert.chart", json!({"type": k, "subtype": s}));
+                            ui.close();
                         }
                     }
                 });
@@ -143,9 +148,12 @@ pub(super) fn insert(app: &mut SheetApp, ui: &mut Ui) {
                 control_keytip(app, ui, &r, cid);
                 let forced_c = invoke(app, cid);
                 egui::Popup::menu(&r).open_memory(popup_command(forced_c, r.clicked())).show(|ui| {
+                    // Each type with its drawn icon (owner, 2026-11-19; `krub_icons::chart_icons`).
+                    let lang = crate::i18n::current(ui.ctx());
                     for (label, k, s) in &subs {
-                        if ui.button(*label).clicked() {
+                        if krub_icons::chart_icons::item(ui, krub_icons::chart_icons::id_for(k, s), lang.tr(label), false, 180.0).clicked() {
                             act(app, "insert.chart", json!({"type": k, "subtype": s}));
+                            ui.close();
                         }
                     }
                 });
@@ -218,6 +226,12 @@ pub(super) fn insert(app: &mut SheetApp, ui: &mut Ui) {
     if __k.clicked() {
         act(app, "insert.textBox", json!({}));
     }
+    // Two lines like its neighbours, so the Insert tab stays as wide as before; the translated label is split, the catalog key is one line.
+    let label = app.ui.language.tr("Decorative Text").replacen(' ', "\n", 1);
+    let wa = big_button(ui, Icon::TextBox, &label, "Decorative Text", true);
+    anchor_keytip(app, ui, &wa, &["insert.wordArt"]);
+    // Menu invocation shows the style gallery; the command itself never opens a dialog.
+    egui::Popup::menu(&wa).show(|ui| crate::wordart::gallery(app, ui));
     let __k = big_button(ui, Icon::PageLayout, "Header &\nFooter", "Header & Footer", false);
     control_keytip(app, ui, &__k, "dialog:headerFooter");
     if __k.clicked() {

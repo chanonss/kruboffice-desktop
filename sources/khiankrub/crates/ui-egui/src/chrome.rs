@@ -213,179 +213,218 @@ impl MacTitleBar {
     }
 }
 
-pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
-    // The title bar is part of the navy band, with the tab strip below it.
+/// The document's state for the file pill's card: "Saved", "Edited", "Saved to Google Drive", or
+/// for a new document on the web, its draft in this browser.
+fn file_state(app: &WordApp) -> String {
+    if let Some(saved) = app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()) {
+        return if saved { tl!("Saved on this device") } else { tl!("Saving…") }.to_string();
+    }
+    if app.session.dirty {
+        tl!("Edited")
+    } else if app.drive_file_name().is_some() {
+        tl!("Saved to Google Drive")
+    } else if app.session.path.is_some() {
+        tl!("Saved")
+    } else {
+        tl!("Not saved")
+    }
+    .to_string()
+}
+
+/// Where the document is kept, for the card: Google Drive, its folder, or this browser.
+fn file_place(app: &WordApp) -> Option<String> {
+    if app.drive_file_name().is_some() {
+        Some("Google Drive".to_string())
+    } else if let Some(path) = &app.session.path {
+        Some(path.parent().map_or_else(|| path.display().to_string(), |p| p.display().to_string()))
+    } else if app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()).is_some() {
+        Some(tl!("Draft in this browser").to_string())
+    } else {
+        None
+    }
+}
+
+/// The file pill (`krub_icons::chrome::file_pill`) centred in `area`: the document's name (a
+/// Google Drive document with the cloud in front). A click opens its card: the whole name, the
+/// state, where it is kept and Rename (owner, 2026-11-18).
+pub(crate) fn file_pill(app: &mut WordApp, ui: &mut Ui, area: Rect) {
     let t = Tokens::get(ui.ctx()).band();
-    // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
-    // shrink to keep a margin above and below them.
+    let name = if app.has_document() { app.title_stem() } else { "KhianKrub".to_string() };
+    let cloud = |p: &egui::Painter, r: Rect| icons::paint(p, r, "cloud", t.text, t.accent);
+    let marker: Option<krub_icons::chrome::Marker> = if app.drive_file_name().is_some() { Some(&cloud) } else { None };
+    let Some(resp) = krub_icons::chrome::file_pill(ui, area, &name, t.accent, t.text, marker) else { return };
+    let state = file_state(app);
+    // Named as the old title was: "Report (draft) — Saved on this device", "Report — Saved".
+    let draft = app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()).is_some();
+    let label = if draft { format!("{name} ({}) — {state}", tl!("draft")) } else { format!("{name} — {state}") };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    if !app.has_document() {
+        return;
+    }
+    let place = file_place(app);
+    egui::Popup::menu(&resp).show(|ui| {
+        let card = krub_icons::chrome::FileCard { name: &name, state: &state, place: place.as_deref(), action: Some(tl!("Rename…")) };
+        if krub_icons::chrome::file_card(ui, &card) {
+            let _ = app.run("file.rename", json!({}));
+            ui.close();
+        }
+    });
+}
+
+/// The width of the Quick Access Toolbar's buttons, so the bar can keep them in order at its
+/// right end.
+pub(crate) fn quick_access_width(app: &WordApp) -> f32 {
+    let ids = app.session.ribbon.qat();
+    let buttons = ids.len() as f32 * krub_icons::qat::BUTTON.x;
+    let undo = if ids.contains(&"edit.undo") { krub_icons::qat::ARROW.x + krub_icons::qat::GAP } else { 0.0 };
+    let customize = krub_icons::qat::ARROW.x;
+    buttons + undo + customize + ids.len() as f32 * krub_icons::qat::GAP
+}
+
+/// The Quick Access Toolbar on the bar's left, after File (owner, 2026-11-18).
+pub(crate) fn bar_quick_access(app: &mut WordApp, ui: &mut Ui) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = vec2(krub_icons::qat::GAP, 0.0);
+        quick_access(ui, app);
+    });
+}
+
+/// The right end of the one bar (owner, 2026-11-18), drawn right to left: the user icon with its
+/// menu. Returns its left edge.
+pub(crate) fn bar_right(app: &mut WordApp, ui: &mut Ui) -> f32 {
+    let t = Tokens::get(ui.ctx()).band();
+    let initials: String = app.session.user_initials().chars().take(2).collect();
+    let resp = krub_icons::chrome::avatar(ui, &initials, t.accent, t.on_accent, tl!("Account"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
+    if app.ui.keytips == crate::keytips::Phase::Tabs {
+        app.keytip_rects.push((resp.rect, crate::keytips::SEARCH_LETTER.to_string()));
+    }
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(240.0);
+        user_menu(ui, app);
+    });
+    ui.min_rect().min.x
+}
+
+/// The user icon's menu (owner, 2026-11-18): the name comments are signed with, then Search,
+/// Comments, the editing mode and, where it applies, AutoSave. Share and Report a problem left
+/// the bar with it.
+fn user_menu(ui: &mut Ui, app: &mut WordApp) {
+    use crate::ribbon::menu_icon_button;
+    let author = app.session.author.clone();
+    if ui
+        .button(egui::RichText::new(if author.is_empty() { tl!("Your name").to_string() } else { author }).strong())
+        .on_hover_text(tl!("Set your name in File › Options"))
+        .clicked()
+    {
+        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+        ui.close();
+    }
+    ui.separator();
+    let search = match crate::widgets::shortcut_text(app, "tools.search") {
+        k if k.is_empty() => tl!("Search commands and help").to_string(),
+        k => format!("{} ({k})", tl!("Search commands and help")),
+    };
+    if menu_icon_button(ui, "search", &search, "", true, false).clicked() {
+        let _ = app.run("tools.search", json!({}));
+        ui.close();
+    }
+    let doc = app.has_document();
+    if menu_icon_button(ui, "comment", tl!("Comments"), "", doc, false).clicked() {
+        let _ = app.run("view.commentsPane", json!({}));
+        ui.close();
+    }
+    ui.separator();
+    ui.label(egui::RichText::new(tl!("Editing")).small().weak());
+    let track = app.session.doc.settings.track_changes;
+    let view_only = app.session.view_only;
+    if menu_icon_button(ui, "pencil", tl!("Editing — edit the document directly"), "", doc, !view_only && !track).clicked() {
+        // Leave view-only first: it refuses the tracking command.
+        let _ = app.run("review.viewOnly", json!({"value": false}));
+        let _ = app.run("review.trackChanges", json!({"value": false}));
+        ui.close();
+    }
+    if menu_icon_button(ui, "trackChanges", tl!("Reviewing — edits become suggestions"), "", doc, !view_only && track).clicked() {
+        let _ = app.run("review.viewOnly", json!({"value": false}));
+        let _ = app.run("review.trackChanges", json!({"value": true}));
+        ui.close();
+    }
+    if menu_icon_button(ui, "eye", tl!("View only — no changes or suggestions"), "", doc, view_only).clicked() {
+        let _ = app.run("review.viewOnly", json!({"value": true}));
+        ui.close();
+    }
+    // AutoSave (the desktop): on with a saved document; otherwise the reason, and Save As where
+    // that helps (#196, #176).
+    if !cfg!(target_arch = "wasm32") && doc {
+        ui.separator();
+        let block = app.autosave_block();
+        let on = app.autosaves();
+        let tip = block.as_ref().map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
+        if menu_icon_button(ui, "save", tl!("AutoSave"), "", true, on).on_hover_text(tip).clicked() {
+            match block {
+                None => {
+                    let _ = app.run("file.autosave", json!({}));
+                }
+                Some(b) if b.save_as_helps() => {
+                    let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
+                }
+                Some(b) => app.status(b.reason()),
+            }
+            ui.close();
+        }
+    }
+}
+
+/// The one bar where the ribbon is hidden (File, Focus): the same band and height as the tab
+/// strip, the traffic lights' room on macOS, the file pill and the right end, no tabs.
+pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx()).band();
     let mac = app.integrated_titlebar;
-    let bar = app.mac_titlebar;
-    let left = if mac { bar.content_left as i8 } else { 8 };
-    let control_h = if mac { 22.0 } else { 26.0 };
+    let left = if mac { app.mac_titlebar.content_left as i8 } else { 8 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { bar.height } else { krub_icons::chrome::TITLE_H })
-        // One navy band with the tab strip: no dividing line between them.
+        .exact_size(krub_icons::chrome::ONE_BAR_H)
         .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
+        .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin {
+            left,
+            right: 10,
+            top: krub_icons::chrome::ONE_BAR_GAP as i8,
+            bottom: 0,
+        }))
         .show(ui, |ui| {
             crate::theme::band_ui(ui);
-            let full = ui.max_rect();
-            // The band's motif, behind everything on it; the tab strip (30 points) carries it on.
-            let clip = ui.clip_rect();
-            let band = Rect::from_min_max(pos2(clip.min.x, full.min.y), pos2(clip.max.x, full.max.y + 30.0));
+            let band = ui.clip_rect();
             crate::band_motifs::set_band_rect(ui.ctx(), band);
             let (_, motif) = crate::theme::band(ui.ctx());
             crate::band_motifs::paint(ui.painter(), band, motif, Tokens::get(ui.ctx()).dark);
-            // Drag the window by the title bar (integrated title bar on macOS).
-            let drag = ui.interact(full, ui.id().with("title_drag"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-            if drag.double_clicked() {
-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-            }
-            let mut qat_end = full.min.x;
-            let mut right_start = full.max.x;
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing = vec2(krub_icons::qat::GAP, 0.0);
-                // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
-                // cover the document (#196, #176); clicking it then offers Save As where that helps.
-                let block = app.autosave_block();
-                let on = app.autosaves();
-                let label = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
-                ui.label(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(label));
-                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
-                let (fill, stroke, knob_fill) = match (&block, on) {
-                    (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
-                    (None, true) => (t.accent, t.accent, t.on_accent),
-                    (None, false) => (t.input, t.border_strong, t.text_dim),
-                };
-                ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-                let knob = if on { r.max.x - 8.0 } else { r.min.x + 8.0 };
-                ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
-                let tip = block
-                    .as_ref()
-                    .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
-                if resp.on_hover_text(tip).clicked() {
-                    match block {
-                        None => {
-                            let _ = app.run("file.autosave", json!({}));
-                        }
-                        // AutoSave comes on once Save As has saved (maybe on a later frame, #94).
-                        Some(b) if b.save_as_helps() => {
-                            let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
-                        }
-                        Some(b) => app.status(b.reason()),
-                    }
-                }
-                ui.add_space(krub_icons::qat::AFTER_AUTOSAVE);
-                quick_access(ui, app);
-                qat_end = ui.min_rect().max.x;
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Account / community.
-                    let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
-                    ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
-                    let initials: String = app.session.user_initials().chars().take(2).collect();
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
-                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
-                    }
-                    ui.add_space(8.0);
-                    // Search ("Tell me").
-                    let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
-                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)),
-                        "search",
-                        t.text_dim,
-                        t.accent,
-                    );
-                    let ph = tl!("Search commands and help");
-                    let pfont = TypeRung::Control.regular();
-                    let ptrack = TypeRung::Control.tracking();
-                    paint_text(
-                        ui.painter(),
-                        pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
-                        Align2::LEFT_TOP,
-                        ph,
-                        &pfont,
-                        ptrack,
-                        t.text_dim,
-                    );
-                    if app.ui.keytips == crate::keytips::Phase::Tabs {
-                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
-                    }
-                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
-                        k if k.is_empty() => tl!("Search").to_string(),
-                        k => format!("{} ({k})", tl!("Search")),
-                    };
-                    if resp.on_hover_text(tip).clicked() {
-                        let _ = app.run("tools.search", json!({}));
-                    }
-                    right_start = ui.min_rect().min.x;
-                });
-            });
-            // Centred title, with a cloud in front for a document that saves to Google Drive.
-            let drive = app.drive_file_name();
-            let title = if !app.has_document() {
-                // No document open (#1129): the app's name alone.
-                "KhianKrub".to_string()
-            } else if let Some(saved) = app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()) {
-                // A new document on the web lives as its draft in this browser until it is saved.
-                format!("{} ({}) — {}", app.title_stem(), tl!("draft"), if saved { tl!("Saved on this device") } else { tl!("Saving…") })
-            } else {
-                format!(
-                    "{} — {}",
-                    app.title_stem(),
-                    if app.session.dirty {
-                        tl!("Edited")
-                    } else if drive.is_some() {
-                        tl!("Saved to Google Drive")
-                    } else if app.session.path.is_some() {
-                        tl!("Saved")
-                    } else {
-                        tl!("Not saved")
-                    }
-                )
-            };
-            let font = TypeRung::Chrome.semibold();
-            let track = TypeRung::Chrome.tracking();
-            let cx = full.center().x;
-            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
-            let mut shown: String = title.chars().take(240).collect();
-            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
-                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
-                    shown.pop();
-                }
-                shown.push('…');
-            }
-            let w = text_width(ui.painter(), &shown, &font, track, t.text);
-            if available > 24.0 {
-                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
-                let response = ui.interact(rect, ui.id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
-                if response.clicked() {
-                    let _ = app.run("file.rename", json!({}));
-                }
-
-                if drive.is_some() {
-                    let cloud = Rect::from_center_size(pos2(cx - w / 2.0 - 12.0, full.center().y), vec2(14.0, 14.0));
-                    icons::paint(ui.painter(), cloud, "cloud", t.text, t.accent);
-                }
-                paint_text(
-                    ui.painter(),
-                    pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
-                    Align2::LEFT_TOP,
-                    &shown,
-                    &font,
-                    track,
-                    t.text,
-                );
-            }
+            window_drag(ui, band);
+            let row = ui.max_rect();
+            let right = ui
+                .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing = vec2(krub_icons::qat::GAP, 0.0);
+                    bar_right(app, ui)
+                })
+                .inner;
+            let left = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+                    bar_quick_access(app, ui);
+                    ui.min_rect().max.x
+                })
+                .inner;
+            file_pill(app, ui, krub_icons::chrome::pill_area(row, left, right));
         });
+}
+
+/// Dragging the bar's empty parts moves the window; a double-click maximises it (the integrated
+/// title bar on macOS). Registered before the bar's buttons, which take their own clicks.
+pub(crate) fn window_drag(ui: &mut Ui, bar: Rect) {
+    let drag = ui.interact(bar, ui.id().with("title_drag"), Sense::click_and_drag());
+    if drag.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if drag.double_clicked() {
+        let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+    }
 }
 
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
@@ -492,6 +531,10 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                             ui.label(crate::i18n::fmt(tl!("…and {n} more"), &[("n", &(count - SHOWN).to_string())]));
                         }
                         ui.separator();
+                        if missing.iter().any(|f| f.download.is_some()) && ui.button(tl!("Get the Missing Fonts…")).clicked() {
+                            let _ = app.run("ui.dialog", json!({"name": "fontDownload"}));
+                            ui.close();
+                        }
                         if ui.button(tl!("Add Font…")).clicked() {
                             let _ = app.run("font.add", json!({}));
                             ui.close();
@@ -797,6 +840,9 @@ mod tests {
             assert!(ctx.read_response(undo_list_row_id(i)).is_some(), "row {i} is drawn");
         }
         assert!(ctx.read_response(undo_list_row_id(4)).is_none(), "one row per step");
+        // The list sits at the bar's right end now (owner, 2026-11-18): egui moves it once to keep
+        // it on screen, so it is read after it settled.
+        frame(&ctx, &mut n, vec![], &mut a);
         let third = ctx.read_response(undo_list_row_id(2)).unwrap();
         click(&ctx, &mut n, third.rect.center(), &mut a);
         assert_eq!(a.session.undo_history(), ["Typing"], "three steps undone in one go");

@@ -73,15 +73,17 @@ pub(super) fn insert(app: &mut SlideApp, ui: &mut Ui) {
         });
         let r = big_button(ui, Icon::Icons, tl!("Icons"), enabled(app, "insert.icon"));
         egui::Popup::menu(&r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).width(340.0).show(|ui| icon_library(app, ui));
-        big(app, ui, Icon::SmartArt, tl!("SmartArt"), "app.dialog", json!({"id": "smartart"}));
+        big(app, ui, Icon::SmartArt, tl!("Diagram"), "app.dialog", json!({"id": "smartart"}));
         let r = big_button(ui, Icon::Chart, tl!("Chart"), enabled(app, "insert.chart"));
         egui::Popup::menu(&r).show(|ui| {
             for k in chart_menu_types() {
                 if k.is_none() {
                     ui.separator();
                 }
+                // Each type with its drawn icon (owner, 2026-11-19; `krub_icons::chart_icons`).
                 if let Some(k) = k
-                    && ui.button(k.label()).clicked()
+                    && krub_icons::chart_icons::item(ui, krub_icons::chart_icons::id_for(&format!("{k:?}"), ""), tl!(k.label()), false, 190.0)
+                        .clicked()
                 {
                     run(app, "insert.chart", json!({"type": format!("{k:?}")}));
                 }
@@ -112,10 +114,10 @@ pub(super) fn insert(app: &mut SlideApp, ui: &mut Ui) {
     group(ui, |ui| {
         big(app, ui, Icon::TextBox, tl!("Text\nBox"), "insert.textBox", json!({}));
         big(app, ui, Icon::HeaderFooter, tl!("Header &\nFooter"), "app.dialog", json!({"id": "headerFooter"}));
-        let r = big_button(ui, Icon::WordArt, tl!("WordArt"), enabled(app, "insert.wordArt"));
+        let r = big_button(ui, Icon::WordArt, tl!("Decorative Text"), enabled(app, "insert.wordArt"));
         egui::Popup::menu(&r).show(|ui| {
             for i in 0..6 {
-                if ui.button(crate::i18n::fmtp(tl!("WordArt style {}"), &[&(i + 1)])).clicked() {
+                if ui.button(crate::i18n::fmtp(tl!("Decorative Text style {}"), &[&(i + 1)])).clicked() {
                     run(app, "insert.wordArt", json!({"style": i}));
                 }
             }

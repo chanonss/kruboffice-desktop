@@ -19,6 +19,24 @@ use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_FONT_FILE: u64 = 64 << 20;
 
+/// Reads a font file of at most [`MAX_FONT_FILE`] bytes, even when it grows after it was found.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn read_font(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > MAX_FONT_FILE {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_FONT_FILE + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.len() as u64 <= MAX_FONT_FILE).then_some(bytes)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn read_font(_path: &std::path::Path) -> Option<Vec<u8>> {
+    None
+}
+
 /// A face keeps at most this many family names, so a hostile `name` table can't grow the catalog.
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_FAMILY_NAMES: usize = 16;
@@ -98,10 +116,18 @@ fn style_weight(style: &str) -> f32 {
 }
 
 impl Face {
-    /// Whether the face goes by `name` in any language.
+    /// Whether the face goes by `name` in any language. Spaces, `-` and `_` don't count, so a
+    /// workbook asking for `THSarabunNew` (the name some files carry) finds `TH Sarabun New`.
     pub fn answers_to(&self, name: &str) -> bool {
-        self.names.iter().any(|n| n.eq_ignore_ascii_case(name))
+        let wanted = family_key(name);
+        self.names.iter().any(|n| n.eq_ignore_ascii_case(name) || family_key(n) == wanted)
     }
+}
+
+/// The key a family name is matched by: lower case, with spaces, `-` and `_` dropped, so
+/// `TH Sarabun New` and `THSarabunNew` are the same family (as in the PDF writer).
+pub fn family_key(name: &str) -> String {
+    name.chars().filter(|c| !matches!(c, ' ' | '-' | '_')).flat_map(char::to_lowercase).collect()
 }
 
 /// Whether a style name reads as italic or oblique.
@@ -172,7 +198,7 @@ pub fn scan_dirs(dirs: &[PathBuf]) -> Vec<Face> {
             if !is_font || std::fs::metadata(&path).map(|m| m.len() > MAX_FONT_FILE).unwrap_or(true) {
                 continue;
             }
-            let Ok(data) = std::fs::read(&path) else { continue };
+            let Some(data) = read_font(&path) else { continue };
             for (index, family, names, style) in file_faces(&data) {
                 out.push(Face { family, names, path: path.clone(), index, weight: style_weight(&style), italic: style_italic(&style) });
             }
@@ -201,8 +227,7 @@ fn catalog_now() -> Option<&'static [Face]> {
 /// Start cataloging the installed fonts on a background thread, so the first frame doesn't wait for
 /// it. A no-op on wasm and after the scan has started.
 pub fn start_scan() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
+    SCAN_STARTED.get_or_init(|| {
         #[cfg(not(target_arch = "wasm32"))]
         if CATALOG.get().is_none() {
             // A failed spawn leaves the scan to the first blocking lookup.
@@ -211,6 +236,13 @@ pub fn start_scan() {
             });
         }
     });
+}
+
+static SCAN_STARTED: OnceLock<()> = OnceLock::new();
+
+/// Whether [`start_scan`] has been called (the scan may still be running).
+pub fn scan_started() -> bool {
+    SCAN_STARTED.get().is_some()
 }
 
 /// Whether the background scan has finished.
@@ -335,7 +367,7 @@ pub fn bind_faces(fonts: &mut egui::FontDefinitions, family: &str, faces: &[Face
                 continue;
             }
             if !fonts.font_data.contains_key(&key) {
-                let Ok(bytes) = std::fs::read(&face.path) else { continue };
+                let Some(bytes) = read_font(&face.path) else { continue };
                 let mut fd = egui::FontData::from_owned(bytes);
                 fd.index = face.index;
                 fonts.font_data.insert(key.clone(), std::sync::Arc::new(fd));
@@ -351,11 +383,6 @@ pub fn bind_faces(fonts: &mut egui::FontDefinitions, family: &str, faces: &[Face
         bound.push(role);
     }
     bound
-}
-
-/// Bind every installed face of `family`, found by any of its names (see [`bind_faces`]).
-pub fn bind_family(fonts: &mut egui::FontDefinitions, family: &str) -> Vec<String> {
-    bind_faces(fonts, family, &faces_of(family))
 }
 
 /// The role families currently bound to font data. `cell_family` consults this, so it never names a
@@ -472,6 +499,8 @@ mod tests {
         }
         // A family with no faces binds nothing and never touches the map.
         assert!(bind_faces(&mut fonts, "No Such Font", &[]).is_empty());
+        std::fs::File::create(&face.path).expect("sparse file").set_len(MAX_FONT_FILE + 1).expect("oversized file");
+        assert!(read_font(&face.path).is_none(), "an oversized font is not read");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -579,6 +608,19 @@ mod tests {
         assert_eq!(faces_named(&cat, "Noto Sans KR").len(), 2);
         let medium = faces_named(&cat, "Noto Sans KR Medium");
         assert_eq!(medium.iter().map(|f| f.weight).collect::<Vec<_>>(), [500.0]);
+    }
+
+    #[test]
+    fn a_family_is_found_without_its_spaces() {
+        // Some workbooks name TH Sarabun New `THSarabunNew`; Windows installs it as `TH Sarabun New`.
+        let names = ["TH Sarabun New"];
+        let cat = [face("TH Sarabun New", &names, "THSarabunNew.ttf", 400.0), face("TH Sarabun New", &names, "THSarabunNew Bold.ttf", 700.0)];
+        for wanted in ["THSarabunNew", "th-sarabun-new", "TH_Sarabun_New"] {
+            assert_eq!(faces_named(&cat, wanted).len(), 2, "{wanted}");
+        }
+        let used: Vec<String> = vec!["THSarabunNew".into()];
+        assert_eq!(installed_in(&cat, &used), ["THSarabunNew"], "bound under the workbook's spelling");
+        assert!(faces_named(&cat, "TH Sarabun").is_empty(), "a different name is still different");
     }
 
     #[test]

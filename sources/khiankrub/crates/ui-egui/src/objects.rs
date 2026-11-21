@@ -10,10 +10,14 @@
 //!
 //! Moving one snaps it to alignment guides ([`crate::guides`]): the page's edges and centre, the
 //! margins and the other floating objects on the page, shown as thin lines while dragging. Alt
-//! moves freely; File › Options › Advanced turns them off (`ui.alignmentGuides`).
+//! moves freely; File › Options › Advanced turns them off (`ui.alignmentGuides`). While View ›
+//! Gridlines shows the drawing grid, moves, resized edges and line ends snap to its lines instead
+//! (as in Word; Alt: freely).
 //!
 //! A selected connector shows a handle at each end instead of a frame: dragging one onto a shape
-//! glues it to the nearest connection site there (`shape.connect`), elsewhere leaves it free.
+//! glues it to the nearest connection site there (`shape.connect`), elsewhere leaves it free. A
+//! floating line does too: dragging an end moves just that end (`shape.lineEnds`; Shift: in 45°
+//! steps), and the line itself has no frame handles to catch by mistake when moving it.
 
 use egui::{Color32, Painter, Pos2, Rect, Ui};
 use serde_json::json;
@@ -58,15 +62,22 @@ pub struct ObjectDrag {
 /// How near (screen points) a press must be to a connector's end to grab it.
 const END_GRAB: f32 = 7.0;
 
-/// The selected connector's start and end on its page (points), and its layout.
+/// Whether the selected object is a floating line, whose ends are dragged (not a connector).
+fn line_selected(app: &WordApp) -> bool {
+    wordcraft_engine::cmd::connectors::movable_line(&app.session)
+}
+
+/// The selected connector's (or floating line's) start and end on its page (points), and its
+/// layout.
 fn connector_ends(app: &WordApp, layout: &DocLayout) -> Option<(ObjectHit, (f32, f32), (f32, f32))> {
-    let (pos, InlineObject::Shape { kind, float, .. }) = selected(app)? else { return None };
-    if !kind.is_connector() {
+    let (pos, InlineObject::Shape { kind, float, w, h, .. }) = selected(app)? else { return None };
+    if !kind.is_connector() && !line_selected(app) {
         return None;
     }
     let (flip_h, flip_v) = (float.flip_h, float.flip_v);
     let o = layout.object(&pos, app.session.page_hint)?;
-    let (a, b) = wordcraft_doc::connector::ends(o.rect.x, o.rect.y, o.rect.w, o.rect.h, flip_h, flip_v);
+    // Its own size, not the laid-out box (at least 1 pt each way): a flat line's ends are level.
+    let (a, b) = wordcraft_doc::connector::ends(o.rect.x, o.rect.y, *w, *h, flip_h, flip_v);
     Some((o, a, b))
 }
 
@@ -176,9 +187,17 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             d.pending_behind = false;
         }
         if let Some((which, _)) = d.end {
+            let line = line_selected(app);
             if ui.input(|i| i.pointer.primary_down()) {
                 if let Some((_, x, y)) = crate::canvas::page_at(pages, layout, scale, at).filter(|(p, ..)| *p == d.object.page) {
-                    d.end = Some((which, (x, y)));
+                    // A line's end with Shift goes in 45° steps from the other end.
+                    let free = ui.input(|i| i.modifiers.alt);
+                    let to = match connector_ends(app, layout) {
+                        Some((_, a, b)) if line && ui.input(|i| i.modifiers.shift) => snap_45(if which { a } else { b }, (x, y)),
+                        _ if line && !free => grid(app, layout, d.object.page, scale).map_or((x, y), |g| (g.x(x), g.y(y))),
+                        _ => (x, y),
+                    };
+                    d.end = Some((which, to));
                     d.drag.moved = true;
                 }
                 app.canvas.obj_drag = Some(d);
@@ -186,7 +205,11 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 && let Some((_, (x, y))) = d.end
             {
                 let key = if which { "end" } else { "start" };
-                let _ = app.run("shape.connect", json!({key: {"x": x, "y": y, "page": d.object.page}}));
+                if line {
+                    let _ = app.run("shape.lineEnds", json!({key: {"x": x, "y": y}}));
+                } else {
+                    let _ = app.run("shape.connect", json!({key: {"x": x, "y": y, "page": d.object.page}}));
+                }
             }
             return true;
         }
@@ -201,8 +224,15 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 // Alignment guides: a move snaps to the page, the margins and the other objects
                 // (Alt: freely).
                 d.guides.clear();
-                if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !ui.input(|i| i.modifiers.alt) {
+                let free = ui.input(|i| i.modifiers.alt);
+                let g = if free || !d.drag.moved { None } else { grid(app, layout, d.drag.to_page, scale) };
+                if let Some(g) = g {
+                    snap_to_grid(&mut d, &g);
+                } else if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !free {
                     snap_move(layout, &mut d, scale);
+                } else if d.drag.moved && app.ui.alignment_guides && !free {
+                    let ratio = d.picture != shift;
+                    snap_resize(layout, &mut d, scale, ratio);
                 }
             }
             if d.drag.moved && d.preview.is_none() && shows_pixels(&d) {
@@ -294,6 +324,60 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
     true
 }
 
+/// The drawing grid a drag snaps to on `page`: its first lines (the text area's top-left corner)
+/// and spacing, points; `None` while View › Gridlines is off.
+struct Grid {
+    origin: (f32, f32),
+    step: (f32, f32),
+}
+
+impl Grid {
+    fn snap(v: f32, origin: f32, step: f32) -> f32 {
+        if step.is_finite() && step > 0.0 && v.is_finite() { origin + ((v - origin) / step).round() * step } else { v }
+    }
+    fn x(&self, v: f32) -> f32 {
+        Self::snap(v, self.origin.0, self.step.0)
+    }
+    fn y(&self, v: f32) -> f32 {
+        Self::snap(v, self.origin.1, self.step.1)
+    }
+}
+
+fn grid(app: &WordApp, layout: &DocLayout, page: usize, scale: f32) -> Option<Grid> {
+    if !crate::canvas::gridlines_shown(app) {
+        return None;
+    }
+    let pg = layout.pages.get(page)?;
+    Some(Grid { origin: (pg.body.x, pg.body.y), step: crate::canvas::grid_step(app, pg, scale) })
+}
+
+/// Snap a drag to the grid: a move puts the top-left corner on grid lines; a resize, the edges
+/// being dragged (a turned frame resizes freely).
+fn snap_to_grid(d: &mut ObjectDrag, g: &Grid) {
+    let r = &mut d.drag.rect;
+    match d.drag.grab {
+        Grab::Move => {
+            (r.x, r.y) = (g.x(r.x), g.y(r.y));
+        }
+        Grab::Resize(h) if d.object.spin.is_identity() => {
+            let (mut x0, mut y0, mut x1, mut y1) = (r.x, r.y, r.right(), r.bottom());
+            let min = d.min.max(0.0);
+            match h.x {
+                -1 => x0 = g.x(x0).min(x1 - min),
+                1 => x1 = g.x(x1).max(x0 + min),
+                _ => {}
+            }
+            match h.y {
+                -1 => y0 = g.y(y0).min(y1 - min),
+                1 => y1 = g.y(y1).max(y0 + min),
+                _ => {}
+            }
+            *r = wordcraft_geom::Rect::new(x0, y0, x1 - x0, y1 - y0);
+        }
+        _ => {}
+    }
+}
+
 /// Snap a moved object's bounds (rotated ones by their turned box) to the guides of the page
 /// it's over: the page's edges and centre, its margins, the other floating objects there.
 fn snap_move(layout: &DocLayout, d: &mut ObjectDrag, scale: f32) {
@@ -303,6 +387,21 @@ fn snap_move(layout: &DocLayout, d: &mut ObjectDrag, scale: f32) {
     d.drag.rect.x += s.dx;
     d.drag.rect.y += s.dy;
     d.guides = s.lines;
+}
+
+/// Snap the edges a resize drags (an upright frame, inline or floating) to the same guides as a
+/// move: stretching a picture or shape to the margin lands exactly on it. `ratio`: a corner keeps
+/// the proportions (see [`guides::snap_resize`]).
+fn snap_resize(layout: &DocLayout, d: &mut ObjectDrag, scale: f32, ratio: bool) {
+    let Grab::Resize(h) = d.drag.grab else { return };
+    if !d.object.spin.is_identity() {
+        return;
+    }
+    let Some(pg) = layout.pages.get(d.drag.page) else { return };
+    let candidates = guides::candidates(paper_width(pg), pg.h, pg.body, snap_targets(pg, &d.object));
+    let (rect, lines) = guides::snap_resize(d.drag.rect, (h.x, h.y), &candidates, guides::SNAP_SCREEN / scale.max(0.01), ratio, d.min.max(1.0));
+    d.drag.rect = rect;
+    d.guides = lines;
 }
 
 /// The page's own width, without the comment balloons' markup area.
@@ -332,10 +431,14 @@ fn snap_targets(pg: &wordcraft_layout::Page, me: &ObjectHit) -> Vec<wordcraft_ge
 
 /// The guides a move snapped to: thin lines across the page (not into the balloon area).
 fn paint_guides(d: &ObjectDrag, painter: &Painter, t: &Tokens, layout: &DocLayout, pages: &[Rect], scale: f32) {
-    let Some(p) = pages.get(d.drag.to_page) else { return };
-    let right = layout.pages.get(d.drag.to_page).map_or(p.max.x, |pg| (p.min.x + paper_width(pg) * scale).min(p.max.x));
+    paint_guide_lines(&d.guides, d.drag.to_page, painter, t, layout, pages, scale);
+}
+
+fn paint_guide_lines(lines: &[guides::Guide], page: usize, painter: &Painter, t: &Tokens, layout: &DocLayout, pages: &[Rect], scale: f32) {
+    let Some(p) = pages.get(page) else { return };
+    let right = layout.pages.get(page).map_or(p.max.x, |pg| (p.min.x + paper_width(pg) * scale).min(p.max.x));
     let stroke = egui::Stroke::new(1.0, t.guide);
-    for g in &d.guides {
+    for g in lines {
         let line = match g.axis {
             guides::Axis::X => [egui::pos2(p.min.x + g.at * scale, p.min.y), egui::pos2(p.min.x + g.at * scale, p.max.y)],
             guides::Axis::Y => [egui::pos2(p.min.x, p.min.y + g.at * scale), egui::pos2(right, p.min.y + g.at * scale)],
@@ -385,7 +488,10 @@ pub fn select_at(app: &mut WordApp, layout: &DocLayout, pages: &[Rect], scale: f
 /// being edited (body, or the header/footer).
 fn grab_at(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) -> Option<(ObjectHit, Grab)> {
     let story = active_story(app, layout);
-    let handle = active(app, layout).filter(|(o, _)| o.story == story && !fixed(app, o)).and_then(|(o, _)| {
+    // A connector or floating line is moved by its body and reshaped by its ends only: its frame
+    // has no handles (on a flat line they'd sit right on it, and a move would catch one).
+    let ends = connector_ends(app, layout).is_some();
+    let handle = active(app, layout).filter(|(o, _)| o.story == story && !fixed(app, o) && !ends).and_then(|(o, _)| {
         let f = screen(pages, scale, o.page, o.rect)?;
         if frame::rotate_handle_at(f, o.spin.deg, at) {
             return Some((o, Grab::Rotate));
@@ -495,6 +601,23 @@ fn drop(app: &mut WordApp, d: &ObjectDrag) {
     let _ = app.run("arrange.bounds", params);
 }
 
+/// `to` moved so the line from `from` is at a multiple of 45°, keeping its length along the
+/// nearest such direction (Shift while dragging a line's end).
+fn snap_45(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    if !(len.is_finite() && len > 1e-3) {
+        return to;
+    }
+    let step = std::f32::consts::FRAC_PI_4;
+    let a = (dy.atan2(dx) / step).round() * step;
+    // Straight across or down exactly, not off by float noise.
+    let (c, s) = (a.cos(), a.sin());
+    let clean = |v: f32| if v.abs() < 1e-4 { 0.0 } else { v };
+    let k = (dx * c + dy * s).max(0.0);
+    (from.0 + clean(c) * k, from.1 + clean(s) * k)
+}
+
 /// Draw the frame of the active object, or the drag preview.
 pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, pages: &[Rect], scale: f32) {
     if crate::crop::paint(app, painter, t, layout, pages, scale) {
@@ -504,8 +627,30 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
         paint_end_drag(app, d, painter, t, layout, pages, scale);
         return;
     }
+    if let Some(d) = app.canvas.obj_drag.as_ref().filter(|d| d.drag.moved && d.drag.grab == Grab::Move)
+        && let Some((_, a, b)) = connector_ends(app, layout)
+    {
+        // A line or connector being moved: itself, drawn at its new place (a picture of its box
+        // would be next to nothing for a flat line).
+        let (dx, dy) = (d.drag.rect.x - d.drag.start.x, d.drag.rect.y - d.drag.start.y);
+        let (ink, width) = match selected(app) {
+            Some((_, InlineObject::Shape { stroke, stroke_width, .. })) => {
+                (stroke.map_or(t.text, |c| Color32::from_rgb(c.0, c.1, c.2)), (stroke_width * scale).clamp(1.0, 12.0))
+            }
+            _ => (t.text, 1.0),
+        };
+        let on = |p: (f32, f32)| point_on_screen(pages, scale, d.drag.to_page, (p.0 + dx, p.1 + dy));
+        if let (Some(a), Some(b)) = (on(a), on(b)) {
+            painter.line_segment([a, b], egui::Stroke::new(width, ink.gamma_multiply(0.75)));
+            for c in [a, b] {
+                painter.circle(c, 4.5, Color32::WHITE, egui::Stroke::new(1.2, t.accent));
+            }
+        }
+        paint_guides(d, painter, t, layout, pages, scale);
+        return;
+    }
     if let Some((o, a, b)) = connector_ends(app, layout) {
-        // A connector: a handle at each end (filled when glued).
+        // A connector or line: a handle at each end (a connector's filled when glued).
         let glued = match selected(app) {
             Some((_, InlineObject::Shape { extra, .. })) => (extra.start.is_some(), extra.end.is_some()),
             _ => (false, false),
@@ -516,6 +661,18 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
             }
         }
         return;
+    }
+    // After an arrow-key nudge: the same guides and distances as while dragging.
+    if app.canvas.obj_drag.is_none()
+        && crate::drag_readout::nudged_recently(painter.ctx())
+        && let Some((o, _)) = active(app, layout).filter(|(o, _)| o.floating())
+        && let (Some(pg), Some(to), Some(page)) = (layout.pages.get(o.page), screen(pages, scale, o.page, o.rect), pages.get(o.page))
+    {
+        let candidates = guides::candidates(paper_width(pg), pg.h, pg.body, snap_targets(pg, &o));
+        let lines = guides::snap(o.spin.bounds(o.rect), &candidates, 0.05).lines;
+        paint_guide_lines(&lines, o.page, painter, t, layout, pages, scale);
+        let text = crate::drag_readout::readout_text(crate::options::unit(), crate::options::decimal(), false, o.rect);
+        crate::drag_readout::paint_readout(painter, text, to, *page);
     }
     if let Some(d) = app.canvas.obj_drag.as_ref().filter(|d| d.drag.moved) {
         let Some(to) = screen(pages, scale, d.drag.to_page, d.drag.rect) else { return };
@@ -536,6 +693,16 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
         }
         frame::paint(painter, t, to, d.drag.deg, false, false, false);
         paint_guides(d, painter, t, layout, pages, scale);
+        // How far from the paper's edges (or how big) it is right now (drag_readout.rs).
+        if let Some(page) = pages.get(d.drag.to_page) {
+            let text = crate::drag_readout::readout_text(
+                crate::options::unit(),
+                crate::options::decimal(),
+                matches!(d.drag.grab, Grab::Resize(_)),
+                d.drag.rect,
+            );
+            crate::drag_readout::paint_readout(painter, text, to, *page);
+        }
         return;
     }
     // The others selected along with it (Shift+click): their outlines.
@@ -564,7 +731,8 @@ fn paint_end_drag(app: &WordApp, d: &ObjectDrag, painter: &Painter, t: &Tokens, 
     let fixed = if which { a } else { b };
     let snap = wordcraft_engine::cmd::connectors::SNAP;
     let mut best: Option<((f32, f32), f32)> = None;
-    if let Some(pg) = layout.pages.get(d.object.page) {
+    // A line doesn't glue: no connection sites.
+    if let Some(pg) = layout.pages.get(d.object.page).filter(|_| !line_selected(app)) {
         for it in &pg.items {
             let wordcraft_layout::Placed::Object { rect, spin, story: StoryRef::Body, path, off, .. } = it else { continue };
             let pos = Pos { story: StoryRef::Body, path: path.clone(), off: *off };
@@ -636,7 +804,11 @@ pub fn key(app: &mut WordApp, key: egui::Key, m: egui::Modifiers) -> bool {
         _ => return false,
     };
     // Inline objects move with the text: arrows move the caret as usual.
-    app.run("arrange.nudge", json!({"dx": dx, "dy": dy})).is_ok()
+    let ok = app.run("arrange.nudge", json!({"dx": dx, "dy": dy})).is_ok();
+    if ok && let Some(ctx) = &app.ctx {
+        crate::drag_readout::mark_nudge(ctx);
+    }
+    ok
 }
 
 /// With a text box selected, put the caret at the end of its text (typing goes there).
@@ -751,6 +923,59 @@ mod tests {
         let r = shape(&mut h);
         assert!((r.x + r.w / 2.0 - centre - 1.5).abs() < 0.01, "{r:?}");
     }
+    /// Stretching an object's right edge to a couple of points short of the margin snaps it onto
+    /// the margin, inline or floating, and shows the margin's guide; the drop keeps it there.
+    #[test]
+    fn resizing_to_the_margin_snaps_inline_or_floating() {
+        use egui::{Event, PointerButton};
+        for floating in [false, true] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(Document::new()), crate::Services::default());
+            a.run("view.commentsPane", json!({"value": false})).unwrap();
+            let mut shape = floating_rect(100.0, 50.0);
+            if !floating && let InlineObject::Shape { float, .. } = &mut shape {
+                *float = Default::default();
+            }
+            a.session.doc.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
+            a.run("select.range", json!({"anchor": Pos::body(0, 0), "focus": Pos::body(0, OBJ.len_utf8())})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let margin = h.state_mut().session.layout().pages.first().map(|p| p.body.right()).unwrap();
+            let r = h.state_mut().session.layout().object(&Pos::body(0, 0), 0).unwrap().rect;
+            assert_eq!(r.w, 100.0);
+            let button =
+                |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+            let my = r.y + r.h / 2.0;
+            let from = crate::canvas::page_to_screen(h.state_mut(), 0, r.right(), my).unwrap();
+            let to = crate::canvas::page_to_screen(h.state_mut(), 0, margin - 2.0, my).unwrap();
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, true));
+            h.step();
+            for at in [from + egui::vec2(40.0, 0.0), to] {
+                h.event(Event::PointerMoved(at));
+                h.step();
+            }
+            let d = h.state().canvas.obj_drag.as_ref().expect("resizing");
+            assert!(matches!(d.drag.grab, Grab::Resize(_)), "floating {floating}: grabbed the handle");
+            assert!((d.drag.rect.right() - margin).abs() < 1e-3, "floating {floating}: on the margin while dragging: {:?}", d.drag.rect);
+            assert!(d.guides.contains(&crate::guides::Guide::x(margin)), "floating {floating}: {:?}", d.guides);
+            h.event(button(to, false));
+            for _ in 0..3 {
+                h.step();
+            }
+            let r = h.state_mut().session.layout().object(&Pos::body(0, 0), 0).unwrap().rect;
+            assert!((r.right() - margin).abs() < 0.01, "floating {floating}: dropped on the margin: {r:?}");
+        }
+    }
+
     /// A floating rectangle shape, `w` × `h`.
     fn floating_rect(w: f32, h: f32) -> InlineObject {
         InlineObject::Shape {
@@ -845,6 +1070,121 @@ mod tests {
         }
         assert!(h.state().canvas.obj_drag.is_none());
         assert_eq!(h.state().ui.keytips, crate::keytips::Phase::Off, "Alt during a drag isn't a keytip tap");
+    }
+
+    /// A Line (owner, 2026-11-17): dragging it by its middle moves it and it stays straight (it
+    /// used to catch a frame handle sitting on the flat line and turn diagonal); dragging an end
+    /// moves just that end, the other stays.
+    #[test]
+    fn a_line_moves_by_its_middle_and_reshapes_by_its_ends() {
+        use egui::{Event, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("Some text")), crate::Services::default());
+        a.run("insert.shape", json!({"kind": "line", "width": 200})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let line = |h: &mut egui_kittest::Harness<WordApp>| {
+            let (pos, o) = selected(h.state()).map(|(p, o)| (p, o.clone())).expect("the line stays selected");
+            let InlineObject::Shape { w, h: hh, float, .. } = o else { panic!() };
+            let r = h.state_mut().session.layout().object(&pos, 0).unwrap().rect;
+            wordcraft_doc::connector::ends(r.x, r.y, w, hh, float.flip_h, float.flip_v)
+        };
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let drag = |h: &mut egui_kittest::Harness<WordApp>, from: (f32, f32), by: egui::Vec2| {
+            let from = crate::canvas::page_to_screen(h.state_mut(), 0, from.0, from.1).unwrap();
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, true));
+            h.step();
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + by * k as f32 / 4.0));
+                h.step();
+            }
+            h.event(button(from + by, false));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let (a, b) = line(&mut h);
+        assert_eq!(a.1, b.1, "it goes in straight");
+        // By its middle, down and across: moved, still straight and as long.
+        drag(&mut h, ((a.0 + b.0) / 2.0, a.1), egui::vec2(60.0, 80.0));
+        let (a2, b2) = line(&mut h);
+        assert_eq!(a2.1, b2.1, "still straight: {a2:?} {b2:?}");
+        assert!((b2.0 - a2.0 - (b.0 - a.0)).abs() < 0.5 && a2.1 > a.1 + 20.0, "moved, not resized: {a2:?} {b2:?}");
+        // Its end, up: the start stays.
+        drag(&mut h, b2, egui::vec2(0.0, -50.0));
+        let (a3, b3) = line(&mut h);
+        assert!((a3.0 - a2.0).abs() < 0.5 && (a3.1 - a2.1).abs() < 0.5, "the start stays: {a3:?} was {a2:?}");
+        assert!(b3.1 < a3.1 - 20.0, "the end went up: {b3:?}");
+    }
+
+    /// Snap to grid (owner, 2026-11-17): with View › Gridlines on, a dragged shape's top-left
+    /// corner lands on the grid lines shown; with Alt it goes where it's dropped.
+    #[test]
+    fn shapes_snap_to_the_grid_while_gridlines_show() {
+        use egui::{Event, Modifiers, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("Some text")), crate::Services::default());
+        a.run("insert.shape", json!({"kind": "rectangle", "width": 100, "height": 50})).unwrap();
+        a.run("arrange.bounds", json!({"page": 0, "x": 100, "y": 250})).unwrap();
+        a.run("view.gridlines", json!({"value": true})).unwrap();
+        a.ui.alignment_guides = false;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let rect = |h: &mut egui_kittest::Harness<WordApp>| {
+            let pos = selected(h.state()).map(|(p, _)| p).expect("selected");
+            h.state_mut().session.layout().object(&pos, 0).unwrap().rect
+        };
+        let drag = |h: &mut egui_kittest::Harness<WordApp>, by: egui::Vec2, modifiers: Modifiers| {
+            let r = rect(h);
+            let from = crate::canvas::page_to_screen(h.state_mut(), 0, r.x + r.w / 2.0, r.y + r.h / 2.0).unwrap();
+            let button = |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers };
+            h.event(Event::ModifiersChanged(modifiers));
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, true));
+            h.step();
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + by * k as f32 / 4.0));
+                h.step();
+            }
+            h.event(button(from + by, false));
+            h.event(Event::ModifiersChanged(Modifiers::default()));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let (body, step) = {
+            let scale = h.state().canvas.scale;
+            let app = h.state_mut();
+            let l = app.session.layout();
+            let pg = l.pages.first().unwrap();
+            (pg.body, crate::canvas::grid_step(app, pg, scale))
+        };
+        let on_grid = |v: f32, o: f32, s: f32| (((v - o) / s).round() * s + o - v).abs() < 0.05;
+        drag(&mut h, egui::vec2(37.0, 23.0), Modifiers::default());
+        let r = rect(&mut h);
+        assert!(on_grid(r.x, body.x, step.0) && on_grid(r.y, body.y, step.1), "on the grid: {r:?}, grid {body:?} every {step:?}");
+        // Alt: free.
+        drag(&mut h, egui::vec2(3.0, 0.0), Modifiers::ALT);
+        let r2 = rect(&mut h);
+        assert!(!on_grid(r2.x, body.x, step.0), "Alt moves freely: {r2:?}");
     }
 
     /// #1010: dragging a shape off text, the preview is the shape alone, not the text that was

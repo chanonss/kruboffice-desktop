@@ -26,6 +26,9 @@ pub(crate) struct TableDrag {
     /// The resize reach at the press (page points).
     reach: f32,
     target: Target,
+    /// Cmd/Ctrl was held at the press: the column joined (or left) the selection once; moving
+    /// the pointer doesn't toggle it again.
+    add: bool,
 }
 
 /// Whether the table mouse is in reach: when resizing is, and not while a border is dragged.
@@ -74,7 +77,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
         // A selection area: the selection follows the pointer until the button goes up. A
         // double-click along a cell's left edge selects its row, as in Word.
         if down {
-            if d.to != d.sent {
+            if d.to != d.sent && !d.add {
                 d.sent = d.to;
                 let _ = app.run("table.selectAt", at);
             }
@@ -95,7 +98,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
     }
     let Some(p) = latest else { return false };
     let Some((page, x, y, reach, target)) = target_at(app, layout, rects, scale, p) else { return false };
-    let at = json!({"page": page, "x": x, "y": y, "reach": reach});
+    // Cmd (macOS) / Ctrl on a column's area adds it to the columns already selected.
+    let add = ui.input(|i| i.modifiers.command) && matches!(target.spot, Spot::Column(_));
+    let at = json!({"page": page, "x": x, "y": y, "reach": reach, "add": add});
     match target.spot {
         Spot::InsertRow(_) | Spot::InsertColumn(_) => {
             if let Err(e) = app.run("table.insertAt", at) {
@@ -109,7 +114,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             {
                 app.status(e);
             }
-            app.canvas.table_drag = Some(TableDrag { page, from: (x, y), to: (x, y), sent: (x, y), reach, target });
+            app.canvas.table_drag = Some(TableDrag { page, from: (x, y), to: (x, y), sent: (x, y), reach, target, add });
         }
     }
     true

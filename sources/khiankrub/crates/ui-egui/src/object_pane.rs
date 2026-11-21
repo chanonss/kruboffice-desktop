@@ -97,12 +97,16 @@ fn color(ui: &mut Ui, app: &mut WordApp, theme: &[wordcraft_doc::Rgb], value: Op
     }
 }
 
+/// What KhianKrub stores for a shape: no stacking order between shapes yet, and no vertical align.
+const SHAPE_CAPS: krub_icons::shape_pane::Caps =
+    krub_icons::shape_pane::Caps { arrange: false, align_vertical: false, ..krub_icons::shape_pane::Caps::ALL };
+
 /// The shared sections (Area, Line, Effect, Position and Size) from `krub_icons::shape_pane`,
 /// drawn with KhianKrub's colour boxes, number boxes, buttons and Shadow menu; their edits run
 /// KhianKrub's commands. KhianKrub has no stacking order between shapes yet (no Arrange) and
 /// aligns left, centre or right only.
 fn shared_sections(app: &mut WordApp, ui: &mut Ui, theme: &[wordcraft_doc::Rgb], now: &ShapeNow) {
-    use krub_icons::shape_pane::{self as sp, Caps, Dash, Edit, Values};
+    use krub_icons::shape_pane::{self as sp, Dash, Edit, Values};
     use wordcraft_doc::connector::LineDash;
     let unit = crate::options::unit();
     let k = unit.pt_per_unit();
@@ -141,7 +145,7 @@ fn shared_sections(app: &mut WordApp, ui: &mut Ui, theme: &[wordcraft_doc::Rgb],
         rotation: rot,
         keep_ratio: keep,
     };
-    let caps = Caps { arrange: false, align_vertical: false, ..Caps::ALL };
+    let caps = SHAPE_CAPS;
     let tr = |s: &str| tl!(s).to_string();
     let mut host = Host { app: &mut *app, theme, now, unit };
     let edits = sp::sections(ui, &values, caps, &tr, &mut host);
@@ -236,9 +240,13 @@ impl krub_icons::shape_pane::Host for Host<'_> {
 
     fn number(&mut self, ui: &mut Ui, n: krub_icons::shape_pane::Number) -> Option<f32> {
         let mut v = n.value;
-        let field = crate::numfield::NumField::new(&mut v).range(n.range).speed(f64::from(n.speed)).max_decimals(2);
+        let size = matches!(n.key, "width" | "height");
+        // A line may be flat (no height, or no width): its size boxes go down to 0 and drawing
+        // them never writes a size back (the engine keeps other shapes at least 4 pt).
+        let range = if size { 0.0..=*n.range.end() } else { n.range };
+        let field = crate::numfield::NumField::new(&mut v).range(range).clamp_existing_to_range(!size).speed(f64::from(n.speed)).max_decimals(2);
         // Width and height in File › Options' unit, as everywhere else in KhianKrub.
-        let field = if matches!(n.key, "width" | "height") { field.measure(self.unit) } else { field.suffix(n.suffix) };
+        let field = if size { field.measure(self.unit) } else { field.suffix(n.suffix) };
         let r = ui.add_enabled(n.enabled, field).labelled_by(n.label);
         if r.changed() && r.dragged() && !r.drag_started() {
             self.app.session.join_next_undo();
@@ -259,13 +267,25 @@ pub fn show_shape(app: &mut WordApp, ui: &mut Ui) {
         // Properties as the reference): Area, Line, Effect, Position and Size.
         // One module draws them in all three apps (`krub_icons::shape_pane`).
         shared_sections(app, ui, &theme, &now);
-        // KhianKrub's own: how the shape sits in the text (LibreOffice's toolbar row).
-        section(ui, "Text Wrap and Anchor", |ui| {
-            buttons(ui, |ui| {
-                labeled(ui, app, "position", "Position", "arrange.position");
-                menu(ui, app, "wrapText", "Wrap Text", "arrange.wrapText", wrap_items);
+        // KhianKrub's own sections, each under the sub-panel it belongs to (owner, 2026-11-18):
+        // the text's look with Fill and Line; how the shape sits in the text, the canvas and
+        // its alternative text with Size and Position.
+        use krub_icons::shape_pane::Tab;
+        let tab = krub_icons::shape_pane::current_tab(ui.ctx(), SHAPE_CAPS);
+        if tab == Tab::SizePosition {
+            section(ui, "Text Wrap and Anchor", |ui| {
+                buttons(ui, |ui| {
+                    labeled(ui, app, "position", "Position", "arrange.position");
+                    menu(ui, app, "wrapText", "Wrap Text", "arrange.wrapText", wrap_items);
+                });
             });
-        });
+        }
+        if tab != Tab::FillLine {
+            if tab == Tab::SizePosition {
+                canvas_and_alt_text(app, ui);
+            }
+            return;
+        }
         section(ui, "Text", |ui| text(app, ui));
         section(ui, "WordArt Styles", |ui| {
             let outline = crate::wordart_menus::current_outline(app);
@@ -276,21 +296,26 @@ pub fn show_shape(app: &mut WordApp, ui: &mut Ui) {
                 menu(ui, app, "transform", "Text Effects", "", |ui, app| crate::wordart_menus::effects_menu(ui, app, &theme, true));
             });
         });
-        if wordcraft_engine::cmd::canvas::selected_canvas(&app.session).is_some() {
-            section(ui, "Drawing Canvas", |ui| {
-                buttons(ui, |ui| {
-                    labeled(ui, app, "canvas", "Fit", "canvas.fit");
-                    labeled(ui, app, "canvas", "Expand", "canvas.expand");
-                    menu(ui, app, "canvas", "Scale Drawing", "", |ui, app| {
-                        for pct in [50, 75, 125, 150, 200] {
-                            mi(ui, app, &format!("{pct}%"), "canvas.scale", json!({"factor": pct as f32 / 100.0}));
-                        }
-                    });
+    });
+}
+
+/// Shape › Size and Position: the drawing canvas's commands (when one is selected) and the
+/// shape's alternative text.
+fn canvas_and_alt_text(app: &mut WordApp, ui: &mut Ui) {
+    if wordcraft_engine::cmd::canvas::selected_canvas(&app.session).is_some() {
+        section(ui, "Drawing Canvas", |ui| {
+            buttons(ui, |ui| {
+                labeled(ui, app, "canvas", "Fit", "canvas.fit");
+                labeled(ui, app, "canvas", "Expand", "canvas.expand");
+                menu(ui, app, "canvas", "Scale Drawing", "", |ui, app| {
+                    for pct in [50, 75, 125, 150, 200] {
+                        mi(ui, app, &format!("{pct}%"), "canvas.scale", json!({"factor": pct as f32 / 100.0}));
+                    }
                 });
             });
-        }
-        section(ui, "Accessibility", |ui| alt_text(app, ui));
-    });
+        });
+    }
+    section(ui, "Accessibility", |ui| alt_text(app, ui));
 }
 
 /// Shape › Text: the text box's Text Direction and Align Text, and Create Link (Break Link once
@@ -324,13 +349,88 @@ fn text(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// The Chart pane (owner, 2026-11-19): the shared chart pane (`krub_icons::chart_pane`). Its
+/// Chart sub-panel holds Chart Layouts, Data and Type and Size; Fill and Line, Effects and Text
+/// format the part chosen in its list, through `chart.format`.
 pub fn show_chart(app: &mut WordApp, ui: &mut Ui) {
     if crate::panes::header(ui, "Chart") {
         close_pane(ui.ctx(), CHART_CLOSED);
         return;
     }
     let Some(chart) = wordcraft_engine::cmd::chart::selected_chart(&app.session) else { return };
+    let theme = app.session.doc.settings.theme_colors.clone();
+    let parts = chart_parts(&chart);
     egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("chart_pane_scroll").show(ui, |ui| {
+        let mut host = ChartHost { app: &mut *app, theme: &theme, chart: &chart };
+        let edits = krub_icons::chart_pane::show(ui, &parts, &chart.format, &|s| tl!(s).to_string(), &mut host);
+        for (part, e) in edits {
+            let (key, value) = e.to_pair();
+            crate::widgets::run_from_ribbon(app, "chart.format", json!({"part": krub_chart_format::part_id(part), "edit": key, "value": value}));
+        }
+    });
+}
+
+/// The parts of `c` for the pane's list: the chart and plot areas, the title and legend when
+/// shown, the axes and gridlines of a chart with axes, then each series by name.
+pub(crate) fn chart_parts(c: &wordcraft_doc::chart::ChartSpec) -> Vec<(krub_chart_format::Part, String)> {
+    use krub_chart_format::Part;
+    let mut v = vec![(Part::ChartArea, tl!("Chart Area").to_string()), (Part::PlotArea, tl!("Plot Area").to_string())];
+    if c.title.is_some() {
+        v.push((Part::Title, tl!("Chart Title").to_string()));
+    }
+    if c.legend.is_some() {
+        v.push((Part::Legend, tl!("Legend").to_string()));
+    }
+    if !c.kind.is_round() {
+        v.push((Part::CategoryAxis, tl!("Horizontal Axis").to_string()));
+        v.push((Part::ValueAxis, tl!("Vertical Axis").to_string()));
+        v.push((Part::Gridlines, tl!("Gridlines").to_string()));
+    }
+    for (i, s) in c.series.iter().enumerate().take(krub_chart_format::MAX_SERIES) {
+        let name = if s.name.trim().is_empty() { crate::i18n::fmt(tl!("Series {n}"), &[("n", &(i + 1).to_string())]) } else { s.name.clone() };
+        v.push((Part::Series(i), name));
+    }
+    v
+}
+
+struct ChartHost<'a> {
+    app: &'a mut WordApp,
+    theme: &'a [wordcraft_doc::Rgb],
+    chart: &'a wordcraft_doc::chart::ChartSpec,
+}
+
+impl krub_icons::chart_pane::Host for ChartHost<'_> {
+    fn color(&mut self, ui: &mut Ui, key: &'static str, current: Option<[u8; 3]>, enabled: bool) -> Option<[u8; 3]> {
+        let mut picked = None;
+        ui.add_enabled_ui(enabled, |ui| {
+            ui.push_id(key, |ui| {
+                let mut c = current.map_or_else(|| "auto".to_string(), |c| wordcraft_doc::Rgb(c[0], c[1], c[2]).hex());
+                let was = c.clone();
+                crate::dialogs::color_field(ui, self.theme, &mut c, "Automatic", "auto");
+                if c != was
+                    && let Some(rgb) = wordcraft_doc::Rgb::parse(&c)
+                {
+                    picked = Some([rgb.0, rgb.1, rgb.2]);
+                }
+            });
+        });
+        picked
+    }
+
+    fn number(&mut self, ui: &mut Ui, n: krub_icons::shape_pane::Number) -> Option<f32> {
+        let mut v = n.value;
+        let field = crate::numfield::NumField::new(&mut v).range(n.range).speed(f64::from(n.speed)).max_decimals(2).suffix(n.suffix);
+        let r = ui.add_enabled(n.enabled, field).labelled_by(n.label);
+        // A drag is one undo step.
+        if r.changed() && r.dragged() && !r.drag_started() {
+            self.app.session.join_next_undo();
+        }
+        r.changed().then_some(v)
+    }
+
+    fn chart(&mut self, ui: &mut Ui) {
+        let app = &mut *self.app;
+        let chart = self.chart;
         section(ui, "Chart Layouts", |ui| {
             buttons(ui, |ui| {
                 menu(ui, app, "chartTitle", "Chart Title", "", |ui, app| {
@@ -362,7 +462,7 @@ pub fn show_chart(app: &mut WordApp, ui: &mut Ui) {
             });
         });
         section(ui, "Size", |ui| size(app, ui, 36.0, false));
-    });
+    }
 }
 
 /// Arrange: Position, Wrap Text, Rotate and Align, and for a picture Group.
@@ -527,7 +627,7 @@ fn picture_size(app: &mut WordApp, ui: &mut Ui) {
 
 pub fn show_smart_art(app: &mut WordApp, ui: &mut Ui) {
     use wordcraft_doc::smart_art::{SmartArtColors, SmartArtLayout};
-    if crate::panes::header(ui, "SmartArt") {
+    if crate::panes::header(ui, "Diagram") {
         close_pane(ui.ctx(), SMART_ART_CLOSED);
         return;
     }
@@ -574,7 +674,7 @@ pub fn show_smart_art(app: &mut WordApp, ui: &mut Ui) {
                 }
             });
         });
-        section(ui, "SmartArt Styles", |ui| {
+        section(ui, "Diagram Styles", |ui| {
             buttons(ui, |ui| {
                 menu(ui, app, "smartArtColors", "Change Colors", "", |ui, app| {
                     for colors in SmartArtColors::ALL {
@@ -620,13 +720,13 @@ mod tests {
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         app.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
         let mut h = window(app);
-        assert!(h.query_by_label("Position and Size").is_some(), "the Shape pane is open");
+        assert!(h.query_by_label("Size and Position").is_some(), "the Shape pane is open");
         let tabs = crate::ribbon::contextual_tabs(&h.state().session);
         assert!(!tabs.contains(&"Shape Format"), "{tabs:?}");
         h.state_mut().run("select.collapse", json!({"end": true})).unwrap();
         h.state_mut().run("text.insert", json!({"text": "x"})).unwrap();
         h.run_steps(3);
-        assert!(h.query_by_label("Position and Size").is_none(), "closed with nothing selected");
+        assert!(h.query_by_label("Size and Position").is_none(), "closed with nothing selected");
         h.state_mut().run("insert.chart", json!({"type": "column"})).unwrap();
         h.run_steps(3);
         assert!(h.query_by_label("Chart Layouts").is_some(), "the Chart pane is open");

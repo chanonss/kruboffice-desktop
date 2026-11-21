@@ -100,11 +100,21 @@ pub fn tab_slots(strip: egui::Rect, left: f32, right: f32, tabs: &[(f32, u8)], c
     (slots, menu)
 }
 
-pub fn tab_label(p: &egui::Painter, rect: egui::Rect, label: &str, font: egui::FontId, color: egui::Color32, badge: Option<(usize, egui::Color32)>) {
+/// `lit` fills the number badge with that colour (gold while choosing a tab by number,
+/// `krub_icons::tab_keys`) instead of white.
+pub fn tab_label(
+    p: &egui::Painter,
+    rect: egui::Rect,
+    label: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    badge: Option<(usize, egui::Color32)>,
+    lit: Option<egui::Color32>,
+) {
     let mut center = rect.center();
     if let Some((number, ink)) = badge {
         let pos = egui::pos2(rect.left() + 16.0, center.y);
-        p.circle_filled(pos, 8.0, egui::Color32::WHITE);
+        p.circle_filled(pos, 8.0, lit.unwrap_or(egui::Color32::WHITE));
         p.circle_stroke(pos, 8.0, egui::Stroke::new(0.6, ink.gamma_multiply(0.38)));
         p.text(pos, egui::Align2::CENTER_CENTER, number, egui::FontId::proportional(9.0), ink);
         center.x += TAB_BADGE_SPACE / 2.0;

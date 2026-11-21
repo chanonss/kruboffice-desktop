@@ -24,7 +24,8 @@ fn harness(chrome: Chrome) -> egui_kittest::Harness<'static, SheetApp> {
 #[test]
 fn the_title_bar_and_file_tab_are_drawn_by_default() {
     let h = harness(Chrome::default());
-    assert!(h.query_by_label("AutoSave").is_some(), "the title bar is drawn");
+    // The title bar is part of the one bar (owner, 2026-11-18): the user icon at its right end.
+    assert!(h.query_by_label("Account").is_some(), "the title bar is drawn");
     assert!(h.query_by_label("File").is_some(), "the File tab is drawn");
 }
 
@@ -32,12 +33,13 @@ fn the_title_bar_and_file_tab_are_drawn_by_default() {
 fn a_host_can_leave_out_the_title_bar_and_the_file_tab() {
     let full = harness(Chrome::default());
     let h = harness(Chrome { title_bar: false, file_tab: false });
-    assert!(h.query_by_label("AutoSave").is_none(), "no title bar");
+    assert!(h.query_by_label("Account").is_none(), "no title bar");
     assert!(h.query_by_label("File").is_none(), "no File tab");
     // The ribbon tabs are painted text, so measure the move with the first ribbon control.
     let (with_bar, without) = (full.get_by_label("Paste").rect(), h.get_by_label("Paste").rect());
     let moved = with_bar.min.y - without.min.y;
-    assert!((25.0..=40.0).contains(&moved), "the ribbon moves up by the title bar's height (28 on macOS, 38 elsewhere), moved {moved}");
+    let gap = krub_icons::chrome::ONE_BAR_GAP;
+    assert!((moved - gap).abs() < 0.5, "the ribbon moves up by the room above the tabs ({gap}), moved {moved}");
     assert_eq!(with_bar.min.x, without.min.x, "the ribbon's groups keep their place across");
 }
 
@@ -50,7 +52,7 @@ fn without_the_file_tab_the_backstage_view_never_opens() {
     h.state_mut().open_backstage(Page::Print);
     h.run_steps(3);
     assert!(h.state().backstage.is_none(), "so is every page, Print and Save As included");
-    assert!(h.query_by_label("AutoSave").is_some(), "the title bar can stay on its own");
+    assert!(h.query_by_label("Account").is_some(), "the title bar can stay on its own");
 }
 
 #[test]

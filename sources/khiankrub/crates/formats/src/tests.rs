@@ -737,6 +737,22 @@ fn exported_links_keep_only_safe_targets() {
     }
 }
 
+/// A link target with any whitespace (a no-break or ideographic space too) is written in `<…>`,
+/// so the reader, which ends a bare destination at the first whitespace, reads it back whole.
+#[test]
+fn markdown_link_targets_with_unicode_spaces_read_back() {
+    for l in ["https://e.com/a\u{a0}b", "https://e.com/a\u{3000}b", "https://e.com/a b"] {
+        let mut d = Document::new();
+        let mut p = Paragraph::with_text("", CharProps::default());
+        p.insert_text(0, "go", &CharProps { link: Some(l.to_string()), ..Default::default() }).unwrap();
+        d.body = vec![para_block(p)];
+        let md = String::from_utf8(export("md", &d).unwrap().unwrap()).unwrap();
+        let back = import("md", md.as_bytes()).unwrap().unwrap();
+        let p = back.body[0].as_para().unwrap();
+        assert_eq!(p.props_at(0).link.as_deref(), Some(l), "md: {md}");
+    }
+}
+
 #[test]
 fn hidden_drawings_are_left_out_of_exports() {
     let mut d = wordcraft_doc::Document::from_text("x");
@@ -748,4 +764,16 @@ fn hidden_drawings_are_left_out_of_exports() {
     }
     // Two pictures, one hidden: one comes out.
     assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
+}
+
+/// WordCraft #6165: a `\'` not followed by two hex digits is malformed. The escape and any hex
+/// digit of a truncated pair go; other bytes (`}`, a control word's `\`) keep their meaning.
+#[test]
+fn rtf_malformed_hex_escape_leaves_no_stray_text() {
+    let text = |rtf: &[u8]| import("rtf", rtf).unwrap().unwrap().plain_text(wordcraft_doc::StoryRef::Body);
+    assert_eq!(text(br"{\rtf1\ansi \'gZok\par}").trim(), "gZok");
+    let t = text(br"{\rtf1\ansi{\b \'4}survivor\par}");
+    assert!(t.contains("survivor") && !t.contains('4'), "{t:?}");
+    assert_eq!(text(br"{\rtf1\ansi \'+4z\par}").trim(), "+4z");
+    assert!(text(br"{\rtf1\ansi{\'}}after\par}").contains("after"));
 }

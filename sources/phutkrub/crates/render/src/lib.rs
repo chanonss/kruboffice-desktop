@@ -10,6 +10,7 @@
 mod bevel;
 mod camera;
 mod chart;
+mod chart_fmt;
 mod chartex;
 mod colr;
 mod extrude;
@@ -96,6 +97,9 @@ mod tests_wild;
 
 #[cfg(test)]
 mod tests_effect_holes;
+
+#[cfg(test)]
+mod tests_placed_group;
 
 #[cfg(test)]
 mod mt_tests {

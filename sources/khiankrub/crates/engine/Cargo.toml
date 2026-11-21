@@ -9,6 +9,7 @@ description = "WordCraft engine: session, selection, undo, the command registry 
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
 wordcraft-geom = { workspace = true }
 wordcraft-doc = { workspace = true }
 wordcraft-fonts = { workspace = true }

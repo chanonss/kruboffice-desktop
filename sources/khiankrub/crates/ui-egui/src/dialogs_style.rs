@@ -764,12 +764,7 @@ fn effects_page(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) {
     heading(ui, "Underline");
     egui::Grid::new("ms_underline").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
         ui.label(tl!("Style:"));
-        let shown = UNDERLINES.iter().find(|(k, _)| *k == f.underline).map_or(f.underline.clone(), |(_, l)| tl!(l).to_string());
-        egui::ComboBox::from_id_salt("ms_ul").selected_text(shown).show_ui(ui, |ui| {
-            for (k, l) in UNDERLINES {
-                ui.steady_value(&mut f.underline, k.to_string(), tl!(l));
-            }
-        });
+        crate::line_looks::names(ui, egui::Id::new("ms_ul"), 140.0, &mut f.underline, &UNDERLINES);
         ui.end_row();
         ui.label(tl!("Underline color:"));
         let theme = app.session.doc.settings.theme_colors.clone();
@@ -1005,12 +1000,7 @@ fn borders_page(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) {
     });
     egui::Grid::new("ms_line").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
         ui.label(tl!("Style:"));
-        let shown = LINES.iter().find(|(k, _)| *k == f.border_style).map_or(f.border_style.clone(), |(_, l)| tl!(l).to_string());
-        egui::ComboBox::from_id_salt("ms_line_style").selected_text(shown).show_ui(ui, |ui| {
-            for (k, l) in LINES {
-                ui.steady_value(&mut f.border_style, k.to_string(), tl!(l));
-            }
-        });
+        crate::line_looks::names(ui, egui::Id::new("ms_line_style"), 140.0, &mut f.border_style, &LINES);
         ui.end_row();
         ui.label(tl!("Width (pt):"));
         ui.add(crate::numfield::NumField::new(&mut f.border_width).range(0.25..=6.0).speed(0.25).max_decimals(2));

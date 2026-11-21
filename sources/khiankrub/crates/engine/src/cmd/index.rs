@@ -161,6 +161,9 @@ fn insert_index(s: &mut Session, v: &Value) -> CmdResult {
 /// One page reference of an entry.
 #[derive(Clone, Debug, PartialEq)]
 struct PageRef {
+    /// The page's index in the layout (the first page of a range): pages are told apart by it,
+    /// not by their labels, which repeat across sections.
+    at: usize,
     page: String,
     bold: bool,
     italic: bool,
@@ -189,8 +192,10 @@ fn collect(s: &mut Session, lang: Option<&str>) -> BTreeMap<Vec<SortKey>, Node> 
             }
         }
     }
+    let formats = super::references::page_formats(s);
     let l = s.layout();
-    let page = |pos: &Pos| l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1);
+    // A page's index in the layout and its number as its footer shows it (`ii`, `ก`).
+    let page = |pos: &Pos| super::references::page_label_or_first(&l, &formats, pos);
     let bookmark_end = |name: &str| {
         s.doc.para_paths(StoryRef::Body).into_iter().find_map(|path| {
             let p = s.doc.para(StoryRef::Body, &path)?;
@@ -221,11 +226,12 @@ fn collect(s: &mut Session, lang: Option<&str>) -> BTreeMap<Vec<SortKey>, Node> 
         }
         let range = f.arg('r').and_then(|bm| {
             let a = starts.iter().find(|(n, _)| n == bm).map(|(_, p)| page(p))?;
-            let b = bookmark_end(bm).map(|p| page(&p)).unwrap_or(a);
-            Some(if b > a { format!("{a}\u{2013}{b}") } else { a.to_string() })
+            let b = bookmark_end(bm).map(|p| page(&p)).unwrap_or_else(|| a.clone());
+            Some(if b.0 > a.0 { (a.0, format!("{}\u{2013}{}", a.1, b.1)) } else { a })
         });
-        let r = PageRef { page: range.unwrap_or_else(|| page(&pos).to_string()), bold: f.has('b'), italic: f.has('i') };
-        match node.pages.iter_mut().find(|x| x.page == r.page) {
+        let (at, label) = range.unwrap_or_else(|| page(&pos));
+        let r = PageRef { at, page: label, bold: f.has('b'), italic: f.has('i') };
+        match node.pages.iter_mut().find(|x| x.at == r.at && x.page == r.page) {
             Some(x) => {
                 x.bold |= r.bold;
                 x.italic |= r.italic;

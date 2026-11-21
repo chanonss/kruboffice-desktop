@@ -144,13 +144,41 @@ impl Point {
     }
 }
 
-/// An axis-aligned rectangle (points, y down). `w`/`h` are never negative when built with [`Rect::new`].
+/// An axis-aligned rectangle (points, y down). `w`/`h` are finite and never negative, whether the
+/// rectangle was built with [`Rect::new`] or deserialized (both go through the same checks;
+/// from WordCraft #5880).
 #[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(from = "RectRaw")]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
     pub w: f32,
     pub h: f32,
+}
+
+/// The unchecked shape of a [`Rect`] on the wire; converting it applies [`Rect::new`]'s rules.
+#[derive(Deserialize)]
+struct RectRaw {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+}
+
+impl From<RectRaw> for Rect {
+    fn from(r: RectRaw) -> Self {
+        Rect::new(r.x, r.y, r.w, r.h)
+    }
+}
+
+/// Where two crossed edges meet: both land on their midpoint.
+fn collapse(lo: f32, hi: f32) -> (f32, f32) {
+    if hi < lo {
+        let m = lo * 0.5 + hi * 0.5;
+        (m, m)
+    } else {
+        (lo, hi)
+    }
 }
 
 impl Rect {
@@ -174,10 +202,16 @@ impl Rect {
         let y = self.y.min(o.y);
         Rect::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
     }
+    /// Shrunk by `l`, `t`, `r`, `b` (grown for negative values); hostile insets (NaN,
+    /// infinities) are ignored. If the edges cross, the result has zero size at the middle of
+    /// where they crossed.
     pub fn inset(&self, l: f32, t: f32, r: f32, b: f32) -> Rect {
-        Rect::new(self.x + l, self.y + t, self.w - l - r, self.h - t - b)
+        let (l, t, r, b) = (finite(l), finite(t), finite(r), finite(b));
+        let (x0, x1) = collapse(self.x + l, self.right() - r);
+        let (y0, y1) = collapse(self.y + t, self.bottom() - b);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
     }
-    /// Grown by `d` on every side (shrunk for negative `d`, down to zero size).
+    /// Grown by `d` on every side (shrunk for negative `d`, down to zero size at the centre).
     pub fn expand(&self, d: f32) -> Rect {
         self.inset(-d, -d, -d, -d)
     }
@@ -395,5 +429,21 @@ mod tests {
         assert_eq!(paper_name(612.0, 792.0), Some("Letter"));
         assert_eq!(paper_name(792.0, 612.0), Some("Letter"));
         assert_eq!(paper_name(100.0, 100.0), None);
+    }
+
+    #[test]
+    fn a_deserialized_rect_is_checked_like_a_new_one() {
+        let r: Rect = serde_json::from_str(r#"{"x": 1.0, "y": 2.0, "w": -5.0, "h": 4.0}"#).unwrap();
+        assert_eq!(r, Rect::new(1.0, 2.0, 0.0, 4.0));
+    }
+
+    #[test]
+    fn inset_past_zero_collapses_to_center() {
+        let r = Rect::new(0.0, 0.0, 10.0, 10.0);
+        assert_eq!(r.inset(8.0, 8.0, 8.0, 8.0), Rect::new(5.0, 5.0, 0.0, 0.0));
+        assert_eq!(r.expand(-20.0), Rect::new(5.0, 5.0, 0.0, 0.0));
+        assert_eq!(r.inset(0.0, 8.0, 0.0, 8.0), Rect::new(0.0, 5.0, 10.0, 0.0));
+        assert_eq!(r.expand(1.0), Rect::new(-1.0, -1.0, 12.0, 12.0));
+        assert_eq!(r.inset(f32::NAN, 0.0, f32::INFINITY, 0.0), r);
     }
 }

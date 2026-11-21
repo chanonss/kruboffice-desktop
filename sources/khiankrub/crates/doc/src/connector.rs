@@ -150,7 +150,7 @@ impl ShapeKind {
     }
     /// A line or connector: drawn as an open path, never filled.
     pub fn is_open(self) -> bool {
-        self == ShapeKind::Line || self.is_connector()
+        self == ShapeKind::Line || self.is_connector() || matches!(self, ShapeKind::Preset(id) if id.is_open())
     }
 }
 

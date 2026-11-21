@@ -48,3 +48,19 @@ fn wave_stroke_at_a_huge_coordinate_ends() {
     assert!(wave_path(0.0, 1e20, 0.0, 1.0).elements().len() < 20_100);
     assert!(wave_path(0.0, 100.0, 0.0, 1.0).elements().len() > 10);
 }
+
+/// A metafile whose bitmaps are past the cache budget gets them shrunk so the picture is kept, not
+/// parsed again on every repaint (from WordCraft #5494); smaller ones stay as they are.
+#[test]
+fn huge_metafile_bitmaps_are_shrunk_to_fit_the_cache() {
+    let px = |w: u16, h: u16| Pixmap::from_parts(vec![vello_cpu::color::PremulRgba8 { r: 10, g: 20, b: 30, a: 255 }; w as usize * h as usize], w, h);
+    let small = fit_cache(vec![Some(px(100, 100)), None], 0);
+    assert_eq!(small[0].as_ref().map(|p| (p.width(), p.height())), Some((100, 100)));
+    let big = fit_cache(vec![Some(px(6000, 6000)), Some(px(10, 10)), None], 0);
+    let bytes: usize = big.iter().flatten().map(|p| p.width() as usize * p.height() as usize * 4).sum();
+    assert!(bytes <= CACHE_BYTES / 8, "{bytes}");
+    let first = big[0].as_ref().unwrap();
+    assert!(first.width() < 6000 && first.width() == first.height(), "keeps its shape: {}x{}", first.width(), first.height());
+    assert_eq!(first.data()[0], vello_cpu::color::PremulRgba8 { r: 10, g: 20, b: 30, a: 255 }, "averages keep the colour");
+    assert!(big[2].is_none());
+}

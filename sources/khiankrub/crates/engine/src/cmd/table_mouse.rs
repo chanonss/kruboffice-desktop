@@ -44,7 +44,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("table.selectAt", "Select Table Cells by Clicking", "Table Layout › Table › Select", select_at)
             .params(
-                r#"{"page": n, "x": pt, "y": pt, "toX"?: pt, "toY"?: pt, "reach"?: pt} (a click in page points, 0-based page, on a selection area of a table in the caret's story: just above a column selects the column, left of a row the row, along a cell's left edge inside it the cell, the move handle past the top-left corner the table; with toX/toY (a drag) every column, row or cell from there to that point. `reach` (default 3) is the column borders' resize reach, which the cell areas keep clear of.)"#,
+                r#"{"page": n, "x": pt, "y": pt, "toX"?: pt, "toY"?: pt, "add"?: bool, "reach"?: pt} (a click in page points, 0-based page, on a selection area of a table in the caret's story: just above a column selects the column, left of a row the row, along a cell's left edge inside it the cell, the move handle past the top-left corner the table; with toX/toY (a drag) every column, row or cell from there to that point; with `add` (Cmd/Ctrl) a column joins the columns already selected, side by side or not, or leaves them if it was one. `reach` (default 3) is the column borders' resize reach, which the cell areas keep clear of.)"#,
             )
             .pure(),
         CommandSpec::new("table.insertAt", "Insert Row or Column by Clicking", "Table Layout › Rows & Columns", insert_at).params(
@@ -327,6 +327,39 @@ fn outer_row_taken(doc: &Document, a: &Pos, b: &Pos, tp: &Path, seen: &mut BTree
     false
 }
 
+/// Cmd/Ctrl on a column's selection area (owner, 2026-11-17): grid columns `span` join the whole
+/// columns already selected in table `tp`, or leave them when all of them were already in; the
+/// picked columns are kept as runs of side-by-side columns. Without whole columns of this table
+/// selected it's an ordinary column selection.
+fn add_columns(s: &mut Session, story: StoryRef, tp: &Path, span: (usize, usize), last_row: usize) -> CmdResult {
+    let mut picked: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    if let Some(r) = s.cell_range().filter(|r| r.story == story && r.table == *tp && r.rows == (0, last_row)) {
+        for (a, b) in std::iter::once(r.cols).chain(r.more.iter().copied()) {
+            picked.extend(a..=b);
+        }
+    }
+    let span_cols: Vec<usize> = (span.0..=span.1).collect();
+    if !picked.is_empty() && span_cols.iter().all(|g| picked.contains(g)) {
+        for g in &span_cols {
+            picked.remove(g);
+        }
+        if picked.is_empty() {
+            picked.extend(span_cols);
+        }
+    } else {
+        picked.extend(span_cols);
+    }
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for g in picked {
+        match runs.last_mut() {
+            Some((_, b)) if *b + 1 == g => *b = g,
+            _ => runs.push((g, g)),
+        }
+    }
+    let first = runs.first().copied().unwrap_or(span);
+    table::select_ranges(s, story, tp, (0, last_row), first, runs.into_iter().skip(1).collect())
+}
+
 /// The click: `page`, `x`, `y` and the resize `reach`.
 fn point(v: &Value) -> Result<(usize, f32, f32, f32), CmdError> {
     let page =
@@ -351,6 +384,10 @@ fn select_at(s: &mut Session, v: &Value) -> CmdResult {
     let story = geom.story;
     let t = s.doc.table(story, &geom.table).ok_or_else(|| CmdError::Failed("there's no table there".into()))?;
     let (last_row, last_col) = (t.rows.len().saturating_sub(1), t.cols().saturating_sub(1));
+    if let (Spot::Column(g), true) = (spot, p::bool(v, "add").unwrap_or(false)) {
+        let g1 = to.map_or(g, |(tx, _)| column_at(&geom, tx));
+        return add_columns(s, story, &geom.table, (g.min(g1), g.max(g1)), last_row);
+    }
     let (rows, cols) = match spot {
         Spot::Column(g) => ((0, last_row), (g, to.map_or(g, |(tx, _)| column_at(&geom, tx)))),
         Spot::Row(r) => ((r, to.map_or(r, |(_, ty)| row_at(&geom, ty))), (0, last_col)),
@@ -624,6 +661,44 @@ mod tests {
         s.run("table.selectAt", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": b.y - 3.0})).unwrap();
         assert_eq!(s.selected_text(), "r0c1\nr1c1\nr2c1");
         assert_eq!(s.run("review.wordCount", &json!({})).unwrap()["words"], 3);
+    }
+
+    /// Owner, 2026-11-17: Cmd/Ctrl adds a column that isn't next to the selected ones, and takes
+    /// one off again; formatting, shading and widths reach every picked column and only them.
+    #[test]
+    fn cmd_click_selects_columns_that_are_not_side_by_side() {
+        let mut s = table_session(3, 4);
+        fill(&mut s);
+        let (b0, b2) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 0, 2));
+        let above = |b: Rect| json!({"page": 0, "x": b.x + b.w / 2.0, "y": b.y - 3.0});
+        s.run("table.selectAt", &above(b0)).unwrap();
+        let mut add = above(b2);
+        add["add"] = json!(true);
+        s.run("table.selectAt", &add).unwrap();
+        let range = s.cell_range().cloned().unwrap();
+        assert_eq!((range.cols, range.more.clone(), range.stream), ((0, 0), vec![(2, 2)], false));
+        assert_eq!(s.selected_text(), "r0c0\nr0c2\nr1c0\nr1c2\nr2c0\nr2c2");
+        s.run("format.bold", &json!({})).unwrap();
+        s.run("table.shading", &json!({"color": "FF0000"})).unwrap();
+        let t = first_table(&s);
+        for r in 0..3 {
+            assert!(bold(&s, r, 0) && bold(&s, r, 2) && !bold(&s, r, 1) && !bold(&s, r, 3), "row {r}");
+            assert!(t.rows[r].cells[2].props.shading.is_some() && t.rows[r].cells[1].props.shading.is_none());
+        }
+        s.run("table.columnWidth", &json!({"width": 50.0})).unwrap();
+        let t = first_table(&s);
+        assert_eq!((t.grid[0], t.grid[2]), (50.0, 50.0));
+        assert!(t.grid[1] != 50.0 && t.grid[3] != 50.0);
+        // Cmd/Ctrl on a picked column takes it off; the last one stays. (The columns moved.)
+        let (b0, b2) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 0, 2));
+        let mut add = above(b2);
+        add["add"] = json!(true);
+        s.run("table.selectAt", &add).unwrap();
+        assert_eq!(s.cell_range().map(|r| (r.cols, r.more.clone())), Some(((0, 0), vec![])));
+        let mut again = above(b0);
+        again["add"] = json!(true);
+        s.run("table.selectAt", &again).unwrap();
+        assert_eq!(s.cell_range().map(|r| (r.cols, r.more.clone())), Some(((0, 0), vec![])), "never nothing");
     }
 
     /// A click above a column selects just its cells: formatting, alignment and Delete leave the

@@ -202,6 +202,11 @@
 	Effects	เอฟเฟกต์
 	Emphasis	เน้น
 	Enclose Characters	ล้อมอักขระ
+	Character Spacing	ระยะห่างระหว่างอักขระ
+	Very Tight	ชิดมาก
+	Loose	ห่าง
+	Very Loose	ห่างมาก
+	More Spacing…	ระยะห่างเพิ่มเติม…
 	Encrypt with Password…	เข้ารหัสด้วยรหัสผ่าน…
 	English (United States)	อังกฤษ (สหรัฐอเมริกา)
 	Envelopes	ซองจดหมาย
@@ -1210,6 +1215,7 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Copy the Latin font, size, bold and italic to Thai text	คัดลอกฟอนต์ ขนาด ตัวหนา และตัวเอียงจากข้อความละตินไปยังข้อความไทย
 	Words only	เฉพาะคำ
 	Double	สองเส้น
+	Triple	สามเส้น
 	Thick	เส้นหนา
 	Dotted	เส้นจุด
 	Dashed	เส้นประ
@@ -1332,7 +1338,7 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Triangle Up	สามเหลี่ยมขึ้น
 	Triangle Down	สามเหลี่ยมลง
 
-# Chart Design and SmartArt picker
+# Chart Design and the Diagram picker
 	Chart Design	ออกแบบแผนภูมิ
 	Chart Layouts	เค้าโครงแผนภูมิ
 	Chart Title	ชื่อแผนภูมิ
@@ -1342,7 +1348,12 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Edit\nData	แก้ไข\nข้อมูล
 	Change\nChart Type	เปลี่ยนชนิด\nแผนภูมิ
 	Type	ชนิด
-	Insert SmartArt	แทรก SmartArt
+	Insert Diagram	แทรกไดอะแกรม
+	All layouts	ทั้งหมด
+	Diagram	ไดอะแกรม
+	Diagram text	ข้อความในไดอะแกรม
+	One item per line. Start a line with Tab for a sub-point.	บรรทัดละหนึ่งรายการ กด Tab หน้าบรรทัดเพื่อทำเป็นหัวข้อย่อย
+	Leave empty for sample text	เว้นว่างไว้เพื่อใช้ข้อความตัวอย่าง
 	All	ทั้งหมด
 	List	รายการ
 	Process	กระบวนการ
@@ -1366,6 +1377,27 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Shows items around a central idea: the first item is the centre.	แสดงรายการรอบแนวคิดหลัก โดยใช้รายการแรกเป็นศูนย์กลาง
 	Shows parts of a whole as quadrants.	แสดงส่วนประกอบของภาพรวมเป็นสี่ส่วน
 	Shows overlapping ideas as overlapping circles.	แสดงแนวคิดที่ทับซ้อนกันด้วยวงกลมที่ซ้อนกัน
+	Vertical Bullet List	รายการหัวข้อ แนวตั้ง
+	Basic Chevron Process	ลูกศรบั้งพื้นฐาน
+	Organization Chart	แผนผังองค์กร
+	Basic Timeline	เส้นเวลาพื้นฐาน
+	Basic Target	เป้าพื้นฐาน
+	Gear	เฟือง
+	Vertical Process	กระบวนการแนวตั้ง
+	Inverted Pyramid	พีระมิดกลับหัว
+	Horizontal Hierarchy	ลำดับชั้นแนวนอน
+	Linear Venn	เวนน์แนวเส้น
+	Shows items as wide bars, one under another, with their sub-points.	แสดงรายการเป็นแถบกว้างเรียงลงมา พร้อมหัวข้อย่อย
+	Shows steps in order as arrow-shaped chevrons.	แสดงขั้นตอนตามลำดับเป็นรูปลูกศรบั้ง
+	Shows who reports to whom in an organization.	แสดงสายการบังคับบัญชาในองค์กร
+	Shows events in order along a line.	แสดงเหตุการณ์ตามลำดับบนเส้นเวลา
+	Shows items as rings around a centre, from the outside in.	แสดงรายการเป็นวงแหวนรอบจุดศูนย์กลาง จากด้านนอกเข้าด้านใน
+	Shows items that combine into one result, through a funnel.	แสดงรายการที่รวมกันเป็นผลลัพธ์เดียวผ่านกรวย
+	Shows ideas that drive one another, as gears.	แสดงแนวคิดที่ขับเคลื่อนกันและกันเป็นรูปเฟือง
+	Shows steps in order from top to bottom.	แสดงขั้นตอนตามลำดับจากบนลงล่าง
+	Shows parts that narrow down, largest at the top.	แสดงส่วนที่แคบลงเรื่อย ๆ โดยส่วนใหญ่ที่สุดอยู่ด้านบน
+	Shows a tree from left to right.	แสดงลำดับชั้นจากซ้ายไปขวา
+	Shows overlapping ideas as circles in a row.	แสดงแนวคิดที่ซ้อนทับกันเป็นวงกลมเรียงแถว
 
 # Home ribbon menus
 	Advanced Find…	ค้นหาขั้นสูง…
@@ -1374,6 +1406,8 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Select Paragraph	เลือกย่อหน้า
 	Select Sentence	เลือกประโยค
 	Dot-dash	เส้นจุดประ
+	More Underlines…	เส้นใต้เพิ่มเติม…
+	Dot-dot-dash	เส้นจุดจุดประ
 	Small Caps	ตัวพิมพ์ใหญ่ขนาดเล็ก
 	All Caps	ตัวพิมพ์ใหญ่ทั้งหมด
 	Double Strikethrough	ขีดทับสองเส้น
@@ -1505,8 +1539,8 @@ template	Studio handbook (sample)	คู่มือสตูดิโอ (ต�
 	Script	ตัวยกและตัวห้อย
 	Show the equation in the line of text	แสดงสมการในบรรทัดข้อความ
 	Show the equation on a line of its own	แสดงสมการบนบรรทัดของตัวเอง
-	SmartArt Design	ออกแบบ SmartArt
-	SmartArt Styles	ลักษณะ SmartArt
+	SmartArt Design	ออกแบบไดอะแกรม
+	Diagram Styles	ลักษณะไดอะแกรม
 	Structures	โครงสร้าง
 	Text Pane	บานหน้าต่างข้อความ
 	Transparency	ความโปร่งใส
@@ -1574,6 +1608,9 @@ crop side	B	ล
 	Dash dot	เส้นประจุด
 	Radius:	รัศมี:
 	Keep ratio	คงสัดส่วน
+	Fill and Line	สีและเส้น
+	Size and Position	ขนาดและที่ตั้ง
+	Rows and Columns	แถวและคอลัมน์
 	Flip:	พลิก:
 	Vertically	แนวตั้ง
 	Horizontally	แนวนอน
@@ -1608,3 +1645,294 @@ crop side	B	ล
 	Elbow Arrow Connector	เส้นเชื่อมหักมุมมีลูกศร
 	Curved Connector	เส้นเชื่อมโค้ง
 	Curved Arrow Connector	เส้นเชื่อมโค้งมีลูกศร
+	Collapse Side Panel	ยุบแผงด้านข้าง
+	Expand Side Panel	ขยายแผงด้านข้าง
+	Create an interactive outline of your document.\n\nIt's a great way to keep track of where you are or quickly move your content around.\n\nTo get started, go to the Home tab and apply Heading styles to the headings in your document.	สร้างเค้าโครงแบบโต้ตอบของเอกสาร\n\nช่วยให้รู้ว่ากำลังอยู่ตรงไหน และย้ายเนื้อหาไปมาได้อย่างรวดเร็ว\n\nเริ่มต้นโดยไปที่แท็บหน้าแรก แล้วใช้สไตล์หัวเรื่องกับหัวเรื่องในเอกสาร
+	Automatic columns share the width the other columns leave.	คอลัมน์อัตโนมัติจะแบ่งความกว้างที่เหลือจากคอลัมน์อื่น
+	Line weight:	น้ำหนักเส้น:
+	Line color:	สีเส้น:
+	Selected cells	เซลล์ที่เลือก
+	Whole table	ทั้งตาราง
+	Solid line	เส้นทึบ
+	Dashed line	เส้นประ
+	Dotted line	เส้นจุด
+	Double line	เส้นคู่
+	Dash-dot line	เส้นขีดสลับจุด
+	Thick line	เส้นหนา
+	Click a line to give it the pen's line	คลิกเส้นเพื่อใส่เส้นตามปากกาที่เลือก
+	Click or drag along a table's lines to give them the pen's line; again to take it off. Esc stops.	คลิกหรือลากไปตามเส้นของตารางเพื่อใส่เส้นตามปากกา คลิกซ้ำเพื่อลบ กด Esc เพื่อเลิก
+	Files you opened or saved on Google Drive in this browser. Saving goes back to the file on Drive.	ไฟล์ที่เปิดหรือบันทึกบน Google Drive ในเบราว์เซอร์นี้ เมื่อบันทึก จะบันทึกกลับไปที่ไฟล์บน Drive
+	Unsaved changes in this browser	มีการแก้ไขที่ยังไม่ได้บันทึกในเบราว์เซอร์นี้
+	Open with the unsaved changes	เปิดพร้อมการแก้ไขที่ยังไม่ได้บันทึก
+	Open the Google Drive version	เปิดเวอร์ชันบน Google Drive
+	Remove from this list	เอาออกจากรายการนี้
+	About {app}	เกี่ยวกับ{app}
+	AI models	โมเดล AI
+	Licences	สัญญาอนุญาต
+	Version {version}	เวอร์ชัน {version}
+	Version	เวอร์ชัน
+	Platform	แพลตฟอร์ม
+	Based on	พัฒนาต่อยอดจาก
+	Adapted by	ปรับปรุงโดย
+	Licence	สัญญาอนุญาต
+	{project} by the ArtCraft team	{project} โดยทีม ArtCraft
+	MIT or Apache-2.0	MIT หรือ Apache-2.0
+	Original project {project}	โครงการต้นฉบับ {project}
+	Adapted for Thai	ปรับปรุงสำหรับภาษาไทย
+	Original project	โครงการต้นฉบับ
+	The ArtCraft team and the {project} contributors	ทีม ArtCraft และผู้ร่วมพัฒนา {project}
+	Icons: Tabler Icons by Paweł Kuna	ไอคอน: Tabler Icons โดย Paweł Kuna
+	Fonts and the other open-source parts are listed in the NOTICE and ATTRIBUTION files that come with the program.	ฟอนต์และส่วนประกอบโอเพนซอร์สอื่น ๆ ระบุไว้ในไฟล์ NOTICE และ ATTRIBUTION ที่มากับโปรแกรม
+	Web	เว็บ
+	KrubOffice on GitHub	KrubOffice บน GitHub
+	A free, open-source word processor for Thai and English.	โปรแกรมพิมพ์เอกสาร ฟรีและโอเพนซอร์ส สำหรับภาษาไทยและภาษาอังกฤษ
+	Contributed patches	แพตช์ที่ผู้ใช้ส่งมา
+	Editing — edit the document directly	แก้ไข — แก้เอกสารได้โดยตรง
+	Reviewing — edits become suggestions	ตรวจทาน — การแก้ไขเป็นข้อเสนอแนะ
+	View only — no changes or suggestions	ดูอย่างเดียว — ไม่แก้ไขและไม่เสนอแนะ
+	Your name	ชื่อของคุณ
+	Set your name in File › Options	ตั้งชื่อของคุณได้ที่ ไฟล์ › ตัวเลือก
+	Draft in this browser	ฉบับร่างในเบราว์เซอร์นี้
+	Rename…	เปลี่ยนชื่อ…
+	Go to Header	ไปที่หัวกระดาษ
+	Go to Footer	ไปที่ท้ายกระดาษ
+	Picture from File	รูปภาพจากไฟล์
+	Format:	จัดรูปแบบ:
+	No fill	ไม่เติมสี
+	No line	ไม่มีเส้น
+	Compound type:	ชนิดเส้นผสม:
+	Dash type:	ชนิดเส้นประ:
+	Rounded corners	มุมมน
+	Blur:	ความเบลอ:
+	Angle:	มุม:
+	Font size:	ขนาดฟอนต์:
+	Reset to Automatic	กลับเป็นอัตโนมัติ
+	Chart Area	พื้นที่แผนภูมิ
+	Plot Area	พื้นที่พล็อต
+	Horizontal Axis	แกนนอน
+	Vertical Axis	แกนตั้ง
+	Thick Thin	หนาบาง
+	Thin Thick	บางหนา
+	Gridlines have no effects.	เส้นตารางไม่มีเอฟเฟกต์
+	This part shows no text.	ส่วนนี้ไม่มีข้อความ
+	Series {n}	ชุดข้อมูล {n}
+	Blur	ความเบลอ
+	Angle	มุม
+	Distance	ระยะห่าง
+	Font size	ขนาดฟอนต์
+	Recently Used Shapes	รูปร่างที่ใช้ล่าสุด
+	Connector: Elbow	เส้นเชื่อม: หักมุม
+	Connector: Curved	เส้นเชื่อม: โค้ง
+	Connector: Elbow (one bend)	เส้นเชื่อม: หักมุมครั้งเดียว
+	Line: Rising	เส้น: ทแยงขึ้น
+	Rectangle: Rounded Corners	สี่เหลี่ยมผืนผ้า: มุมมน
+	Rectangle: Single Corner Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมเดียว
+	Rectangle: Top Corners Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมบน
+	Rectangle: Diagonal Corners Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมทแยง
+	Rectangle: Top Corners One Rounded and One Snipped	สี่เหลี่ยมผืนผ้า: มุมบนมนหนึ่ง ตัดหนึ่ง
+	Rectangle: Single Corner Rounded	สี่เหลี่ยมผืนผ้า: มนมุมเดียว
+	Rectangle: Top Corners Rounded	สี่เหลี่ยมผืนผ้า: มุมบนมน
+	Rectangle: Diagonal Corners Rounded	สี่เหลี่ยมผืนผ้า: มุมทแยงมน
+	Text Box	กล่องข้อความ
+	Isosceles Triangle	สามเหลี่ยมหน้าจั่ว
+	Right Triangle	สามเหลี่ยมมุมฉาก
+	Parallelogram	สี่เหลี่ยมด้านขนาน
+	Trapezoid	สี่เหลี่ยมคางหมู
+	Trapezoid: Uneven Sides	สี่เหลี่ยมคางหมู: ด้านไม่เท่า
+	Regular Pentagon	ห้าเหลี่ยมด้านเท่า
+	Hexagon	หกเหลี่ยม
+	Heptagon	เจ็ดเหลี่ยม
+	Octagon	แปดเหลี่ยม
+	Decagon	สิบเหลี่ยม
+	Dodecagon	สิบสองเหลี่ยม
+	Partial Circle	วงกลมบางส่วน
+	Quarter Wedge	ลิ่มหนึ่งในสี่
+	Chord	คอร์ดวงกลม
+	Teardrop	หยดน้ำ
+	Frame	กรอบ
+	Corner Tabs: Triangles	แถบมุม: สามเหลี่ยม
+	Corner Tabs: Squares	แถบมุม: สี่เหลี่ยม
+	Corner Tabs: Quarter Circles	แถบมุม: หนึ่งในสี่วงกลม
+	Half Frame	กรอบครึ่ง
+	L-Shape	รูปตัว L
+	Diagonal Stripe	แถบทแยง
+	Cross	กากบาท
+	Plaque	ป้าย
+	Cylinder	ทรงกระบอก
+	Cube	ลูกบาศก์
+	Bevel	ขอบนูน
+	Donut	วงแหวน
+	Block Arc	ส่วนโค้งทึบ
+	Folded Corner	มุมพับ
+	Smiley Face	หน้ายิ้ม
+	Lightning Bolt	สายฟ้า
+	Sun	ดวงอาทิตย์
+	Moon	ดวงจันทร์
+	Cloud	เมฆ
+	Gear: 6 Teeth	เฟือง: 6 ซี่
+	Gear: 9 Teeth	เฟือง: 9 ซี่
+	Funnel	กรวย
+	Arc	ส่วนโค้ง
+	Double Bracket	วงเล็บคู่
+	Double Brace	วงเล็บปีกกาคู่
+	Left Bracket	วงเล็บซ้าย
+	Right Bracket	วงเล็บขวา
+	Left Brace	วงเล็บปีกกาซ้าย
+	Right Brace	วงเล็บปีกกาขวา
+	Chart Marker: Cross Lines	เครื่องหมายแผนภูมิ: เส้นไขว้
+	Chart Marker: Star Lines	เครื่องหมายแผนภูมิ: เส้นดาว
+	Chart Marker: Plus Lines	เครื่องหมายแผนภูมิ: เส้นบวก
+	Arrow: Right	ลูกศร: ขวา
+	Arrow: Left	ลูกศร: ซ้าย
+	Arrow: Up	ลูกศร: ขึ้น
+	Arrow: Down	ลูกศร: ลง
+	Arrow: Left-Right	ลูกศร: ซ้าย-ขวา
+	Arrow: Up-Down	ลูกศร: ขึ้น-ลง
+	Arrow: Quad	ลูกศร: สี่ทิศ
+	Arrow: Left-Right-Up	ลูกศร: ซ้าย-ขวา-ขึ้น
+	Arrow: Bent	ลูกศร: หักงอ
+	Arrow: U-Turn	ลูกศร: กลับรถ
+	Arrow: Curved Right	ลูกศร: โค้งขวา
+	Arrow: Curved Left	ลูกศร: โค้งซ้าย
+	Arrow: Curved Up	ลูกศร: โค้งขึ้น
+	Arrow: Curved Down	ลูกศร: โค้งลง
+	Arrow: Left-Up	ลูกศร: ซ้าย-ขึ้น
+	Arrow: Bent-Up	ลูกศร: หักขึ้น
+	Arrow: Striped Right	ลูกศร: ขวามีแถบ
+	Arrow: Notched Right	ลูกศร: ขวามีรอยบาก
+	Arrow: Pentagon	ลูกศร: ห้าเหลี่ยม
+	Arrow: Chevron	ลูกศร: บั้ง
+	Arrow: Circular	ลูกศร: วงกลม
+	Arrow: Circular Counter-clockwise	ลูกศร: วงกลมทวนเข็มนาฬิกา
+	Arrow: Circular Two-headed	ลูกศร: วงกลมสองหัว
+	Arrow: Swoosh	ลูกศร: โค้งพุ่ง
+	Callout: Right Arrow	คำอธิบาย: ลูกศรขวา
+	Callout: Down Arrow	คำอธิบาย: ลูกศรลง
+	Callout: Left Arrow	คำอธิบาย: ลูกศรซ้าย
+	Callout: Up Arrow	คำอธิบาย: ลูกศรขึ้น
+	Callout: Left-Right Arrow	คำอธิบาย: ลูกศรซ้าย-ขวา
+	Callout: Up-Down Arrow	คำอธิบาย: ลูกศรขึ้น-ลง
+	Callout: Quad Arrow	คำอธิบาย: ลูกศรสี่ทิศ
+	Plus Sign	เครื่องหมายบวก
+	Minus Sign	เครื่องหมายลบ
+	Multiplication Sign	เครื่องหมายคูณ
+	Division Sign	เครื่องหมายหาร
+	Equals	เครื่องหมายเท่ากับ
+	Not Equal	เครื่องหมายไม่เท่ากับ
+	Flowchart: Process	ผังงาน: กระบวนการ
+	Flowchart: Alternate Process	ผังงาน: กระบวนการทางเลือก
+	Flowchart: Decision	ผังงาน: การตัดสินใจ
+	Flowchart: Data	ผังงาน: ข้อมูล
+	Flowchart: Predefined Process	ผังงาน: กระบวนการที่กำหนดไว้
+	Flowchart: Internal Storage	ผังงาน: หน่วยเก็บภายใน
+	Flowchart: Document	ผังงาน: เอกสาร
+	Flowchart: Multidocument	ผังงาน: หลายเอกสาร
+	Flowchart: Terminator	ผังงาน: จุดเริ่มต้น/สิ้นสุด
+	Flowchart: Preparation	ผังงาน: การเตรียมการ
+	Flowchart: Manual Input	ผังงาน: ป้อนข้อมูลด้วยมือ
+	Flowchart: Manual Operation	ผังงาน: ทำงานด้วยมือ
+	Flowchart: Connector	ผังงาน: จุดเชื่อม
+	Flowchart: Off-page Connector	ผังงาน: จุดเชื่อมต่างหน้า
+	Flowchart: Card	ผังงาน: บัตร
+	Flowchart: Punched Tape	ผังงาน: เทปเจาะรู
+	Flowchart: Summing Junction	ผังงาน: จุดรวม
+	Flowchart: Or	ผังงาน: หรือ
+	Flowchart: Collate	ผังงาน: เรียงชุด
+	Flowchart: Sort	ผังงาน: เรียงลำดับ
+	Flowchart: Extract	ผังงาน: แยกออก
+	Flowchart: Merge	ผังงาน: รวม
+	Flowchart: Stored Data	ผังงาน: ข้อมูลที่เก็บไว้
+	Flowchart: Delay	ผังงาน: หน่วงเวลา
+	Flowchart: Sequential Access Storage	ผังงาน: หน่วยเก็บแบบลำดับ
+	Flowchart: Magnetic Disk	ผังงาน: ดิสก์แม่เหล็ก
+	Flowchart: Direct Access Storage	ผังงาน: หน่วยเก็บแบบเข้าถึงโดยตรง
+	Flowchart: Display	ผังงาน: การแสดงผล
+	Flowchart: Offline Storage	ผังงาน: หน่วยเก็บนอกระบบ
+	Explosion: 8 Points	ระเบิด: 8 แฉก
+	Explosion: 14 Points	ระเบิด: 14 แฉก
+	Star: 4 Points	ดาว: 4 แฉก
+	Star: 5 Points	ดาว: 5 แฉก
+	Star: 6 Points	ดาว: 6 แฉก
+	Star: 7 Points	ดาว: 7 แฉก
+	Star: 8 Points	ดาว: 8 แฉก
+	Star: 10 Points	ดาว: 10 แฉก
+	Star: 12 Points	ดาว: 12 แฉก
+	Star: 16 Points	ดาว: 16 แฉก
+	Star: 24 Points	ดาว: 24 แฉก
+	Star: 32 Points	ดาว: 32 แฉก
+	Ribbon: Tilted Up	ริบบิ้น: เอียงขึ้น
+	Ribbon: Tilted Down	ริบบิ้น: เอียงลง
+	Ribbon: Curved and Tilted Up	ริบบิ้น: โค้งเอียงขึ้น
+	Ribbon: Curved and Tilted Down	ริบบิ้น: โค้งเอียงลง
+	Ribbon: Left-Right Fold	ริบบิ้น: พับซ้าย-ขวา
+	Scroll: Vertical	ม้วนกระดาษ: แนวตั้ง
+	Scroll: Horizontal	ม้วนกระดาษ: แนวนอน
+	Double Wave	คลื่นคู่
+	Speech Bubble: Rectangle	กรอบคำพูด: สี่เหลี่ยม
+	Speech Bubble: Rectangle with Corners Rounded	กรอบคำพูด: สี่เหลี่ยมมุมมน
+	Speech Bubble: Oval	กรอบคำพูด: วงรี
+	Thought Bubble: Cloud	กรอบความคิด: เมฆ
+	Callout: Line	คำอธิบาย: เส้น
+	Callout: Bent Line	คำอธิบาย: เส้นหักมุม
+	Callout: Double Bent Line	คำอธิบาย: เส้นหักมุมสองครั้ง
+	Callout: Line with Accent Bar	คำอธิบาย: เส้นมีแถบเน้น
+	Callout: Bent Line with Accent Bar	คำอธิบาย: เส้นหักมุมมีแถบเน้น
+	Callout: Double Bent Line with Accent Bar	คำอธิบาย: เส้นหักมุมสองครั้งมีแถบเน้น
+	Callout: Line with No Border	คำอธิบาย: เส้นไม่มีขอบ
+	Callout: Bent Line with No Border	คำอธิบาย: เส้นหักมุมไม่มีขอบ
+	Callout: Double Bent Line with No Border	คำอธิบาย: เส้นหักมุมสองครั้งไม่มีขอบ
+	Callout: Line with Border and Accent Bar	คำอธิบาย: เส้นมีขอบและแถบเน้น
+	Callout: Bent Line with Border and Accent Bar	คำอธิบาย: เส้นหักมุมมีขอบและแถบเน้น
+	Callout: Double Bent Line with Border and Accent Bar	คำอธิบาย: เส้นหักมุมสองครั้งมีขอบและแถบเน้น
+	Action Button: Go Back or Previous	ปุ่มการทำงาน: ย้อนกลับหรือก่อนหน้า
+	Action Button: Go Forward or Next	ปุ่มการทำงาน: ไปข้างหน้าหรือถัดไป
+	Action Button: Go to Beginning	ปุ่มการทำงาน: ไปที่จุดเริ่มต้น
+	Action Button: Go to End	ปุ่มการทำงาน: ไปที่จุดสิ้นสุด
+	Action Button: Go Home	ปุ่มการทำงาน: ไปหน้าแรก
+	Action Button: Get Information	ปุ่มการทำงาน: ข้อมูล
+	Action Button: Go Back	ปุ่มการทำงาน: ย้อนกลับ
+	Action Button: Video	ปุ่มการทำงาน: วิดีโอ
+	Action Button: Document	ปุ่มการทำงาน: เอกสาร
+	Action Button: Sound	ปุ่มการทำงาน: เสียง
+	Action Button: Help	ปุ่มการทำงาน: วิธีใช้
+	Action Button: Custom	ปุ่มการทำงาน: กำหนดเอง
+	Rectangles	สี่เหลี่ยมผืนผ้า
+	Basic Shapes	รูปร่างพื้นฐาน
+	Block Arrows	ลูกศรแบบทึบ
+	Equation Shapes	เครื่องหมายคณิตศาสตร์
+	Flowchart	ผังงาน
+	Stars and Banners	ดาวและแถบป้าย
+	Callouts	กล่องคำอธิบาย
+	Action Buttons	ปุ่มการทำงาน
+	Curve	เส้นโค้ง
+	Freeform: Shape	รูปอิสระ: รูปร่าง
+	Freeform: Scribble	รูปอิสระ: ลายเส้น
+	Change List Level	เปลี่ยนระดับรายการ
+	Define New Bullet…	กำหนดสัญลักษณ์หัวข้อย่อยใหม่…
+	Define New Bullet	กำหนดสัญลักษณ์หัวข้อย่อยใหม่
+	Bullet character	อักขระสัญลักษณ์หัวข้อย่อย
+	Symbol…	สัญลักษณ์…
+	Get the Missing Fonts	หาฟอนต์ที่ขาด
+	Get the Missing Fonts…	หาฟอนต์ที่ขาด…
+	KhianKrub doesn't know where to get the fonts this document is missing.	เขียนครับยังไม่ทราบแหล่งดาวน์โหลดฟอนต์ที่เอกสารนี้ขาด
+	This document uses fonts that aren't installed	เอกสารนี้ใช้ฟอนต์ที่ยังไม่ได้ติดตั้ง
+	Their text is shown in another font, so it may not look as it was written.	ข้อความในฟอนต์เหล่านี้จึงแสดงด้วยฟอนต์อื่น และอาจดูไม่ตรงกับต้นฉบับ
+	Font in the document	ฟอนต์ในเอกสาร
+	Shown with	แสดงด้วย
+	Get it from	ดาวน์โหลดได้ที่
+	Download from {publisher}	ดาวน์โหลดจาก {publisher}
+	Comes with Windows; not offered on its own	มากับ Windows ไม่มีให้ดาวน์โหลดแยก
+	Its licence limits who may use it: read the terms first.	สัญญาอนุญาตจำกัดผู้ใช้ไว้ โปรดอ่านเงื่อนไขก่อน
+	Fonts come with licence terms. Read the publisher's terms on the download page: following them is up to you.	ฟอนต์แต่ละตัวมีเงื่อนไขการใช้งาน โปรดอ่านเงื่อนไขของผู้เผยแพร่ในหน้าดาวน์โหลด การปฏิบัติตามเงื่อนไขเป็นหน้าที่ของผู้ใช้
+	Download the font, unpack the .zip file, then pick the font files:	ดาวน์โหลดฟอนต์ แตกไฟล์ .zip แล้วเลือกไฟล์ฟอนต์:
+	Or install it for every app: select the font files, right-click and choose Install, then restart KhianKrub.	หรือติดตั้งให้ทุกแอป: เลือกไฟล์ฟอนต์ คลิกขวาแล้วเลือก Install จากนั้นเปิดเขียนครับใหม่
+	Or install it for every app: double-click each font file and choose Install in Font Book, then restart KhianKrub.	หรือติดตั้งให้ทุกแอป: ดับเบิลคลิกไฟล์ฟอนต์แต่ละไฟล์แล้วเลือก Install ใน Font Book จากนั้นเปิดเขียนครับใหม่
+	Or install it for every app: copy the font files to the .local/share/fonts folder in your home folder, then restart KhianKrub.	หรือติดตั้งให้ทุกแอป: คัดลอกไฟล์ฟอนต์ไปไว้ในโฟลเดอร์ .local/share/fonts ในโฟลเดอร์บ้าน จากนั้นเปิดเขียนครับใหม่
+	Tell me where to get a document's missing fonts	บอกแหล่งดาวน์โหลดเมื่อเอกสารขาดฟอนต์
+	Don't show this again	ไม่ต้องแสดงอีก
+	More Styles	สไตล์อื่น
+	Always show text boundaries	แสดงขอบเขตข้อความเสมอ
+	Save as Picture…	บันทึกเป็นรูปภาพ…
+	Select a picture first.	เลือกรูปภาพก่อน
+	Couldn't download {name}: {error}	ดาวน์โหลด {name} ไม่ได้: {error}
+shapes	Lines	เส้น

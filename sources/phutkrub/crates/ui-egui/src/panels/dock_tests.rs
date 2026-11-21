@@ -140,18 +140,52 @@ fn the_dock_stays_open_so_the_slide_keeps_still() {
     assert_eq!(crate::panes::active_pane(&h.ctx), None, "closed");
 }
 
-/// The Shape pane has the layout shared by the three apps (owner, 2026-11-16): Area, Line,
-/// Effect, Position and Size, in that order, before PhutKrub's own sections.
+/// The Shape pane has the layout shared by the three apps (owner, 2026-11-16; sub-panels
+/// 2026-11-18): Fill and Line (Area, Line, then PhutKrub's own sections), Effects (Shadow, Glow,
+/// Soft Edges) and Size and Position (Size, Arrange), each in that order.
 #[test]
 fn the_shape_pane_has_the_shared_sections_in_order() {
+    use krub_icons::shape_pane::Tab;
     let mut s = blank();
     s.execute("shape.insert", &json!({"preset": "rect", "rect": [80.0, 80.0, 200.0, 120.0]})).unwrap();
-    let h = harness(s);
+    let mut h = harness(s);
     assert_eq!(crate::panes::active_pane(&h.ctx), Some("obj:shape"));
-    let top = |label: &str| h.get_by_label(label).rect().top();
-    let order = ["Area", "Line", "Effect", "Position and Size", "Insert Shapes"].map(top);
-    assert!(order.windows(2).all(|w| w[0] < w[1]), "sections out of order: {order:?}");
-    for row in ["Fill:", "Line style:", "Thickness:", "Width:", "Height:", "Rotation:", "Flip:", "Align:", "Arrange:"] {
-        assert!(h.query_by_label(row).is_some(), "the {row} row");
+    for (tab, sections, rows) in [
+        (Tab::FillLine, &["Fill and Line", "Area", "Line", "Insert Shapes"][..], &["Fill:", "Line style:", "Thickness:"][..]),
+        (Tab::Effects, &["Effects", "Shadow", "Glow", "Soft Edges"][..], &["Radius:"][..]),
+        (Tab::SizePosition, &["Size and Position", "Size", "Flip:"][..], &["Width:", "Height:", "Rotation:", "Flip:", "Align:", "Arrange:"][..]),
+    ] {
+        crate::panels::show_shape_tab(&h.ctx, tab);
+        h.run_steps(3);
+        let top = |label: &str| h.get_all_by_label(label).map(|n| n.rect().top()).fold(f32::INFINITY, f32::min);
+        let order: Vec<f32> = sections.iter().map(|l| top(l)).collect();
+        assert!(order.iter().all(|t| t.is_finite()) && order.windows(2).all(|w| w[0] < w[1]), "{tab:?}: sections out of order: {order:?}");
+        for row in rows {
+            assert!(h.query_all_by_label(row).next().is_some(), "{tab:?}: the {row} row");
+        }
     }
+}
+
+/// The chart pane (owner, 2026-11-19): Chart keeps the former Chart Design groups; Fill and Line
+/// formats the part chosen in the list, and a click there changes the chart.
+#[test]
+fn the_chart_pane_formats_the_chosen_part() {
+    use krub_chart_format::{Kind, Part};
+    let mut s = blank();
+    let id = s.execute("insert.chart", &json!({"type": "column", "rect": [80, 140, 600, 300]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    let mut h = harness(s);
+    assert!(h.query_by_label("Change Chart Type").is_some(), "the Chart sub-panel holds the chart's own commands");
+    krub_icons::chart_pane::set_tab(&h.ctx, krub_icons::chart_pane::Tab::FillLine);
+    krub_icons::chart_pane::set_part(&h.ctx, Part::PlotArea);
+    h.run_steps(3);
+    assert!(h.query_by_label("Rounded corners").is_none(), "only the chart area has corners");
+    h.get_all_by_label("No fill").next().unwrap().click();
+    h.run_steps(3);
+    let st = h.state().session.active().unwrap();
+    let chart = st.selected_shapes().into_iter().find_map(|s| match &s.kind {
+        deckcraft_model::ShapeKind::Chart(c) => Some(c.format.get(Part::PlotArea)),
+        _ => None,
+    });
+    assert_eq!(chart.map(|f| f.fill.kind()), Some(Kind::None));
 }

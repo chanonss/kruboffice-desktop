@@ -211,8 +211,8 @@ fn wrapped_text_in_fixed_height_row_shows_only_complete_lines() {
     let mut full_rows_visible = 0;
 
     for (index, row) in text.galley.rows.iter().enumerate() {
-        let top = text.pos.y + row.rect().top();
-        let bottom = text.pos.y + row.rect().bottom();
+        let top = text.pos.y + row.pos.y + row.visuals.mesh_bounds.top();
+        let bottom = text.pos.y + row.pos.y + row.visuals.mesh_bounds.bottom();
         let full_height = bottom - top;
 
         let visible_height = (bottom.min(clip.bottom()) - top.max(clip.top())).max(0.0);
@@ -291,7 +291,9 @@ fn wrapped_text_clipping_survives_partial_vertical_scroll() {
         s.execute("cell.set", json!({"cell": "B3", "input": text})).unwrap();
         s.execute("home.wrapText", json!({"range": "B3", "on": true})).unwrap();
         s.execute("home.formatCells", json!({"range": "B3", "style": {"align": {"v": "Top"}}})).unwrap();
-        s.execute("home.rowHeight", json!({"rows": "3:3", "height": 350})).unwrap();
+        // Tall enough to run past the bottom of the grid, which grew when the title bar and the
+        // tab strip became one bar (2026-11-18).
+        s.execute("home.rowHeight", json!({"rows": "3:3", "height": 420})).unwrap();
     });
 
     let initial_cell = cell_rect(&h, "B3");

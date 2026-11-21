@@ -2,6 +2,16 @@ use super::geo::Geo;
 use super::menus::is_checkbox;
 use super::{CellRef, Drag, Sheet, SheetApp, json};
 
+/// A dialog, message, open menu or macro question has the keyboard instead of the grid.
+fn keyboard_taken(app: &SheetApp) -> bool {
+    app.dialog.is_some()
+        || app.message.is_some()
+        || app.grid.filter_menu.is_some()
+        || app.grid.fill_menu.is_some()
+        || matches!(app.grid.drag, Drag::Fill { menu: true, .. })
+        || app.macros.question.is_some()
+}
+
 /// Grid keyboard handling when no text field has focus.
 pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Response, geo: &Geo, sh: &Sheet) {
     // Focus left on an editor that no longer exists goes back to the grid.
@@ -14,15 +24,7 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
     // An open filter menu owns the keyboard even when a click inside it left focus on nothing (#1516).
     // So do the fill menu (its Esc closes it, not the copy) and the right-drag that opens it (an
     // arrow key would move the selection the menu fills from), and a macro's question.
-    if editing
-        || app.dialog.is_some()
-        || other_focus
-        || app.message.is_some()
-        || app.grid.filter_menu.is_some()
-        || app.grid.fill_menu.is_some()
-        || matches!(app.grid.drag, Drag::Fill { menu: true, .. })
-        || app.macros.question.is_some()
-    {
+    if editing || other_focus || keyboard_taken(app) {
         return;
     }
     if ctx.memory(|m| m.focused()).is_none() {
@@ -58,6 +60,11 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
             // insert text at, so a middle click on a cell is deliberately not a paste.
             egui::Event::MiddleClickPaste { .. } => {}
             egui::Event::Text(_) if shortcut_pressed || shortcut_ran => {}
+            // A space on a checkbox cell toggles it (the `Key::Space` arm below). The same key
+            // press also arrives as text, and typing text starts editing the cell -- so the cell
+            // toggled *and* opened an editor holding a space, which Enter then committed over the
+            // checkbox (#1951).
+            egui::Event::Text(text) if text == " " && is_checkbox(sh, app) => {}
             egui::Event::Text(text) if text.chars().all(|c| !c.is_control()) && !text.is_empty() => {
                 app.begin_edit(Some(text), false);
                 if let Some(ed) = app.editor.as_mut() {

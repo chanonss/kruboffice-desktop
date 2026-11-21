@@ -47,6 +47,22 @@ impl SlideApp {
         }
     }
 
+    /// A tab chosen by its number, or a step to the next or previous tab.
+    fn pick_tab(&mut self, pick: crate::tab_keys_ui::Pick) {
+        let tab = match pick {
+            crate::tab_keys_ui::Pick::Tab(n) => self.keytip_tabs.get(n.wrapping_sub(1)).copied(),
+            crate::tab_keys_ui::Pick::Step(forward) => {
+                let count = self.keytip_tabs.len().min(10);
+                let current = self.keytip_tabs.iter().position(|t| *t == self.ui.tab).map_or(0, |i| i + 1);
+                self.keytip_tabs.get(krub_icons::tab_keys::step(current, count, forward).wrapping_sub(1)).copied()
+            }
+        };
+        if let Some(tab) = tab {
+            self.ui.tab = tab.to_string();
+            self.ui.ribbon_collapsed = false;
+        }
+    }
+
     /// Keyboard and clipboard for the slide (when no text field has focus).
     pub(super) fn keyboard(&mut self, ctx: &egui::Context) {
         let events = ctx.input(|i| i.events.clone());
@@ -109,6 +125,17 @@ impl SlideApp {
             self.drain_requests();
             return;
         }
+        // Choosing a ribbon tab by its number (owner, 2026-11-19): not while slide text is being
+        // typed. The keys it takes are gone from the input; read it again for the slide.
+        let events = if self.session.active().is_some_and(|d| d.selection.text.is_some()) {
+            self.tab_keys.choosing = false;
+            events
+        } else {
+            for pick in self.tab_keys.process(ctx) {
+                self.pick_tab(pick);
+            }
+            ctx.input(|i| i.events.clone())
+        };
         let img = if image_paste { self.services.clipboard_image.as_mut().and_then(|f| f()) } else { None };
         if let Some(png) = img {
             let data = deckcraft_engine::cmd::base64_encode(&png);

@@ -140,6 +140,26 @@ fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
     false
 }
 
+/// Web: whether the browser's own action for this key press is cancelled because it is one of
+/// the app's Cmd (macOS) / Ctrl shortcuts in `keymap`. In a browser ⌘D bookmarks the page, ⌘L
+/// goes to the address bar, ⌘J opens Downloads, ⌘F the page's find bar, ⌘H hides the browser;
+/// in KhianKrub they are Font, Align Left, Justify, Find and Replace. The app still gets the key.
+/// Cut, Copy and Paste stay the browser's: its clipboard events bring them in.
+pub fn takes_key_from_browser(reg: &wordcraft_engine::Registry, keymap: &wordcraft_engine::KeyMap, key: Key, m: Modifiers) -> bool {
+    if !m.command {
+        return false;
+    }
+    if key == Key::V || (matches!(key, Key::C | Key::X) && !m.shift && !m.alt) {
+        return false;
+    }
+    if ui_shortcut(key, m).is_some() {
+        return true;
+    }
+    let Some(name) = key_name(key) else { return false };
+    keymap.resolve(reg, &combo(m, name, true)).is_some()
+        || (m.shift && keymap.resolve(reg, &combo(m, name, false)).and_then(|spec| shift_variant_params(spec.id)).is_some())
+}
+
 /// How a command bound to a plain key runs when Shift is also held and nothing is bound to the
 /// shifted combo: caret moves extend the selection, Backspace erases as usual (#707).
 fn shift_variant_params(id: &str) -> Option<Value> {
@@ -577,14 +597,39 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
-    for e in events {
-        if let egui::Event::Key { key, pressed: true, modifiers, .. } = e {
-            if leave_full_screen(app, key, modifiers, false) {
-                continue;
+    // A Mod+key press this frame, which runs its command itself (below).
+    let pressed =
+        |k: Key| events.iter().any(|e| matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. } if *key == k && modifiers.command));
+    let (copy_key, cut_key, paste_key) = (pressed(Key::C), pressed(Key::X), pressed(Key::V));
+    for e in events.iter().cloned() {
+        match e {
+            egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                if leave_full_screen(app, key, modifiers, false) {
+                    continue;
+                }
+                if is_global_shortcut(key, modifiers) {
+                    dispatch(app, key, modifiers);
+                }
             }
-            if is_global_shortcut(key, modifiers) {
-                dispatch(app, key, modifiers);
+            // The macOS Edit menu takes ⌘C, ⌘X and ⌘V and hands over only the clipboard event, no
+            // key press (owner, 2026-11-17: after a click on the ribbon or a pane they did
+            // nothing). Where the key press came too, it ran the command already.
+            egui::Event::Copy if !copy_key => {
+                let _ = app.run("edit.copy", json!({}));
             }
+            egui::Event::Cut if !cut_key => {
+                let _ = app.run("edit.cut", json!({}));
+            }
+            egui::Event::Paste(t) if !paste_key => {
+                let m = ctx.input(|i| i.modifiers);
+                let id = match (m.alt, m.shift) {
+                    (true, true) => "edit.pasteText",
+                    (true, false) => "edit.pasteSpecial",
+                    _ => "edit.paste",
+                };
+                let _ = app.run(id, json!({"text": t}));
+            }
+            _ => {}
         }
     }
 }
@@ -592,6 +637,96 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Web (owner, 2026-11-17): the app's Cmd shortcuts are taken from the browser (⌘D is Font,
+    /// not a bookmark; ⌘L aligns left, not the address bar), but Cut, Copy and Paste stay the
+    /// browser's so its clipboard events arrive, and keys the app doesn't use stay the browser's.
+    #[test]
+    fn the_apps_shortcuts_are_taken_from_the_browser() {
+        let s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
+        let cmd = |shift, alt| Modifiers { mac_cmd: true, command: true, shift, alt, ..Default::default() };
+        let takes = |key, m| takes_key_from_browser(&s.registry, &s.keymap, key, m);
+        for key in [Key::B, Key::D, Key::L, Key::E, Key::J, Key::F, Key::Z, Key::Y, Key::A, Key::OpenBracket, Key::Equals] {
+            assert!(takes(key, cmd(false, false)), "⌘{key:?} is the app's");
+        }
+        assert!(takes(Key::C, cmd(true, false)), "⌘⇧C copies formatting");
+        for key in [Key::C, Key::X, Key::V] {
+            assert!(!takes(key, cmd(false, false)), "⌘{key:?} stays the browser's, for its clipboard event");
+        }
+        assert!(!takes(Key::V, cmd(false, true)), "⌘⌥V too");
+        assert!(!takes(Key::Q, cmd(true, false)), "a key the app doesn't use");
+        assert!(!takes(Key::D, Modifiers::NONE), "no Cmd: typing");
+        // A key the person bound themselves counts too.
+        let mut keymap = s.keymap.clone();
+        assert!(!takes_key_from_browser(&s.registry, &keymap, Key::Q, cmd(true, false)));
+        keymap.assign(&s.registry, "format.bold", "Mod+Shift+Q").unwrap();
+        assert!(takes_key_from_browser(&s.registry, &keymap, Key::Q, cmd(true, false)));
+    }
+
+    /// macOS desktop (owner, 2026-11-17): the Edit menu takes ⌘C, ⌘X and ⌘V and hands the app only
+    /// the clipboard event, no key press. After a click elsewhere (the ribbon, a pane) the page
+    /// hasn't the keyboard, and these did nothing. They copy, cut and paste the document now, once
+    /// each, also where the key press arrives too (Windows, Linux, the web).
+    #[test]
+    fn menu_clipboard_events_reach_the_document_without_the_keyboard() {
+        use egui::{Event, OutputCommand};
+        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello copy world")), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        // As a click on the ribbon or a pane leaves it: the page without the keyboard.
+        let unfocus = |h: &mut egui_kittest::Harness<WordApp>| {
+            h.ctx.memory_mut(|m| {
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+            h.state_mut().canvas.focused = false;
+            h.state_mut().canvas.want_focus = false;
+            h.step();
+            assert!(!h.state().canvas.focused, "the page lost the keyboard");
+        };
+        let copied = |h: &egui_kittest::Harness<WordApp>| -> Vec<String> {
+            h.output()
+                .platform_output
+                .commands
+                .iter()
+                .filter_map(|c| if let OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None })
+                .collect()
+        };
+        let body = |h: &egui_kittest::Harness<WordApp>| h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        h.state_mut().run("select.all", json!({})).unwrap();
+        unfocus(&mut h);
+        h.event(Event::Copy);
+        h.step();
+        assert_eq!(copied(&h), ["Hello copy world"], "the menu's ⌘C copies");
+        // With the key press too (Windows, Linux, the web): still one copy.
+        unfocus(&mut h);
+        let cmd = Modifiers { mac_cmd: true, command: true, ..Default::default() };
+        h.event(Event::Key { key: Key::C, physical_key: Some(Key::C), pressed: true, repeat: false, modifiers: cmd });
+        h.event(Event::Copy);
+        h.step();
+        assert_eq!(copied(&h).len(), 1, "one copy: {:?}", copied(&h));
+        // ⌘V: the menu's paste, after the end of the text: pasted once.
+        h.state_mut().run("caret.docEnd", json!({})).unwrap();
+        unfocus(&mut h);
+        h.event(Event::Paste(" again".into()));
+        h.event(Event::Key { key: Key::V, physical_key: Some(Key::V), pressed: false, repeat: false, modifiers: cmd });
+        h.step();
+        assert!(body(&h).contains("Hello copy world again") && !body(&h).contains("again again"), "{:?}", body(&h));
+        // ⌘X: cut.
+        h.state_mut().run("select.all", json!({})).unwrap();
+        unfocus(&mut h);
+        h.event(Event::Cut);
+        h.step();
+        assert!(body(&h).trim().is_empty(), "cut: {:?}", body(&h));
+    }
 
     #[test]
     fn shift_backspace_still_erases() {

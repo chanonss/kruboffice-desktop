@@ -107,10 +107,7 @@ pub fn contextual_tabs(s: &wordcraft_engine::Session) -> Vec<&'static str> {
     // A table's commands are in the Table pane (`table_pane`), not in contextual tabs.
     // A picture's, shape's, chart's and SmartArt graphic's commands are in their panes
     // (`object_pane`).
-    // Editing a header or footer.
-    if s.in_header_footer() {
-        tabs.push("Header & Footer");
-    }
+    // A header's or footer's commands are in the Header & Footer pane (`hf_pane`, 2026-11-19).
     // Editing an equation.
     if s.math.is_some() {
         tabs.push("Equation");
@@ -153,16 +150,6 @@ pub fn fit_tabs(tabs: &[(f32, bool)], avail: f32, more: f32) -> Vec<bool> {
 
 const TAB_NUMBER_SPACE: f32 = 21.0;
 
-fn band_action(ui: &mut Ui, icon: &str, label: &str, color: egui::Color32, fill: egui::Color32, outline: Stroke) -> egui::Response {
-    let band = Tokens::get(ui.ctx()).band();
-    let (rect, response) = ui.allocate_exact_size(vec2(28.0, 24.0), Sense::click());
-    let fill = if response.hovered() { if fill == egui::Color32::TRANSPARENT { band.hover } else { fill.gamma_multiply(0.85) } } else { fill };
-    ui.painter().rect(rect, 4.0, fill, outline, egui::StrokeKind::Inside);
-    icons::paint(ui.painter(), Rect::from_center_size(rect.center(), vec2(15.0, 15.0)), icon, color, color);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label));
-    response
-}
-
 /// Whether the caret is inside a table (so the contextual tabs and their badges are shown).
 pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
@@ -185,13 +172,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     {
         app.ui.tab = prev;
     }
-    // Going into a header or footer brings up the Header & Footer tab; leaving it goes back.
-    if app.session.in_header_footer() {
-        if app.hf_prev_tab.is_none() {
-            app.hf_prev_tab = Some(app.ui.tab.clone());
-            app.ui.tab = "Header & Footer".into();
-        }
-    } else if let Some(prev) = app.hf_prev_tab.take()
+    // A Header & Footer tab remembered from before the pane (2026-11-19) goes back.
+    if let Some(prev) = app.hf_prev_tab.take()
         && app.ui.tab == "Header & Footer"
     {
         app.ui.tab = prev;
@@ -229,97 +211,38 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.ui.tab = next.to_string();
         }
     }
-    // Tab strip.
+    // The one bar (owner, 2026-11-18): the title bar and the tab strip in one row, a little room
+    // above the tabs; on macOS the tabs start after the traffic lights.
+    let mac = app.integrated_titlebar;
+    let left = if mac { app.mac_titlebar.content_left as i8 } else { 8 };
     egui::Panel::top("tabs")
-        .exact_size(krub_icons::chrome::TAB_STRIP_H)
+        .exact_size(krub_icons::chrome::ONE_BAR_H)
         // No line under the strip: the active tab runs on into the ribbon.
         .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin { left: 8, right: 10, top: 0, bottom: 0 }))
+        .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin {
+            left,
+            right: 10,
+            top: krub_icons::chrome::ONE_BAR_GAP as i8,
+            bottom: 0,
+        }))
         .show(ui, |ui| {
             // The navy band: white tab names; the active tab is a white tab joined to the ribbon
             // below it, its name in navy.
             crate::theme::band_ui(ui);
             let band = t.band();
-            // The band's motif, carried on from the title bar.
             let (_, motif) = crate::theme::band(ui.ctx());
             let strip = ui.clip_rect();
-            let motif_band = crate::band_motifs::band_rect(ui.ctx()).unwrap_or(strip);
-            crate::band_motifs::paint(ui.painter(), motif_band, motif, t.dark);
+            crate::band_motifs::set_band_rect(ui.ctx(), strip);
+            crate::band_motifs::paint(ui.painter(), strip, motif, t.dark);
+            crate::chrome::window_drag(ui, strip);
+            let row = ui.max_rect();
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Share, Editing mode, Comments, drawn first so the tabs get only the room
-                    // left of them (#897). With no document open (#1129) there is nothing to
-                    // share, edit or comment on: only they are greyed out, not the tabs drawn
-                    // after them, so File still opens New and Open.
-                    ui.scope(|ui| {
-                        if !app.has_document() {
-                            ui.disable();
-                        }
-                        let resp = band_action(ui, "share", tl!("Share"), band.on_accent, band.accent, Stroke::NONE);
-                        if resp.on_hover_text(tl!("Export a copy to share (PDF, Word document)")).clicked() {
-                            let _ = app.run("ui.backstage", json!({"value": true, "page": "export"}));
-                        }
-                        ui.add_space(6.0);
-                    });
-                    // Report a problem, left of Share: gold outline, and it works with no document open.
-                    if crate::report::report_url("", "").is_some() {
-                        let resp = band_action(
-                            ui,
-                            "report",
-                            tl!("Report a problem"),
-                            band.accent,
-                            egui::Color32::TRANSPARENT,
-                            Stroke::new(1.0, band.accent),
-                        );
-                        if resp.on_hover_text(tl!("Tell the developer about a problem (opens a form)")).clicked() {
-                            let _ = app.run("ui.reportProblem", json!({}));
-                        }
-                        ui.add_space(6.0);
-                    }
-                    ui.scope(|ui| {
-                        if !app.has_document() {
-                            ui.disable();
-                        }
-                        let track = app.session.doc.settings.track_changes;
-                        let view_only = app.session.view_only;
-                        let (mode_icon, mode_label) = if view_only {
-                            ("eye", tl!("View only"))
-                        } else if track {
-                            ("trackChanges", tl!("Reviewing"))
-                        } else {
-                            ("pencil", tl!("Editing"))
-                        };
-                        let mode =
-                            band_action(ui, mode_icon, mode_label, band.text, egui::Color32::TRANSPARENT, Stroke::NONE).on_hover_text(mode_label);
-                        egui::Popup::menu(&mode).show(|ui| {
-                            if menu_icon_button(ui, "pencil", tl!("Editing — edit the document directly"), "", true, !view_only && !track).clicked()
-                            {
-                                // Leave view-only first: it refuses the tracking command.
-                                let _ = app.run("review.viewOnly", json!({"value": false}));
-                                let _ = app.run("review.trackChanges", json!({"value": false}));
-                                ui.close();
-                            }
-                            if menu_icon_button(ui, "trackChanges", tl!("Reviewing — edits become suggestions"), "", true, !view_only && track)
-                                .clicked()
-                            {
-                                let _ = app.run("review.viewOnly", json!({"value": false}));
-                                let _ = app.run("review.trackChanges", json!({"value": true}));
-                                ui.close();
-                            }
-                            if menu_icon_button(ui, "eye", tl!("View only — no changes or suggestions"), "", true, view_only).clicked() {
-                                let _ = app.run("review.viewOnly", json!({"value": true}));
-                                ui.close();
-                            }
-                        });
-                        ui.add_space(4.0);
-                        if band_action(ui, "comment", tl!("Comments"), band.text, egui::Color32::TRANSPARENT, Stroke::NONE)
-                            .on_hover_text(tl!("Comments"))
-                            .clicked()
-                        {
-                            let _ = app.run("view.commentsPane", json!({}));
-                        }
-                    });
+                    // The user icon (its menu has Search, Comments and the editing mode) and the
+                    // Quick Access Toolbar, drawn first so the tabs get only the room left of them
+                    // (#897); the file pill sits between the last tab and them.
+                    let right = crate::chrome::bar_right(app, ui);
                     ui.add_space(8.0);
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         // The tabs that don't fit go into a » menu at the end of the strip. File, the
@@ -338,7 +261,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 (label_width + 18.0 + number_width + gap, tab == "File" || *tab == app.ui.tab || contextual)
                             })
                             .collect();
-                        let available = ui.available_width();
+                        // Save, Undo and Redo follow File (owner, 2026-11-18); the file pill keeps at
+                        // least its narrowest width after the tabs.
+                        let qat_w = crate::chrome::quick_access_width(app) + 8.0;
+                        let pill_room = krub_icons::chrome::PILL_MIN_W + 2.0 * krub_icons::chrome::PILL_MARGIN;
+                        let available = (ui.available_width() - pill_room - qat_w).max(0.0);
                         let mut fits = fit_tabs(&widths, available, MORE_TABS_W + gap);
                         let occupied = |fits: &[bool]| {
                             let visible: f32 = widths.iter().zip(fits).filter(|(_, fit)| **fit).map(|((w, _), _)| w).sum();
@@ -353,15 +280,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         }
                         let file_width = widths.first().map_or(0.0, |(width, _)| *width);
                         let tab_width = (occupied(&fits) - file_width).max(0.0);
-                        let first_tab_x = ui.cursor().min.x + file_width;
+                        let first_tab_x = ui.cursor().min.x + file_width + qat_w;
                         let desired_start = strip.center().x - tab_width / 2.0;
-                        // Centred by default; off (File › Options › General) the tabs start right after File.
+                        // Centred, KrubOffice's signature (kept on the owner's second look); off
+                        // (File › Options › General) the tabs start right after the toolbar.
                         let offset = if app.ui.ribbon_tabs_centered {
                             (desired_start - first_tab_x).clamp(0.0, (available - file_width - tab_width).max(0.0))
                         } else {
                             0.0
                         };
 
+                        app.keytip_tabs = tabs.iter().map(|(tab, _)| tab.clone()).collect();
                         for (index, ((((tab, custom), shown), (width, _)), fits)) in tabs.iter().zip(&labels).zip(&widths).zip(&fits).enumerate() {
                             if !fits {
                                 continue;
@@ -370,7 +299,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             let contextual = !custom && wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&tab);
                             let (r, resp) = ui.allocate_exact_size(vec2(width - gap, 30.0), Sense::click());
                             if app.ui.keytips == crate::keytips::Phase::Tabs {
-                                crate::keytips::record_tab(r, tab, &app.ui.keytip_prefix, &mut app.keytip_rects);
+                                crate::keytips::record_tab(r, tab, index, show_numbers, &app.ui.keytip_prefix, &mut app.keytip_rects);
                             }
                             let active = app.ui.tab == tab && !app.ui.backstage;
                             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown));
@@ -419,7 +348,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             let mut label_center = r.center();
                             if show_numbers && index > 0 {
                                 let badge = pos2(r.left() + 17.0, r.center().y);
-                                ui.painter().circle_filled(badge, 8.0, egui::Color32::WHITE);
+                                // Gold while choosing a tab: its number is the key (owner, 2026-11-19).
+                                let lit = app.ui.keytips == crate::keytips::Phase::Tabs && app.ui.keytip_prefix.is_empty();
+                                ui.painter().circle_filled(badge, 8.0, if lit { band.accent } else { egui::Color32::WHITE });
                                 if active {
                                     ui.painter().circle_stroke(badge, 8.0, Stroke::new(0.75, t.border_strong));
                                 }
@@ -434,8 +365,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 let _ = app.run("ui.collapseRibbon", json!({}));
                             }
                             resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
-                            if index == 0 && offset > 0.0 {
-                                ui.add_space(offset);
+                            if index == 0 {
+                                ui.add_space(4.0);
+                                crate::chrome::bar_quick_access(app, ui);
+                                ui.add_space(4.0 + offset);
                             }
                         }
                         let left_out: Vec<(&str, &str)> = tabs
@@ -461,6 +394,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 }
                             });
                         }
+                        let tabs_end = ui.min_rect().max.x;
+                        crate::chrome::file_pill(app, ui, krub_icons::chrome::pill_area(row, tabs_end, right - 8.0));
                     });
                 });
             });
@@ -513,7 +448,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         "Help" => help(app, ui),
                         "Equation" if app.session.math.is_some() => crate::equation_tab::show(app, ui),
                         "Outlining" => outlining(app, ui),
-                        "Header & Footer" => header_footer(app, ui),
                         _ => home(app, ui),
                     }
                     if let Some(e) = entry {
@@ -550,118 +484,40 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 
 /// Header, Footer and Page Number: on Insert and on the Header & Footer tab.
 fn hf_menus(ui: &mut Ui, app: &mut WordApp) {
-    menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", |ui, app| {
-        mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
-        mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
-        mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
-        ui.separator();
-        mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
-        mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
-    });
-    menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", |ui, app| {
-        mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
-        mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
-        mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
-        ui.separator();
-        mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
-        mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
-    });
-    menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
-        pic_item(ui, app, "Top of Page", None, "pn_top", "insert.pageNumber", json!({"position": "top", "align": "right"}));
-        pic_item(ui, app, "Bottom of Page", None, "pn_bottom", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
-        pic_item(ui, app, "Page X of Y", None, "pn_xofy", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
-        pic_item(ui, app, "Current Position", None, "pn_current", "insert.pageNumber", json!({"position": "current"}));
-        ui.separator();
-        pic_item(ui, app, "Format Page Numbers…", None, "pn_format", "ui.dialog", json!({"name": "pageNumberFormat"}));
-        pic_item(ui, app, "Page Number Position…", None, "pn_position", "ui.dialog", json!({"name": "pageNumberPosition"}));
-    });
+    menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", header_items);
+    menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", footer_items);
+    menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", page_number_items);
 }
 
-/// The Header & Footer tab, shown while a header or footer is edited: insert into it, move
-/// between sections, Link to Previous, the section's options and position, and Close.
-fn header_footer(app: &mut WordApp, ui: &mut Ui) {
-    let st = wordcraft_engine::cmd::hf::state(&mut app.session);
-    let page = wordcraft_engine::cmd::hf::context(&mut app.session).map_or(0, |c| c.page);
-    group(ui, "Header & Footer", app, hf_menus);
-    group(ui, "Insert", app, |ui, app| {
-        big(ui, app, "dateTime", "Date &\nTime", "insert.dateTime", json!({}), false);
-        big(ui, app, "hfField", "Field", "ui.dialog", json!({"name": "field"}), false);
-        big(ui, app, "hfPictureFile", "Picture\nfrom File", "insert.picture", json!({}), false);
-    });
-    group(ui, "Navigation", app, |ui, app| {
-        ui.add_enabled_ui(!st.header, |ui| {
-            big(ui, app, "hfGoHeader", "Go to\nHeader", "insert.editHeader", json!({"page": page}), false);
-        });
-        ui.add_enabled_ui(st.header, |ui| {
-            big(ui, app, "hfGoFooter", "Go to\nFooter", "insert.editFooter", json!({"page": page}), false);
-        });
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                ui.add_enabled_ui(st.section > 0, |ui| {
-                    small(ui, app, "hfPrevious", None, "Previous Section", "hf.previous", json!({}), false);
-                });
-                ui.add_enabled_ui(st.section + 1 < st.sections, |ui| {
-                    small(ui, app, "hfNext", None, "Next Section", "hf.next", json!({}), false);
-                });
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            ui.add_enabled_ui(st.can_link, |ui| {
-                small(ui, app, "hfLink", Some("Link to Previous"), "Link to Previous", "layout.linkToPrevious", json!({}), st.linked)
-                    .on_hover_text(tl!("Use the previous section's header or footer; turn off to give this section its own"));
-            });
-        });
-    });
-    group(ui, "Options", app, |ui, app| {
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                let mut first = st.different_first;
-                if ui.checkbox(&mut first, tl!("Different First Page")).changed() {
-                    let _ = app.run("layout.differentFirstPage", json!({"value": first}));
-                }
-                ui.add_space(8.0);
-                let mut odd = st.different_odd_even;
-                if ui.checkbox(&mut odd, tl!("Different Odd & Even Pages")).changed() {
-                    let _ = app.run("layout.differentOddEven", json!({"value": odd}));
-                }
-            });
-            ui.add_space(crate::widgets::ROW_GAP + 8.0);
-            let mut text = st.show_document_text;
-            if ui.checkbox(&mut text, tl!("Show Document Text")).changed() {
-                let _ = app.run("hf.showDocumentText", json!({"value": text}));
-            }
-        });
-    });
-    group(ui, "Position", app, |ui, app| {
-        let unit = crate::options::unit();
-        let u = unit.pt_per_unit();
-        stack(ui, |ui| {
-            for (icon, label, key, pt) in [
-                ("hfFromTop", "Header from Top:", "header", st.header_from_top),
-                ("hfFromBottom", "Footer from Bottom:", "footer", st.footer_from_bottom),
-            ] {
-                crate::widgets::row(ui, |ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-                    let t = Tokens::get(ui.ctx());
-                    icons::paint(ui.painter(), r.shrink(2.0), icon, t.icon, t.accent);
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new(tl!(label)).size(11.5));
-                    ui.add_space(4.0);
-                    let mut v = pt / u;
-                    let field = crate::numfield::NumField::new(&mut v).speed(0.05).range(0.0..=300.0 / u).measure(unit).max_decimals(2);
-                    let r = ui.add_sized(vec2(78.0, 20.0), field);
-                    if r.changed() {
-                        if r.dragged() && !r.drag_started() {
-                            app.session.join_next_undo();
-                        }
-                        let _ = app.run("hf.position", json!({key: (v * u).clamp(0.0, 300.0)}));
-                    }
-                });
-            }
-        });
-    });
-    group(ui, "Close", app, |ui, app| {
-        big(ui, app, "hfClose", "Close Header\nand Footer", "insert.closeHeader", json!({}), false);
-    });
+/// The Header menu's items (the Insert tab and the Header & Footer pane).
+pub(crate) fn header_items(ui: &mut Ui, app: &mut WordApp) {
+    mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
+    mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
+    mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
+    ui.separator();
+    mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
+    mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
+}
+
+/// The Footer menu's items.
+pub(crate) fn footer_items(ui: &mut Ui, app: &mut WordApp) {
+    mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
+    mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
+    mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
+    ui.separator();
+    mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
+    mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
+}
+
+/// The Page Number menu's items.
+pub(crate) fn page_number_items(ui: &mut Ui, app: &mut WordApp) {
+    pic_item(ui, app, "Top of Page", None, "pn_top", "insert.pageNumber", json!({"position": "top", "align": "right"}));
+    pic_item(ui, app, "Bottom of Page", None, "pn_bottom", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
+    pic_item(ui, app, "Page X of Y", None, "pn_xofy", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
+    pic_item(ui, app, "Current Position", None, "pn_current", "insert.pageNumber", json!({"position": "current"}));
+    ui.separator();
+    pic_item(ui, app, "Format Page Numbers…", None, "pn_format", "ui.dialog", json!({"name": "pageNumberFormat"}));
+    pic_item(ui, app, "Page Number Position…", None, "pn_position", "ui.dialog", json!({"name": "pageNumberPosition"}));
 }
 
 /// Custom groups (Customize Ribbon, #379): up to three commands as large buttons, more as small
@@ -756,6 +612,23 @@ pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
     }
     ui.separator();
     mi(ui, app, crate::dialogs::PAPER_LABELS.more, "ui.dialog", json!({"name": "pageSetup"}));
+}
+
+/// A row of the Underline menu: the style drawn as a line (a contributed patch). Clicking applies it.
+fn underline_sample(ui: &mut Ui, app: &mut WordApp, label: &str, style: &str) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 24.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 3.0, t.hover);
+    }
+    if let Some(look) = crate::line_looks::word_look(style) {
+        krub_icons::line_style::paint(ui.painter(), rect.left() + 12.0, rect.right() - 12.0, rect.center().y, look, t.text);
+    }
+    let resp = resp.on_hover_text(tl!(label));
+    if resp.clicked() {
+        crate::widgets::run_from_ribbon(app, "format.underline", json!({"style": style}));
+        ui.close();
+    }
 }
 
 pub(crate) fn mi(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: Value) {
@@ -856,146 +729,14 @@ pub(crate) fn pic_item(ui: &mut Ui, app: &mut WordApp, label: &str, checked: Opt
 
 /// The small pictures of [`pic_item`], drawn on a 24 × 20 grid: pages, text lines, columns,
 /// break marks and line numbers in `ink`, what the option changes in `accent`.
-fn layout_picture(p: &egui::Painter, r: Rect, name: &str, ink: egui::Color32, accent: egui::Color32) {
+pub(crate) fn layout_picture(p: &egui::Painter, r: Rect, name: &str, ink: egui::Color32, accent: egui::Color32) {
     if !icons::home_menu::paint(p, r, name, ink) && !icons::layout_menu::paint(p, r, name, ink) && !icons::table_menu::paint(p, r, name, ink) {
         krub_icons::menu::paint(p, r, name, ink, accent);
     }
 }
 
-/// Insert › Shapes: a menu item with a small picture of the shape before its name.
-fn shape_item(ui: &mut Ui, app: &mut WordApp, label: &str, kind: &str, arrow: &str, id: &str, params: Value) {
-    let enabled = crate::widgets::enabled(app, id);
-    let pic = ui.id().with(("shape preview", kind, arrow));
-    let resp = ui
-        .add_enabled_ui(enabled, |ui| {
-            egui::Button::new((egui::Atom::custom(pic, vec2(24.0, 18.0)), tl!(label))).min_size(vec2(220.0, 26.0)).atom_ui(ui)
-        })
-        .inner;
-    if let Some(r) = resp.rect(pic) {
-        let t = Tokens::get(ui.ctx());
-        let ink = if enabled { t.icon } else { t.text_disabled };
-        shape_preview(ui.painter(), r, kind, arrow, ink, t.accent.gamma_multiply(if enabled { 0.25 } else { 0.0 }));
-    }
-    if resp.response.clicked() {
-        crate::widgets::run_from_ribbon(app, id, params);
-        ui.close();
-    }
-}
-
-/// A shape drawn small in `r`: outline in `ink`, filled with `fill` (connectors are lines; `arrow`
-/// "end" puts a head on their end).
-fn shape_preview(p: &egui::Painter, r: Rect, kind: &str, arrow: &str, ink: egui::Color32, fill: egui::Color32) {
-    use std::f32::consts::{PI, TAU};
-    let stroke = Stroke::new(1.3, ink);
-    let r = r.shrink(1.5);
-    let (c, w, h) = (r.center(), r.width(), r.height());
-    // A polygon filled as a fan from `centre` (the star, the arrow and the heart are not convex,
-    // but every edge is visible from their centre), then outlined.
-    let poly = |pts: Vec<egui::Pos2>, centre: egui::Pos2| {
-        let mut mesh = egui::Mesh::default();
-        mesh.colored_vertex(centre, fill);
-        for q in &pts {
-            mesh.colored_vertex(*q, fill);
-        }
-        let n = pts.len() as u32;
-        for i in 0..n {
-            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
-        }
-        p.add(egui::Shape::mesh(mesh));
-        p.add(egui::Shape::closed_line(pts, stroke));
-    };
-    let head = |tip: egui::Pos2, from: egui::Pos2| {
-        let d = (tip - from).normalized() * 5.0;
-        let side = vec2(-d.y, d.x) * 0.6;
-        p.add(egui::Shape::convex_polygon(vec![tip, tip - d + side, tip - d - side], ink, Stroke::NONE));
-    };
-    match kind {
-        "rectangle" => {
-            p.rect(r, 0.0, fill, stroke, egui::StrokeKind::Middle);
-        }
-        "roundedRectangle" => {
-            p.rect(r, 4.0, fill, stroke, egui::StrokeKind::Middle);
-        }
-        "ellipse" => {
-            p.add(egui::Shape::ellipse_filled(c, r.size() / 2.0, fill));
-            p.add(egui::Shape::ellipse_stroke(c, r.size() / 2.0, stroke));
-        }
-        "triangle" => poly(vec![r.center_top(), r.right_bottom(), r.left_bottom()], c),
-        "diamond" => poly(vec![r.center_top(), r.right_center(), r.center_bottom(), r.left_center()], c),
-        "line" => {
-            p.line_segment([r.left_bottom(), r.right_top()], stroke);
-        }
-        // A drawing canvas: a dashed frame with a small shape inside.
-        "canvas" => {
-            let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-            p.extend(egui::Shape::dashed_line(&corners, Stroke::new(1.0, ink), 2.5, 2.0));
-            p.circle(c, h * 0.22, fill, stroke);
-        }
-        "arrow" => {
-            let pts = [(0.0, -0.2), (0.6, -0.2), (0.6, -0.5), (1.0, 0.0), (0.6, 0.5), (0.6, 0.2), (0.0, 0.2)];
-            poly(pts.iter().map(|(x, y)| egui::pos2(r.min.x + x * w, c.y + y * h)).collect(), egui::pos2(r.min.x + 0.6 * w, c.y));
-        }
-        "star" => {
-            let rad = h / 2.0 + 1.0;
-            let pts = (0..10)
-                .map(|i| {
-                    let a = -PI / 2.0 + i as f32 * TAU / 10.0;
-                    let k = if i % 2 == 0 { rad } else { rad * 0.42 };
-                    c + vec2(a.cos(), a.sin()) * k
-                })
-                .collect();
-            poly(pts, c);
-        }
-        "heart" => {
-            let pts = (0..40)
-                .map(|i| {
-                    let a = i as f32 * TAU / 40.0;
-                    let x = 16.0 * a.sin().powi(3);
-                    let y = 13.0 * a.cos() - 5.0 * (2.0 * a).cos() - 2.0 * (3.0 * a).cos() - (4.0 * a).cos();
-                    c + vec2(x / 17.0 * h * 0.55, -y / 17.0 * h * 0.55 + 0.5)
-                })
-                .collect();
-            poly(pts, c);
-        }
-        _ => {
-            // Connectors run from the bottom left to the top right, with a dot on the start.
-            let (a, b) = (r.left_bottom(), r.right_top());
-            let last_from = match kind {
-                "elbowConnector" => {
-                    let mid = c.x;
-                    p.add(egui::Shape::line(vec![a, egui::pos2(mid, a.y), egui::pos2(mid, b.y), b], stroke));
-                    egui::pos2(mid, b.y)
-                }
-                "curvedConnector" => {
-                    let pts: Vec<egui::Pos2> = (0..=16)
-                        .map(|i| {
-                            let t = i as f32 / 16.0;
-                            let (c1, c2) = (egui::pos2(c.x, a.y), egui::pos2(c.x, b.y));
-                            let u = 1.0 - t;
-                            let v =
-                                a.to_vec2() * u * u * u + c1.to_vec2() * 3.0 * u * u * t + c2.to_vec2() * 3.0 * u * t * t + b.to_vec2() * t * t * t;
-                            v.to_pos2()
-                        })
-                        .collect();
-                    let before = pts[pts.len() - 3];
-                    p.add(egui::Shape::line(pts, stroke));
-                    before
-                }
-                _ => {
-                    p.line_segment([a, b], stroke);
-                    a
-                }
-            };
-            p.circle_filled(a, 1.8, ink);
-            if arrow == "end" {
-                head(b, last_from);
-            }
-        }
-    }
-}
-
 /// A menu button with an original icon, an accessible label, and the existing shortcut text.
-fn menu_icon_button(ui: &mut Ui, icon: &str, label: &str, shortcut: &str, enabled: bool, selected: bool) -> egui::Response {
+pub(crate) fn menu_icon_button(ui: &mut Ui, icon: &str, label: &str, shortcut: &str, enabled: bool, selected: bool) -> egui::Response {
     let atom = ui.id().with(("menu icon", icon, label));
     let result = ui
         .add_enabled_ui(enabled, |ui| {
@@ -1022,6 +763,23 @@ fn mi_icon(ui: &mut Ui, app: &mut WordApp, label: &str, icon: &str, id: &str, pa
         crate::widgets::run_from_ribbon(app, id, params);
         ui.close();
     }
+}
+
+/// Change List Level › and Define New Bullet… at the foot of the Bullets drop-down (#2786, ported
+/// from WordCraft 83f18db1). Change List Level is for a paragraph in a list of its own numbering,
+/// the one `para.listLevel` changes (a style's numbering it leaves alone).
+fn bullet_list_items(ui: &mut Ui, app: &mut WordApp) {
+    ui.separator();
+    let in_list = app.session.doc.para_at(&app.session.sel.focus).and_then(|p| p.props.numbering).is_some_and(|n| n.num != 0);
+    ui.add_enabled_ui(in_list, |ui| {
+        ui.menu_button(tl!("Change List Level"), |ui| {
+            for level in 0..9u8 {
+                let label = format!("{} {}", tl!("Level"), level + 1);
+                mi_text(ui, app, &label, "para.listLevel", json!({"level": level}));
+            }
+        });
+    });
+    mi(ui, app, "Define New Bullet…", "ui.dialog", json!({"name": "defineBullet"}));
 }
 
 /// A menu item whose text is already in the interface language.
@@ -1356,6 +1114,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 small(ui, app, "bold", None, "Bold", "format.bold", json!({}), flag("bold"));
                 small(ui, app, "italic", None, "Italic", "format.italic", json!({}), flag("italic"));
                 split(ui, app, "underline", "Underline", "format.underline", json!({}), flag("underline"), None, |ui, app| {
+                    // Each style is drawn as a sample line, as in Word (a contributed patch); the name is its tooltip.
                     for (l, s) in [
                         ("Single", "single"),
                         ("Double", "double"),
@@ -1363,17 +1122,28 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                         ("Dotted", "dotted"),
                         ("Dashed", "dash"),
                         ("Dot-dash", "dotDash"),
+                        ("Dot-dot-dash", "dotDotDash"),
                         ("Wave", "wave"),
-                        ("Words only", "words"),
                     ] {
-                        mi(ui, app, l, "format.underline", json!({"style": s}));
+                        underline_sample(ui, app, l, s);
                     }
+                    mi(ui, app, "Words only", "format.underline", json!({"style": "words"}));
+                    ui.separator();
+                    mi(ui, app, "More Underlines…", "format.fontDialog", json!({}));
                 });
                 small(ui, app, "strike", None, "Strikethrough", "format.strikethrough", json!({}), flag("strike"));
                 small(ui, app, "subscript", None, "Subscript", "format.subscript", json!({}), flag("subscript"));
                 small(ui, app, "superscript", None, "Superscript", "format.superscript", json!({}), flag("superscript"));
                 small(ui, app, "charborder", None, "Character Border", "format.border", json!({}), flag("border"));
                 small(ui, app, "enclose", None, "Enclose Characters", "format.enclose", json!({}), false);
+                // A contributed patch: Character Spacing on the ribbon (the Font dialog's Spacing box).
+                menu_button(ui, app, "char-spacing", None, "Character Spacing", false, "", |ui, app| {
+                    for (label, points) in [("Very Tight", -1.5), ("Tight", -0.5), ("Normal", 0.0), ("Loose", 1.0), ("Very Loose", 3.0)] {
+                        mi(ui, app, label, "format.spacing", json!({"points": points}));
+                    }
+                    ui.separator();
+                    mi(ui, app, "More Spacing…", "format.fontDialog", json!({}));
+                });
                 ui.add_space(4.0);
                 menu_button(ui, app, "effects", None, "Text Effects and Typography", false, "", |ui, app| {
                     let theme = app.session.doc.settings.theme_colors.clone();
@@ -1447,6 +1217,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                     mi(ui, app, "None", "para.bullets", json!({"off": true}));
+                    bullet_list_items(ui, app);
                 });
                 split(ui, app, "numbering", "Numbering", "para.numbering", json!({}), lists.numbering, None, |ui, app| {
                     for (l, k) in [
@@ -1587,31 +1358,30 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Illustrations", app, |ui, app| {
         big(ui, app, "picture", "Pictures", "insert.picture", json!({}), false);
         menu_button(ui, app, "shapes", Some("Shapes"), "Shapes", true, "insert.shape", |ui, app| {
-            for (l, k) in [
-                ("Rectangle", "rectangle"),
-                ("Rounded Rectangle", "roundedRectangle"),
-                ("Oval", "ellipse"),
-                ("Triangle", "triangle"),
-                ("Diamond", "diamond"),
-                ("Line", "line"),
-                ("Arrow", "arrow"),
-                ("Star", "star"),
-                ("Heart", "heart"),
-            ] {
-                shape_item(ui, app, l, k, "none", "insert.shape", json!({"kind": k}));
-            }
-            ui.separator();
-            shape_item(ui, app, "New Drawing Canvas", "canvas", "none", "insert.canvas", json!({}));
-            // Connectors: glue their ends to shapes by dragging them (shape.connect).
-            for (l, k, arrow) in [
-                ("Straight Connector", "straightConnector", "none"),
-                ("Straight Arrow Connector", "straightConnector", "end"),
-                ("Elbow Connector", "elbowConnector", "none"),
-                ("Elbow Arrow Connector", "elbowConnector", "end"),
-                ("Curved Connector", "curvedConnector", "none"),
-                ("Curved Arrow Connector", "curvedConnector", "end"),
-            ] {
-                shape_item(ui, app, l, k, arrow, "insert.shape", json!({"kind": k, "arrow": arrow}));
+            // The shared Insert › Shapes menu (owner, 2026-11-19; `krub_icons::shape_gallery`):
+            // the standard shapes by group, arrowed connectors at the end of Lines (glue their
+            // ends to shapes by dragging them: shape.connect), then the Drawing Canvas.
+            let tools = [
+                ("lineArrow", tl!("Straight Arrow Connector")),
+                ("elbowArrow", tl!("Elbow Arrow Connector")),
+                ("curvedArrow", tl!("Curved Arrow Connector")),
+            ];
+            let extras = [("canvas", tl!("New Drawing Canvas"))];
+            let opts = krub_icons::shape_gallery::Options { action_buttons: false, line_tools: &tools, extras: &extras };
+            let picked = egui::ScrollArea::vertical()
+                .max_height(440.0)
+                .show(ui, |ui| krub_icons::shape_gallery::show(ui, &|s| crate::i18n::tc("shapes", s).to_string(), &opts))
+                .inner;
+            if let Some(name) = picked {
+                let (id, params) = match name.as_str() {
+                    "canvas" => ("insert.canvas", json!({})),
+                    "lineArrow" => ("insert.shape", json!({"kind": "straightConnector", "arrow": "end"})),
+                    "elbowArrow" => ("insert.shape", json!({"kind": "elbowConnector", "arrow": "end"})),
+                    "curvedArrow" => ("insert.shape", json!({"kind": "curvedConnector", "arrow": "end"})),
+                    other => ("insert.shape", json!({"kind": other})),
+                };
+                crate::widgets::run_from_ribbon(app, id, params);
+                ui.close();
             }
         });
         big(ui, app, "chart", "Chart", "insert.chart", json!({}), false);
@@ -1621,7 +1391,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
             });
             ui.add_space(crate::widgets::ROW_GAP);
             crate::widgets::row(ui, |ui| {
-                small(ui, app, "smartArt", None, "SmartArt", "insert.smartArt", json!({}), false);
+                small(ui, app, "smartArt", None, "Diagram", "insert.smartArt", json!({}), false);
             });
         });
     });
@@ -2825,8 +2595,8 @@ mod tests {
         wordcraft_engine::cmd::insert::base64_encode(&b)
     }
 
-    /// The Editing menu (top right) offers View only: choosing it makes the document read only (the
-    /// button says so, typing does nothing, edit buttons grey out); Editing brings it back.
+    /// The user icon's menu (owner, 2026-11-18; the Editing button's menu before) offers View only:
+    /// choosing it makes the document read only (typing does nothing); Editing brings it back.
     #[test]
     fn editing_menu_offers_view_only() {
         use egui_kittest::kittest::Queryable;
@@ -2842,16 +2612,14 @@ mod tests {
         );
         h.run_steps(4);
         let text = |h: &egui_kittest::Harness<WordApp>| h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
-        // The mode button is the "Editing" one next to Comments (the Editing group has the same name).
-        h.query_all_by_label("Editing").last().unwrap().click();
+        h.get_by_label("Account").click();
         h.run_steps(4);
         h.get_by_label("View only — no changes or suggestions").click();
         h.run_steps(4);
         assert!(h.state().session.view_only, "the menu entry turns view only on");
-        assert!(h.query_by_label("View only").is_some(), "the mode button says View only");
         assert!(h.state_mut().run("text.insert", json!({"text": "!"})).is_err(), "typing is refused");
         assert_eq!(text(&h), "Hello");
-        h.query_all_by_label("View only").last().unwrap().click();
+        h.get_by_label("Account").click();
         h.run_steps(4);
         h.get_by_label("Editing — edit the document directly").click();
         h.run_steps(4);
@@ -2887,10 +2655,11 @@ mod tests {
         assert!(h.query_by_label("Keep Text Only").is_some(), "the strip opens the Paste menu");
     }
 
-    /// The title bar has no Discord community button (this fork removed it), and no Discord link is
-    /// left anywhere: not on the Help tab, not in File, not as a command.
+    /// The one bar (owner, 2026-11-18) ends with the user icon alone: no search box, Share, Report
+    /// a problem or Discord button beside it; search lives in its menu. No Discord link is left
+    /// anywhere either: not on the Help tab, not in File, not as a command.
     #[test]
-    fn title_bar_has_no_discord_button() {
+    fn the_bar_ends_with_the_user_icon_and_no_discord() {
         use egui_kittest::kittest::Queryable;
         let app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
@@ -2902,17 +2671,18 @@ mod tests {
             app,
         );
         h.run_steps(4);
-        // Left to right the title bar ends: the search box, [the Discord button], the Account circle.
-        // The control next to Account is the wide search box (260 wide); the removed button was an
-        // 84-wide control between them.
         let account = h.get_by_label("Account").rect();
-        let next_to_account = h
-            .query_all_by_role(egui::accesskit::Role::Unknown)
-            .map(|n| n.rect())
-            .filter(|r| r.min.y < 40.0 && r.max.x <= account.min.x)
-            .max_by(|a, b| a.max.x.total_cmp(&b.max.x))
-            .expect("the title bar has controls left of Account");
-        assert!(next_to_account.width() > 200.0, "a button sits between the search box and Account: {next_to_account:?}");
+        assert!(account.max.x > 1400.0 && account.min.y < krub_icons::chrome::ONE_BAR_H, "the user icon ends the bar: {account:?}");
+        for gone in ["Share", "Report a problem", "Search commands and help", "Comments"] {
+            assert!(h.query_by_label(gone).is_none(), "{gone} is not on the bar");
+        }
+        h.get_by_label("Account").click();
+        h.run_steps(4);
+        for item in ["Search commands and help", "Comments", "Editing — edit the document directly"] {
+            assert!(h.query_by_label(item).is_some(), "the user menu has {item}");
+        }
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
         h.state_mut().ui.tab = "Help".into();
         h.run_steps(4);
         assert!(h.query_by_label_contains("Discord").is_none(), "the Help tab has no Discord button");
@@ -3449,12 +3219,14 @@ mod tests {
         assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
     }
 
-    /// Going into a header brings up the Header & Footer tab (its groups fit in every language);
-    /// Close Header and Footer takes it away and goes back to the tab before.
+    /// Going into a header opens the Header & Footer pane (owner, 2026-11-19; a contextual tab
+    /// before) and leaves the ribbon on its tab; Close Header and Footer, in the pane, ends
+    /// editing and the pane goes.
     #[test]
-    fn header_footer_tab_comes_and_goes_with_the_header() {
+    fn the_header_footer_pane_comes_and_goes_with_the_header() {
+        use egui_kittest::kittest::Queryable;
         let app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(2560.0, 900.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -3464,39 +3236,32 @@ mod tests {
         );
         h.state_mut().run("ui.tab", json!({"tab": "Review"})).unwrap();
         h.run_steps(2);
-        assert!(!contextual_tabs(&h.state().session).contains(&"Header & Footer"));
         h.state_mut().run("insert.editHeader", json!({})).unwrap();
-        h.run_steps(2);
-        assert!(contextual_tabs(&h.state().session).contains(&"Header & Footer"));
-        assert_eq!(h.state().ui.tab, "Header & Footer");
-        let mut tall = Vec::new();
-        for lang in crate::i18n::Lang::all() {
-            h.state_mut().run("ui.language", json!({"value": lang.code()})).unwrap();
-            h.run_steps(2);
-            crate::widgets::TALL_GROUPS.with(|g| g.borrow_mut().clear());
-            h.run_steps(1);
-            tall.extend(crate::widgets::TALL_GROUPS.with(|g| g.take()).into_iter().map(|g| format!("{} {g}", lang.code())));
+        h.run_steps(3);
+        assert!(!contextual_tabs(&h.state().session).contains(&"Header & Footer"), "no tab any more");
+        assert_eq!(h.state().ui.tab, "Review", "the ribbon stays on its tab");
+        assert_eq!(crate::panes::right_active(&h.ctx), Some("headerFooter"));
+        // Everything inside the shared width: a row too wide pushes the pane past the window's
+        // edge and under the page, where clicks don't reach it.
+        let dock = egui::PanelState::load(&h.ctx, egui::Id::new("right_dock")).map(|p| p.outer_rect).unwrap();
+        assert!(dock.right() <= 1440.5, "the pane stays in the window: {dock:?}");
+        for label in
+            ["Go to Header", "Go to Footer", "Previous Section", "Next Section", "Link to Previous", "Different First Page", "Header from Top:"]
+        {
+            let r = h.get_by_label(label).rect();
+            assert!(r.left() >= dock.left() && r.right() <= dock.right() + 0.5, "{label} at {r:?} is outside the pane {dock:?}");
         }
-        assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
-        h.state_mut().run("insert.closeHeader", json!({})).unwrap();
-        h.run_steps(2);
-        assert!(!contextual_tabs(&h.state().session).contains(&"Header & Footer"));
-        assert_eq!(h.state().ui.tab, "Review");
-    }
-
-    #[test]
-    fn fit_tabs_keeps_the_kept_tabs_and_drops_from_the_end() {
-        let tabs = [(40.0, true), (50.0, false), (50.0, false), (50.0, false), (60.0, true)];
-        assert_eq!(fit_tabs(&tabs, 250.0, 20.0), [true; 5]);
-        // 250 doesn't fit 240 with room for »: the last plain tabs give way, the kept ones stay.
-        assert_eq!(fit_tabs(&tabs, 240.0, 20.0), [true, true, true, false, true]);
-        // 200 would fit 210, but not with the » button too.
-        assert_eq!(fit_tabs(&tabs, 210.0, 20.0), [true, true, false, false, true]);
-        assert_eq!(fit_tabs(&tabs, 150.0, 20.0), [true, false, false, false, true]);
-        // Nothing but the kept tabs fits: they stay anyway.
-        assert_eq!(fit_tabs(&tabs, 10.0, 20.0), [true, false, false, false, true]);
-        // Hostile numbers don't panic.
-        let _ = fit_tabs(&[(f32::NAN, false), (f32::INFINITY, false)], f32::NAN, 20.0);
+        // A click on an option reaches it.
+        h.get_by_label("Different First Page").click();
+        h.run_steps(3);
+        assert!(wordcraft_engine::cmd::hf::state(&mut h.state_mut().session).different_first, "the click ticks the box");
+        // At the pane's end: scrolled into view first.
+        h.get_by_label("Close Header and Footer").scroll_to_me();
+        h.run_steps(10);
+        h.get_by_label("Close Header and Footer").click();
+        h.run_steps(3);
+        assert!(!h.state().session.in_header_footer(), "Close ends editing");
+        assert_ne!(crate::panes::right_active(&h.ctx), Some("headerFooter"), "and the pane goes");
     }
 
     /// #860: Review › Language (and the status bar) reach every proofing language, not just the

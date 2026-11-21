@@ -122,6 +122,25 @@ pub fn shape_outline(kind: ShapeKind, w: f32, h: f32, corner: Option<u32>) -> Op
             }
             pts
         }
+        // Any other standard shape: its first outline from the shared library, flattened.
+        ShapeKind::Preset(id) => {
+            if id.is_open() || w <= 0.0 || h <= 0.0 {
+                return None;
+            }
+            let g = id.geometry(f64::from(w), f64::from(h))?;
+            let first = g.paths.iter().find(|p| p.fill != craft_drawingml::preset::FillMode::None)?;
+            let mut pts = Vec::new();
+            kurbo::flatten(first.path.iter(), 0.5, |el| match el {
+                kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) if pts.len() < MAX_WRAP_POINTS => {
+                    pts.push(((p.x / f64::from(w)) as f32, (p.y / f64::from(h)) as f32));
+                }
+                _ => {}
+            });
+            if pts.len() < 3 {
+                return None;
+            }
+            pts
+        }
     };
     Some(pts)
 }

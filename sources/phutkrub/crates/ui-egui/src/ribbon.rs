@@ -142,9 +142,14 @@ pub fn object_pane(app: &mut SlideApp, ui: &mut Ui, id: &str) {
         }
         "picture" => picture_format(app, ui),
         "smartart" => smartart_design(app, ui),
-        "chart" => chart_design(app, ui),
+        "chart" => crate::panels::chart_pane(app, ui),
         _ => crate::panels::shape_pane(app, ui),
     });
+}
+
+/// The chart pane's Chart sub-panel: the former Chart Design tab's groups.
+pub fn chart_design_pane(app: &mut SlideApp, ui: &mut Ui) {
+    crate::widgets::in_pane(|| chart_design(app, ui));
 }
 
 /// The Shape pane's PhutKrub sections after the shared ones: Insert Shapes, Quick Styles, WordArt
@@ -160,9 +165,6 @@ const TABS: [&str; 10] = ["Home", "Insert", "Draw", "Design", "Transitions", "An
 fn visible_tabs(app: &SlideApp) -> Vec<&'static str> {
     TABS.iter().copied().filter(|t| *t != "Draw" || app.ui.show_draw_tab).collect()
 }
-
-/// Height of the coral tab strip (the active tab reaches the ribbon at its bottom edge).
-const TAB_STRIP_H: f32 = krub_icons::chrome::TAB_STRIP_H;
 
 /// The active tab: a white tab with rounded top corners whose bottom corners curve outward into the
 /// ribbon below, so the tab and the ribbon read as one shape. `bottom` is the strip's lower edge.
@@ -180,40 +182,6 @@ fn active_tab_shape(painter: &egui::Painter, tab: Rect, bottom: f32, fill: Color
     }
 }
 
-fn ribbon_actions(app: &mut SlideApp, ui: &mut Ui, strip: Rect, b: &Tokens) -> f32 {
-    let right = strip.right();
-    let enabled = app.session.active().is_some();
-    let comments_open = app.ui.pane.as_deref() == Some("comments");
-    let action = |offset: f32, icon, label: &str, primary, selected| {
-        let rect = Rect::from_center_size(pos2(right - offset, strip.center().y), vec2(28.0, 24.0));
-        let response = ui.interact(rect, ui.scope_id().with(("ribbon_action", label)), if enabled { Sense::click() } else { Sense::hover() });
-        let fill = if primary && enabled {
-            if response.hovered() { b.accent.gamma_multiply(0.85) } else { b.accent }
-        } else if selected {
-            b.selected
-        } else if enabled && response.hovered() {
-            b.hover
-        } else {
-            Color32::TRANSPARENT
-        };
-        ui.painter().rect_filled(rect, 4.0, fill);
-        icons::paint_ex(ui.painter(), rect.shrink2(vec2(6.0, 4.0)), icon, if primary && enabled { b.accent_text } else { b.text }, !enabled, true);
-        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, selected, label));
-        response.on_hover_text(label)
-    };
-    let present = action(14.0, Icon::PlayFromCurrent, tl!("Present"), true, false);
-    let comments = action(46.0, Icon::CommentsBubble, tl!("Comments"), false, comments_open);
-    if present.clicked()
-        && let Some(from) = app.session.active().map(|doc| doc.selection.slide)
-    {
-        app.start_show(from, false);
-    }
-    if comments.clicked() {
-        let _ = app.run("view.pane", json!({"pane": "comments", "toggle": true}));
-    }
-    right - 60.0
-}
-
 /// Tab row and the ribbon card.
 pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -224,17 +192,25 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
         app.ui.tab = "Home".into();
     }
     // The KrubOffice heights (`krub_icons::chrome`): the tab strip, and the ribbon under it.
-    let h = if app.ui.ribbon_collapsed { TAB_STRIP_H } else { krub_icons::chrome::TABS_AND_RIBBON_H };
+    // The one bar (owner, 2026-11-18): the title bar and the tab strip in one row, room above the
+    // tabs; on macOS they start after the traffic lights.
+    let bar_h = krub_icons::chrome::ONE_BAR_H;
+    let gap = krub_icons::chrome::ONE_BAR_GAP;
+    let ribbon_h = krub_icons::chrome::RIBBON_H;
+    let h = if app.ui.ribbon_collapsed { bar_h } else { bar_h + ribbon_h };
+    let (_, left, _) = title_bar::title_geometry(app.integrated_titlebar);
     egui::Panel::top("ribbon").exact_size(h).show_separator_line(false).frame(egui::Frame::NONE.fill(t.card)).show(ui, |ui| {
         let rect = ui.max_rect();
-        // The coral band (tab strip) runs on from the title bar; the ribbon below it is white and has
-        // no outline, so the active tab runs on into it.
-        let strip = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + TAB_STRIP_H));
-        ui.painter().rect_filled(strip, CornerRadius::ZERO, t.band);
+        // The coral band is the whole bar; the ribbon below it is white and has no outline, so the
+        // active tab runs on into it.
+        let band_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + bar_h));
+        let strip = Rect::from_min_max(pos2(rect.min.x, rect.min.y + gap), band_rect.right_bottom());
+        ui.painter().rect_filled(band_rect, CornerRadius::ZERO, t.band);
+        title_bar::window_drag(ui, band_rect);
         // Tabs. File comes first and opens the File tab's full-window view (Backstage), as in
         // PowerPoint.
-        let mut x = rect.min.x + 12.0;
-        let y = rect.min.y + 2.0;
+        let mut x = rect.min.x + left.max(12.0);
+        let y = strip.min.y + 2.0;
         {
             let w = ui.fonts_mut(|f| f.layout_no_wrap(tl!("File").to_string(), theme::font(13.0), b.text).size().x) + 18.0;
             let r = Rect::from_min_size(pos2(x, y), vec2(w, 24.0));
@@ -249,9 +225,26 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             }
             x += w + 2.0;
         }
-        let action_left = ribbon_actions(app, ui, strip.shrink2(vec2(8.0, 0.0)), &b);
-        let show_numbers = app.ui.show_ribbon_tab_numbers;
+        // Save, Undo and Redo follow File (owner, 2026-11-18).
+        let qat_w = title_bar::quick_access_width(app);
+        let qat = Rect::from_min_size(pos2(x + 2.0, strip.min.y), vec2(qat_w, strip.height()));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(qat).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            title_bar::bar_quick_access(app, ui)
+        });
+        x = qat.right() + 6.0;
+        let right_row = Rect::from_min_max(pos2(x, strip.min.y), pos2(strip.max.x - 10.0, strip.max.y));
+        let action_left = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(right_row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+                theme::band_ui(ui);
+                title_bar::bar_right(app, ui)
+            })
+            .inner;
+        // The file pill keeps at least its narrowest width after the tabs.
+        let pill_room = krub_icons::chrome::PILL_MIN_W + 2.0 * krub_icons::chrome::PILL_MARGIN;
+        // While choosing a tab by number the numbers show, even when hidden in Options.
+        let show_numbers = app.ui.show_ribbon_tab_numbers || app.tab_keys.choosing;
         let all: Vec<(&str, bool)> = tabs.iter().map(|s| (*s, false)).chain(ctx_tabs.iter().map(|s| (*s, true))).collect();
+        app.keytip_tabs = all.iter().map(|(name, _)| *name).collect();
         let font = theme::font(13.0);
         let metrics: Vec<_> = all
             .iter()
@@ -262,7 +255,8 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             })
             .collect();
         let row = Rect::from_min_size(pos2(strip.left(), y), vec2(strip.width(), 24.0));
-        let (slots, overflow) = crate::ribbon_layout::tab_slots(row, x, action_left - 4.0, &metrics, app.ui.ribbon_tabs_centered);
+        let (slots, overflow) = crate::ribbon_layout::tab_slots(row, x, action_left - 4.0 - pill_room, &metrics, app.ui.ribbon_tabs_centered);
+        let tabs_end = slots.iter().flatten().chain(overflow.iter()).map(|r| r.right()).fold(x, f32::max);
         for (index, ((name, contextual), slot)) in all.iter().copied().zip(&slots).enumerate() {
             let Some(r) = *slot else { continue };
             let shown = tl!(name);
@@ -285,7 +279,17 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 b.text
             };
             let f = if active { theme::bold(13.0) } else { font.clone() };
-            crate::ribbon_layout::tab_label(ui.painter(), r, shown, f, col, show_numbers.then_some((index + 1, t.band_ink)));
+            // While choosing a tab its number turns gold.
+            let choosing = app.tab_keys.choosing;
+            crate::ribbon_layout::tab_label(
+                ui.painter(),
+                r,
+                shown,
+                f,
+                col,
+                show_numbers.then_some((index + 1, t.band_ink)),
+                choosing.then_some(b.accent),
+            );
             if active && !joined {
                 let uw = (r.width() - 20.0).max(16.0);
                 ui.painter().rect_filled(Rect::from_center_size(pos2(r.center().x, r.max.y - 1.0), vec2(uw, 3.0)), CornerRadius::same(1), b.accent);
@@ -316,14 +320,13 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 }
             });
         }
+        // The file pill, centred between the last tab and the right end.
+        title_bar::file_pill(app, ui, krub_icons::chrome::pill_area(strip, tabs_end, action_left - 8.0));
         if app.ui.ribbon_collapsed {
             return;
         }
         // The white ribbon.
-        let card = Rect::from_min_max(
-            pos2(rect.min.x + 8.0, rect.min.y + TAB_STRIP_H),
-            pos2(rect.max.x - 8.0, rect.min.y + krub_icons::chrome::TABS_AND_RIBBON_H),
-        );
+        let card = Rect::from_min_max(pos2(rect.min.x + 8.0, rect.min.y + bar_h), pos2(rect.max.x - 8.0, rect.min.y + bar_h + ribbon_h));
         ui.painter().line_segment([pos2(rect.min.x, rect.max.y - 0.5), pos2(rect.max.x, rect.max.y - 0.5)], Stroke::new(1.0, t.card_border));
         let margin = crate::ribbon_layout::CONTENT_MARGIN;
         let inner = Rect::from_min_size(

@@ -241,7 +241,7 @@ fn kind_of(prst: &str) -> Option<ShapeKind> {
         "star5" | "star4" | "star6" => ShapeKind::Star,
         "heart" => ShapeKind::Heart,
         "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow" | "chevron" | "homePlate" | "hexagon" | "pentagon" | "trapezoid"
-        | "parallelogram" | "rtTriangle" | "pie" | "blockArc" => return None,
+        | "parallelogram" | "rtTriangle" | "pie" | "blockArc" | "gear6" | "gear9" | "funnel" => return None,
         _ => ShapeKind::Rectangle,
     })
 }
@@ -345,6 +345,8 @@ fn outline(prst: &str, w: f64, h: f64, geom: Option<&El>) -> Option<Poly> {
                 (hw + hw * t.cos(), hh + hh * t.sin())
             })
             .collect(),
+        "gear6" | "gear9" => gear(if prst == "gear6" { 6 } else { 9 }, w, h),
+        "funnel" => vec![(0.0, 0.0), (w, 0.0), (w * 0.58, h * 0.72), (w * 0.58, h), (w * 0.42, h), (w * 0.42, h * 0.72)],
         "trapezoid" => {
             let x2 = lim(ss * a("adj", 0.25), w / 2.0);
             vec![(0.0, h), (x2, 0.0), (w - x2, 0.0), (w, h)]
@@ -356,6 +358,22 @@ fn outline(prst: &str, w: f64, h: f64, geom: Option<&El>) -> Option<Poly> {
         _ => vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)],
     };
     Some((pts, true))
+}
+
+/// A gear of `teeth` in a `w` × `h` box: teeth reach the box's edge, their roots a fifth in.
+fn gear(teeth: usize, w: f64, h: f64) -> Vec<(f64, f64)> {
+    let (hw, hh) = (w / 2.0, h / 2.0);
+    let step = 360.0 / teeth as f64;
+    let mut pts = Vec::with_capacity(teeth * 4);
+    for k in 0..teeth {
+        let a = -90.0 + step * k as f64;
+        // Root, tooth flank up, tooth top, flank down: the tooth takes 40% of the step.
+        for (da, r) in [(-0.3, 0.78), (-0.2, 1.0), (0.2, 1.0), (0.3, 0.78)] {
+            let t = (a + da * step).to_radians();
+            pts.push((hw + hw * r * t.cos(), hh + hh * r * t.sin()));
+        }
+    }
+    pts
 }
 
 /// A block arrow along `len` (tip at `len`) across `thick`. `a1` is the shaft thickness and `a2`
@@ -582,6 +600,20 @@ mod tests {
         let GraphicItem::Text { text, size, color, bold, align, .. } = &out[1] else { panic!("text second: {out:?}") };
         assert_eq!(text, "Foo");
         assert_eq!((*size, *color, *bold, *align), (20.0, Rgb::WHITE, true, TextAlign::Center));
+    }
+
+    #[test]
+    fn gears_and_funnel_are_paths_in_their_box() {
+        for (prst, points) in [("gear6", 24), ("gear9", 36), ("funnel", 6)] {
+            let out = items(&sp("", prst, ""), 100.0, 100.0);
+            let GraphicItem::Path { segs, .. } = &out[0] else { panic!("{prst} path: {out:?}") };
+            assert_eq!(segs.len(), points + 1, "{prst}");
+            for seg in segs {
+                if let PathSeg::Move(x, y) | PathSeg::Line(x, y) = seg {
+                    assert!((-0.01..=100.01).contains(x) && (-0.01..=100.01).contains(y), "{prst}: {x} {y}");
+                }
+            }
+        }
     }
 
     #[test]

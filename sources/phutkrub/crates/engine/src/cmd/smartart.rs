@@ -85,7 +85,7 @@ pub const LAYOUTS: [(&str, &str); 45] = [
     ("stackedVenn", "Stacked Venn"),
     ("nestedTarget", "Nested Target"),
 ];
-/// SmartArt Styles.
+/// Diagram Styles.
 pub const STYLES: [(&str, &str); 9] = [
     ("flat", "Simple Fill"),
     ("subtle", "Subtle Effect"),
@@ -117,6 +117,71 @@ pub const COLORS: [(&str, &str); 17] = [
     ("accent5Grad", "Gradient Range - Accent 5"),
     ("accent6Grad", "Gradient Range - Accent 6"),
 ];
+
+/// A layout's one-line description, for the Insert Diagram dialog.
+pub fn description(kind: &str) -> &'static str {
+    match kind {
+        "blockList" => "Shows items of equal weight as blocks in rows.",
+        "hBulletList" => "Shows items side by side as columns, with sub-points under each.",
+        "process" => "Shows steps in order, left to right, with arrows between them.",
+        "chevron" => "Shows steps in order as arrow-shaped chevrons.",
+        "verticalProcess" => "Shows steps in order from top to bottom.",
+        "stepUp" => "Shows steps that rise like stairs, each a step higher.",
+        "cycle" => "Shows steps that repeat, around a circle.",
+        "blockCycle" => "Shows steps that repeat as blocks around a circle, with arrows between them.",
+        "radial" => "Shows items around a central idea: the first item is the centre.",
+        "hierarchy" => "Shows a tree: each item below the item it belongs to.",
+        "pyramid" => "Shows parts that build on each other, largest at the bottom.",
+        "invertedPyramid" => "Shows parts that narrow down, largest at the top.",
+        "matrix" => "Shows parts of a whole as quadrants.",
+        "titledMatrix" => "Shows four parts around a central idea: the first item is the title.",
+        "pictureList" => "Shows items one under another, each with a picture.",
+        "pictureCaption" => "Shows pictures side by side, each with its caption below.",
+        "pictureProcess" => "Shows steps in order, each with a picture.",
+        "pictureHList" => "Shows items side by side, each with a picture above its text.",
+        "timeline" => "Shows events in order along a line.",
+        "venn" => "Shows overlapping ideas as overlapping circles.",
+        "target" => "Shows items as rings around a centre, from the outside in.",
+        "textCycle" => "Shows steps that repeat as text around a circle of arrows.",
+        "continuousCycle" => "Shows steps that repeat without end, on a ring.",
+        "horizontalHierarchy" => "Shows a tree from left to right.",
+        "gridMatrix" => "Shows four parts on two axes.",
+        "gear" => "Shows ideas that drive one another, as gears.",
+        "funnel" => "Shows items that combine into one result, through a funnel.",
+        "segmentedCycle" => "Shows the parts of a whole as segments of a circle.",
+        "multidirectionalCycle" => "Shows items that can lead to one another in both directions.",
+        "orgChart" => "Shows who reports to whom in an organization.",
+        "halfCircleOrgChart" => "Shows an organization, each person under a half circle.",
+        "cycleMatrix" => "Shows four parts around a centre that turn into one another.",
+        "segmentedPyramid" => "Shows parts of a whole as a pyramid of triangles.",
+        "pie" => "Shows the parts of a whole as slices of a circle.",
+        "nameTitleOrgChart" => "Shows an organization with each person's name and title.",
+        "verticalBoxList" => "Shows items as boxes one under another, each with a heading.",
+        "trapezoidList" => "Shows groups side by side as trapezoids, with their sub-points.",
+        "tableList" => "Shows a heading item across the top and the items under it as columns.",
+        "accentProcess" => "Shows steps in order, each with its details below.",
+        "continuousBlockProcess" => "Shows steps in order on one long arrow.",
+        "bendingProcess" => "Shows many steps in order, in rows that turn.",
+        "linearVenn" => "Shows overlapping ideas as circles in a row.",
+        "stackedVenn" => "Shows ideas that grow from one another, as circles inside circles.",
+        "nestedTarget" => "Shows items held inside one another, as nested boxes.",
+        _ => "Shows items as wide bars, one under another, with their sub-points.",
+    }
+}
+
+/// A category's name in the Insert Diagram dialog (`process` → "Process").
+pub fn category_name(category: &str) -> &'static str {
+    match category {
+        "process" => "Process",
+        "cycle" => "Cycle",
+        "hierarchy" => "Hierarchy",
+        "relationship" => "Relationship",
+        "matrix" => "Matrix",
+        "pyramid" => "Pyramid",
+        "picture" => "Picture",
+        _ => "List",
+    }
+}
 
 /// The gallery category a layout is shown under in Convert to SmartArt and Change Layout.
 pub fn category(kind: &str) -> &'static str {
@@ -162,7 +227,7 @@ pub fn preview(kind: &str, style: &str, colors: &str, nodes: Option<&[DiagramNod
     }
     Shape {
         id: ShapeId(9_999),
-        name: "SmartArt preview".into(),
+        name: "Diagram preview".into(),
         xfrm: Some(area),
         kind: ShapeKind::Group { children, child: area },
         ..Default::default()
@@ -178,16 +243,16 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             query "smartArt.nodes",
             "Text Pane",
-            ["SmartArt Design", "Create Graphic"],
+            ["Diagram Design", "Create Graphic"],
             None,
-            "{id?} → {id, kind, nodes: [{text, level}]} (id: the SmartArt group or one of its shapes; default the selection)",
+            "{id?} → {id, kind, nodes: [{text, level}]} (id: the Diagram group or one of its shapes; default the selection)",
             has_selection,
             nodes
         ),
         cmd!(
             "smartArt.setNodes",
-            "Edit SmartArt Text",
-            ["SmartArt Design", "Create Graphic"],
+            "Edit Diagram Text",
+            ["Diagram Design", "Create Graphic"],
             None,
             "{id?, nodes?: [{text, level}], lines?: [string] (leading tabs set the level), index?, text?, title?} (index + text edits one node; title: its Name and Title box)",
             has_selection,
@@ -196,7 +261,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "smartArt.addNode",
             "Add Shape",
-            ["SmartArt Design", "Create Graphic"],
+            ["Diagram Design", "Create Graphic"],
             None,
             "{id?, index?, position?: after|before|below|above|assistant, text?} → {index} (default: after the last node)",
             has_selection,
@@ -205,18 +270,18 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "smartArt.removeNode",
             "Remove Shape",
-            ["SmartArt Design", "Create Graphic"],
+            ["Diagram Design", "Create Graphic"],
             None,
             "{id?, index} (its sub-points move up one level)",
             has_selection,
             remove_node
         ),
-        cmd!("smartArt.promote", "Promote", ["SmartArt Design", "Create Graphic"], None, "{id?, index}", has_selection, promote),
-        cmd!("smartArt.demote", "Demote", ["SmartArt Design", "Create Graphic"], None, "{id?, index}", has_selection, demote),
+        cmd!("smartArt.promote", "Promote", ["Diagram Design", "Create Graphic"], None, "{id?, index}", has_selection, promote),
+        cmd!("smartArt.demote", "Demote", ["Diagram Design", "Create Graphic"], None, "{id?, index}", has_selection, demote),
         cmd!(
             "smartArt.layout",
             "Change Layout",
-            ["SmartArt Design", "Layouts"],
+            ["Diagram Design", "Layouts"],
             None,
             "{id?, kind: list|blockList|hBulletList|process|chevron|verticalProcess|stepUp|cycle|blockCycle|radial|hierarchy|pyramid|invertedPyramid|matrix|titledMatrix|pictureList|pictureCaption|pictureProcess|pictureHList|timeline|venn|target|textCycle|continuousCycle|horizontalHierarchy|gridMatrix|gear|funnel|segmentedCycle|multidirectionalCycle|orgChart|halfCircleOrgChart|cycleMatrix|segmentedPyramid|pie|nameTitleOrgChart|verticalBoxList|trapezoidList|tableList|accentProcess|continuousBlockProcess|bendingProcess|linearVenn|stackedVenn|nestedTarget}",
             has_selection,
@@ -224,17 +289,17 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "smartArt.fromText",
-            "Convert to SmartArt",
+            "Convert to Diagram",
             ["Home", "Paragraph"],
             None,
-            "{id?, kind?} → {id} (a text box or placeholder becomes a SmartArt graphic in its place: one node per paragraph, indent levels kept)",
+            "{id?, kind?} → {id} (a text box or placeholder becomes a Diagram graphic in its place: one node per paragraph, indent levels kept)",
             has_selection,
             from_text
         ),
         cmd!(
             "smartArt.toText",
             "Convert to Text",
-            ["SmartArt Design", "Reset"],
+            ["Diagram Design", "Reset"],
             None,
             "{id?} → {id} (the graphic becomes a text box of its outline, bulleted by level)",
             has_selection,
@@ -243,7 +308,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "smartArt.toShapes",
             "Convert to Shapes",
-            ["SmartArt Design", "Reset"],
+            ["Diagram Design", "Reset"],
             None,
             "{id?} (the graphic becomes a plain group of its shapes; the outline is dropped)",
             has_selection,
@@ -251,8 +316,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "smartArt.picture",
-            "Insert Picture in SmartArt",
-            ["SmartArt Design", "Create Graphic"],
+            "Insert Picture in Diagram",
+            ["Diagram Design", "Create Graphic"],
             None,
             "{id?, index, data?: base64 | path?: string | reset?: bool} (the node's picture placeholder in picture layouts)",
             has_selection,
@@ -260,8 +325,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "smartArt.style",
-            "SmartArt Styles",
-            ["SmartArt Design", "SmartArt Styles"],
+            "Diagram Styles",
+            ["Diagram Design", "Diagram Styles"],
             None,
             "{id?, style: flat|subtle|intense|outline|polished|inset|cartoon|powder|brick}",
             has_selection,
@@ -270,7 +335,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "smartArt.colors",
             "Change Colors",
-            ["SmartArt Design", "SmartArt Styles"],
+            ["Diagram Design", "Diagram Styles"],
             None,
             "{id?, colors: colorful|range23|range34|range45|range56|accent1|…|accent6|accent1Grad|…|accent6Grad}",
             has_selection,
@@ -282,6 +347,15 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_layout_has_its_own_description_and_a_named_category() {
+        let descriptions: std::collections::BTreeSet<&str> = LAYOUTS.iter().map(|(k, _)| description(k)).collect();
+        assert_eq!(descriptions.len(), LAYOUTS.len());
+        for (k, _) in LAYOUTS {
+            assert_eq!(category_name(category(k)).to_ascii_lowercase(), category(k), "{k}");
+        }
+    }
 
     fn lv(n: &[DiagramNode]) -> Vec<u8> {
         n.iter().map(|x| x.level).collect()

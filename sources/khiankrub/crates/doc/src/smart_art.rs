@@ -40,18 +40,52 @@ pub enum SmartArtLayout {
     Matrix,
     /// Overlapping circles.
     Venn,
+    /// Wide bars one under another, each with its sub-items as bullets below.
+    VerticalBulletList,
+    /// Steps left to right as chevrons.
+    Chevron,
+    /// A tree of boxes; the lowest level hangs in a column under its manager.
+    OrgChart,
+    /// Events as dots along an arrow, their text above and below by turns.
+    Timeline,
+    /// Rings round a centre, the first item outermost.
+    Target,
+    /// Items falling through a funnel into the last item.
+    Funnel,
+    /// Up to three meshing gears.
+    Gear,
+    /// Steps top to bottom with arrows between.
+    VerticalProcess,
+    /// Stacked bands narrowing to the bottom.
+    InvertedPyramid,
+    /// A tree from left to right.
+    HorizontalHierarchy,
+    /// Overlapping circles in a row.
+    LinearVenn,
 }
 
 impl SmartArtLayout {
-    pub const ALL: [SmartArtLayout; 8] = [
+    /// Every layout, in the order the picker shows them (grouped by category).
+    pub const ALL: [SmartArtLayout; 19] = [
         SmartArtLayout::BasicList,
+        SmartArtLayout::VerticalBulletList,
         SmartArtLayout::Process,
+        SmartArtLayout::Chevron,
+        SmartArtLayout::VerticalProcess,
+        SmartArtLayout::Timeline,
+        SmartArtLayout::Funnel,
+        SmartArtLayout::Gear,
         SmartArtLayout::Cycle,
         SmartArtLayout::Hierarchy,
+        SmartArtLayout::OrgChart,
+        SmartArtLayout::HorizontalHierarchy,
         SmartArtLayout::Pyramid,
+        SmartArtLayout::InvertedPyramid,
         SmartArtLayout::Radial,
-        SmartArtLayout::Matrix,
         SmartArtLayout::Venn,
+        SmartArtLayout::Target,
+        SmartArtLayout::LinearVenn,
+        SmartArtLayout::Matrix,
     ];
 
     /// The id commands use (`basicList`, `process`…).
@@ -65,6 +99,17 @@ impl SmartArtLayout {
             SmartArtLayout::Radial => "radial",
             SmartArtLayout::Matrix => "matrix",
             SmartArtLayout::Venn => "venn",
+            SmartArtLayout::VerticalBulletList => "verticalBulletList",
+            SmartArtLayout::Chevron => "chevron",
+            SmartArtLayout::OrgChart => "orgChart",
+            SmartArtLayout::Timeline => "timeline",
+            SmartArtLayout::Target => "target",
+            SmartArtLayout::Funnel => "funnel",
+            SmartArtLayout::Gear => "gear",
+            SmartArtLayout::VerticalProcess => "verticalProcess",
+            SmartArtLayout::InvertedPyramid => "invertedPyramid",
+            SmartArtLayout::HorizontalHierarchy => "horizontalHierarchy",
+            SmartArtLayout::LinearVenn => "linearVenn",
         }
     }
 
@@ -88,18 +133,34 @@ impl SmartArtLayout {
             SmartArtLayout::Radial => "Basic Radial",
             SmartArtLayout::Matrix => "Basic Matrix",
             SmartArtLayout::Venn => "Basic Venn",
+            SmartArtLayout::VerticalBulletList => "Vertical Bullet List",
+            SmartArtLayout::Chevron => "Basic Chevron Process",
+            SmartArtLayout::OrgChart => "Organization Chart",
+            SmartArtLayout::Timeline => "Basic Timeline",
+            SmartArtLayout::Target => "Basic Target",
+            SmartArtLayout::Funnel => "Funnel",
+            SmartArtLayout::Gear => "Gear",
+            SmartArtLayout::VerticalProcess => "Vertical Process",
+            SmartArtLayout::InvertedPyramid => "Inverted Pyramid",
+            SmartArtLayout::HorizontalHierarchy => "Horizontal Hierarchy",
+            SmartArtLayout::LinearVenn => "Linear Venn",
         }
     }
 
     /// The gallery category it's shown under.
     pub fn category(self) -> &'static str {
         match self {
-            SmartArtLayout::BasicList => "List",
-            SmartArtLayout::Process => "Process",
+            SmartArtLayout::BasicList | SmartArtLayout::VerticalBulletList => "List",
+            SmartArtLayout::Process
+            | SmartArtLayout::Chevron
+            | SmartArtLayout::VerticalProcess
+            | SmartArtLayout::Timeline
+            | SmartArtLayout::Funnel
+            | SmartArtLayout::Gear => "Process",
             SmartArtLayout::Cycle => "Cycle",
-            SmartArtLayout::Hierarchy => "Hierarchy",
-            SmartArtLayout::Pyramid => "Pyramid",
-            SmartArtLayout::Radial | SmartArtLayout::Venn => "Relationship",
+            SmartArtLayout::Hierarchy | SmartArtLayout::OrgChart | SmartArtLayout::HorizontalHierarchy => "Hierarchy",
+            SmartArtLayout::Pyramid | SmartArtLayout::InvertedPyramid => "Pyramid",
+            SmartArtLayout::Radial | SmartArtLayout::Venn | SmartArtLayout::Target | SmartArtLayout::LinearVenn => "Relationship",
             SmartArtLayout::Matrix => "Matrix",
         }
     }
@@ -115,6 +176,17 @@ impl SmartArtLayout {
             SmartArtLayout::Radial => "Shows items around a central idea: the first item is the centre.",
             SmartArtLayout::Matrix => "Shows parts of a whole as quadrants.",
             SmartArtLayout::Venn => "Shows overlapping ideas as overlapping circles.",
+            SmartArtLayout::VerticalBulletList => "Shows items as wide bars, one under another, with their sub-points.",
+            SmartArtLayout::Chevron => "Shows steps in order as arrow-shaped chevrons.",
+            SmartArtLayout::OrgChart => "Shows who reports to whom in an organization.",
+            SmartArtLayout::Timeline => "Shows events in order along a line.",
+            SmartArtLayout::Target => "Shows items as rings around a centre, from the outside in.",
+            SmartArtLayout::Funnel => "Shows items that combine into one result, through a funnel.",
+            SmartArtLayout::Gear => "Shows ideas that drive one another, as gears.",
+            SmartArtLayout::VerticalProcess => "Shows steps in order from top to bottom.",
+            SmartArtLayout::InvertedPyramid => "Shows parts that narrow down, largest at the top.",
+            SmartArtLayout::HorizontalHierarchy => "Shows a tree from left to right.",
+            SmartArtLayout::LinearVenn => "Shows overlapping ideas as circles in a row.",
         }
     }
 }
@@ -219,7 +291,7 @@ impl SmartArtSpec {
     /// A new graphic of `layout` with WordCraft's sample items.
     pub fn sample(layout: SmartArtLayout) -> SmartArtSpec {
         let items: Vec<SmartArtItem> = match layout {
-            SmartArtLayout::Hierarchy => vec![
+            SmartArtLayout::Hierarchy | SmartArtLayout::HorizontalHierarchy => vec![
                 SmartArtItem::new("Lead", 0),
                 SmartArtItem::new("Design", 1),
                 SmartArtItem::new("Sketches", 2),
@@ -232,8 +304,32 @@ impl SmartArtSpec {
                 v.extend(["Plan", "Build", "Test", "Ship"].map(|t| SmartArtItem::new(t, 1)));
                 v
             }
-            SmartArtLayout::Process | SmartArtLayout::Cycle => ["Plan", "Build", "Test", "Ship"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
-            SmartArtLayout::Pyramid | SmartArtLayout::Venn => ["People", "Process", "Tools"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::OrgChart => vec![
+                SmartArtItem::new("Director", 0),
+                SmartArtItem::new("Sales", 1),
+                SmartArtItem::new("North", 2),
+                SmartArtItem::new("South", 2),
+                SmartArtItem::new("Office", 1),
+                SmartArtItem::new("Finance", 2),
+            ],
+            SmartArtLayout::VerticalBulletList => vec![
+                SmartArtItem::new("Plan", 0),
+                SmartArtItem::new("Goals and budget", 1),
+                SmartArtItem::new("Build", 0),
+                SmartArtItem::new("Drafts and reviews", 1),
+                SmartArtItem::new("Ship", 0),
+                SmartArtItem::new("Launch and feedback", 1),
+            ],
+            SmartArtLayout::Process | SmartArtLayout::Cycle | SmartArtLayout::Chevron | SmartArtLayout::VerticalProcess => {
+                ["Plan", "Build", "Test", "Ship"].map(|t| SmartArtItem::new(t, 0)).to_vec()
+            }
+            SmartArtLayout::Timeline => ["Jan", "Mar", "Jun", "Sep", "Dec"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::Funnel => ["Ideas", "Data", "Talks", "Plan"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::Gear => ["Plan", "Build", "Ship"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::Target => ["Market", "Customers", "Focus"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::Pyramid | SmartArtLayout::InvertedPyramid | SmartArtLayout::Venn | SmartArtLayout::LinearVenn => {
+                ["People", "Process", "Tools"].map(|t| SmartArtItem::new(t, 0)).to_vec()
+            }
             SmartArtLayout::Matrix => ["Strengths", "Weaknesses", "Chances", "Risks"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
             SmartArtLayout::BasicList => ["Ideas", "Notes", "Drafts", "Edits", "Final"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
         };
@@ -311,6 +407,22 @@ mod tests {
     }
 
     #[test]
+    fn every_layout_has_its_own_id_name_and_description() {
+        use std::collections::HashSet;
+        assert_eq!(SmartArtLayout::ALL.len(), 19);
+        let ids: HashSet<&str> = SmartArtLayout::ALL.iter().map(|l| l.id()).collect();
+        let names: HashSet<&str> = SmartArtLayout::ALL.iter().map(|l| l.label()).collect();
+        let descs: HashSet<&str> = SmartArtLayout::ALL.iter().map(|l| l.description()).collect();
+        assert_eq!((ids.len(), names.len(), descs.len()), (19, 19, 19));
+        for l in SmartArtLayout::ALL {
+            assert_eq!(SmartArtLayout::from_id(l.id()), Some(l));
+            let s = SmartArtSpec::sample(l);
+            assert_eq!(s.clone().sanitized(), s, "{l:?}: samples are already clean");
+            assert!(s.items.len() >= 3, "{l:?}");
+        }
+    }
+
+    #[test]
     fn parents_and_descendants_follow_levels() {
         let s = SmartArtSpec::sample(SmartArtLayout::Hierarchy).sanitized();
         assert_eq!(s.parents(), vec![None, Some(0), Some(1), Some(0), Some(3), Some(3)]);
@@ -319,6 +431,7 @@ mod tests {
         assert_eq!(s.descendants(5), 6..6);
         assert_eq!(s.descendants(99), 0..0);
         assert_eq!(SmartArtLayout::from_id("VENN"), Some(SmartArtLayout::Venn));
+        assert_eq!(SmartArtLayout::from_id("orgchart"), Some(SmartArtLayout::OrgChart));
         assert_eq!(SmartArtColors::from_id("colorful"), Some(SmartArtColors::Colorful));
     }
 }

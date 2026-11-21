@@ -194,7 +194,7 @@ pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
             });
         });
     });
-    crate::widgets::group_named(ui, "WordArt Styles", |ui| {
+    crate::widgets::group_named(ui, "Decorative Text Styles", |ui| {
         rows(ui, |ui| {
             ui.horizontal(|ui| {
                 let (main, arrow) = small_button_ex(ui, Icon::TextFill, tl!("Text Fill"), sel, false, true);

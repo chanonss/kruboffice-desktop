@@ -708,6 +708,15 @@ fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
                 .collect();
             poly(&mut pb, &pts);
         }
+        // Any other standard shape: the shared library's geometry, moved into `r`.
+        ShapeKind::Preset(id) => match id.geometry(f64::from(r.w), f64::from(r.h)) {
+            Some(g) => {
+                let mut p = g.outline();
+                p.apply_affine(kurbo::Affine::translate((f64::from(x0), f64::from(y0))));
+                append_path(&mut pb, &p);
+            }
+            None => poly(&mut pb, &[(x0, y0), (x1, y0), (x1, y1), (x0, y1)]),
+        },
         ShapeKind::Heart => {
             let (w, h) = (r.w, r.h);
             pb.move_to(cx, y0 + h * 0.3);

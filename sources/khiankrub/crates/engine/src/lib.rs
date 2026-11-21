@@ -177,7 +177,11 @@ mod tests;
 #[cfg(test)]
 mod tests_bidi;
 #[cfg(test)]
+mod tests_define_bullet;
+#[cfg(test)]
 mod tests_fonts;
+#[cfg(test)]
+mod tests_page_number_formats;
 #[cfg(test)]
 mod tests_revision_checks;
 #[cfg(test)]

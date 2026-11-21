@@ -72,6 +72,7 @@ impl SlideApp {
             synthetic_injected_time: None,
             ribbon_scroll: HashMap::new(),
             show_instance: 0,
+            #[cfg(not(target_arch = "wasm32"))]
             opening_generation: 0,
             canvas_rect: None,
             eyedropper: None,
@@ -79,6 +80,8 @@ impl SlideApp {
             slide_rect: None,
             canvas_region: None,
             palette: None,
+            tab_keys: Default::default(),
+            keytip_tabs: Vec::new(),
             integrated_titlebar: false,
             backstage: None,
             pending_urls: vec![],
@@ -145,6 +148,14 @@ impl SlideApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_update_checks(&mut self) {
         updates_ui::enable(self);
+    }
+
+    /// Start the helper of an update that is ready, so that it installs once the process has
+    /// exited. The desktop shell calls it in `on_exit`, which ends the process on macOS before the
+    /// app is dropped. Later calls do nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn start_pending_update(&mut self) {
+        updates_ui::start_pending_update(self);
     }
 
     /// A message that must be seen wherever the user is: a toast, which also shows over the start
@@ -329,7 +340,9 @@ impl SlideApp {
         self.keyboard(&ctx);
         self.sync_backstage();
         // The web start screen has a top bar of its own; there is no window title to show yet.
-        if !self.web_start_screen() {
+        // The ribbon's bar is also the title bar (owner, 2026-11-18); File and an empty window,
+        // which have no ribbon, keep the same bar without tabs.
+        if !self.web_start_screen() && (self.backstage.is_some() || self.session.active().is_none()) {
             ribbon::title_bar(self, ui);
         }
         if self.backstage.is_none() && self.session.active().is_some() {

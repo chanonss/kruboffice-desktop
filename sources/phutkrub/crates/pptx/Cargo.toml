@@ -9,6 +9,11 @@ description = "DeckCraft PPTX: Office Open XML (PresentationML/DrawingML) import
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
+craft-opc.workspace = true
+craft-xml.workspace = true
+craft-cfb.workspace = true
+craft-drawingml.workspace = true
 deckcraft-model = { workspace = true }
 deckcraft-geom = { workspace = true }
 deckcraft-color = { workspace = true }

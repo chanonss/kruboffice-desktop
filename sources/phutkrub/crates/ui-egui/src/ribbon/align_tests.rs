@@ -33,6 +33,8 @@ fn harness(select: &[usize]) -> (Harness<'static, SlideApp>, Vec<ShapeId>) {
         },
         app,
     );
+    // Align sits in the Shape pane's Size and Position sub-panel (owner, 2026-11-18).
+    crate::panels::show_shape_tab(&h.ctx, krub_icons::shape_pane::Tab::SizePosition);
     h.run_steps(3);
     (h, ids)
 }

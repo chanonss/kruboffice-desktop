@@ -250,7 +250,27 @@ fn axis_ticks((lo, hi, st): (f64, f64, f64)) -> impl Iterator<Item = f64> {
     (0..=n).map(move |k| lo + k as f64 * st)
 }
 
+/// Most category-by-series cells one chart draws: Excel's 255 series x 32,000 points per series
+/// (8,160,000); ordinary charts hold a few hundred.
+const MAX_CHART_CELLS: usize = 255 * 32_000;
+
+/// Whether the independent category and series lists make the drawing loops multiply past the budget.
+fn over_cell_budget(c: &Chart) -> bool {
+    let ncat = c.categories.len().max(c.series.iter().map(|s| s.values.len()).max().unwrap_or(0));
+    cells_over_budget(ncat, c.series.len())
+}
+
+fn cells_over_budget(categories: usize, series: usize) -> bool {
+    categories.saturating_mul(series.max(1)) > MAX_CHART_CELLS
+}
+
 pub fn draw(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h: f64) {
+    if over_cell_budget(c) {
+        return;
+    }
+    // The series' pane formats as their own fill and line, for everything that draws a series.
+    let formatted = crate::chart_fmt::with_series_formats(c);
+    let c = formatted.as_ref().unwrap_or(c);
     match c.kind {
         // Histograms and Pareto charts are drawn as the column (and line) chart of their bins.
         ChartType::Histogram | ChartType::Pareto => {
@@ -283,9 +303,17 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     // Text without a colour of its own takes PowerPoint's default, the theme's text colour at
     // lumMod 65 % / lumOff 35 % (595959 on a light theme, light grey on a dark one), so a chart
     // on a dark theme is readable (a fixed grey used to vanish there).
-    let text_col = rctx.color(c.text_color.as_ref().unwrap_or(&default_text_color()), None);
-    let grid_col = Rgba::rgb(0xD9, 0xD9, 0xD9);
-    if let Some(f) = &c.chart_fill {
+    let fmt = &c.format;
+    let text_col =
+        crate::chart_fmt::text_color(&fmt.chart_area).unwrap_or_else(|| rctx.color(c.text_color.as_ref().unwrap_or(&default_text_color()), None));
+    let grid_col = crate::chart_fmt::grid_color(&fmt.gridlines, Rgba::rgb(0xD9, 0xD9, 0xD9));
+    // The chart area as the pane formats it (owner, 2026-11-19): shadow and glow, its own fill
+    // (else the file's), rounded corners and border.
+    let whole = Rect::new(0.0, 0.0, w, h);
+    let radius = if fmt.rounded_corners { (w.min(h) * 0.03).min(8.0) } else { 0.0 };
+    crate::chart_fmt::effects(ctx, m, whole, radius, &fmt.chart_area);
+    let own_fill = crate::chart_fmt::fill(ctx, m, whole, radius, &fmt.chart_area);
+    if let Some(f) = c.chart_fill.as_ref().filter(|_| !own_fill && fmt.chart_area.fill == krub_chart_format::Fill::Auto) {
         crate::paint::fill_path(
             ctx,
             rctx,
@@ -299,19 +327,28 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
             rctx.pres,
         );
     }
+    crate::chart_fmt::border(ctx, m, whole, radius, &fmt.chart_area);
     // The file's text sizes when it has them (PowerPoint draws chart text at them); otherwise a size
-    // that suits the chart.
-    let base = c.text_size.unwrap_or_else(|| (h.min(w) / 22.0).clamp(7.0, 18.0));
-    let title_size = c.title_size.unwrap_or(base * 1.4);
+    // that suits the chart. The pane's sizes win.
+    let base = crate::chart_fmt::text_size(&fmt.chart_area).or(c.text_size).unwrap_or_else(|| (h.min(w) / 22.0).clamp(7.0, 18.0));
+    let title_size = crate::chart_fmt::text_size(&fmt.title).or(c.title_size).unwrap_or(base * 1.4);
+    let title_col = crate::chart_fmt::text_color(&fmt.title).unwrap_or(text_col);
     let mut area = Rect::new(w * 0.04, h * 0.04, w * 0.96, h * 0.96);
     if let Some(t) = &c.title {
+        if !fmt.title.shape_is_auto() {
+            let longest = t.split('\n').map(|l| l.chars().count()).max().unwrap_or(1) as f64;
+            let tw = (longest * title_size * 0.55 + title_size).min(w);
+            let lines = t.split('\n').count().max(1) as f64;
+            let r = Rect::new(w / 2.0 - tw / 2.0, area.y0 - title_size * 0.15, w / 2.0 + tw / 2.0, area.y0 + title_size * (1.2 * lines + 0.15));
+            crate::chart_fmt::part(ctx, m, r, 0.0, &fmt.title);
+        }
         label(
             ctx,
             rctx,
             m,
             t,
             Rect::new(0.0, area.y0, w, area.y0 + title_size * 1.3),
-            LabelStyle { size: title_size, align: Align::Center, anchor: Anchor::Top, col: text_col, bold: false },
+            LabelStyle { size: title_size, align: Align::Center, anchor: Anchor::Top, col: title_col, bold: false },
         );
         area.y0 += title_size * 1.7;
     }
@@ -320,7 +357,13 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     let waterfall = c.kind == ChartType::Waterfall;
     // Each legend entry: its name, its key's paint and the key's outline.
     let legend_items = build_legend_items(rctx, c, pie, waterfall);
-    area = draw_legend(ctx, &LegendDraw { rctx, chart: c, transform: m, items: &legend_items, base, text_color: text_col, width: w }, area);
+    let legend_base = crate::chart_fmt::text_size(&fmt.legend).unwrap_or(base);
+    let legend_col = crate::chart_fmt::text_color(&fmt.legend).unwrap_or(text_col);
+    area = draw_legend(
+        ctx,
+        &LegendDraw { rctx, chart: c, transform: m, items: &legend_items, base: legend_base, text_color: legend_col, width: w },
+        area,
+    );
     if pie {
         draw_pie(ctx, rctx, c, m, area, base, text_col);
         return;
@@ -373,9 +416,20 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     } else {
         Rect::new(area.x0 + gutter, area.y0, area.x1 - gutter_r, area.y1 - base * 1.8)
     };
-    if let Some(f) = &c.plot_fill {
+    crate::chart_fmt::effects(ctx, m, plot, 0.0, &fmt.plot_area);
+    let own_plot = crate::chart_fmt::fill(ctx, m, plot, 0.0, &fmt.plot_area);
+    if let Some(f) = c.plot_fill.as_ref().filter(|_| !own_plot && fmt.plot_area.fill == krub_chart_format::Fill::Auto) {
         crate::paint::fill_path(ctx, rctx, f, None, &plot.to_path(0.1), plot, m, deckcraft_geom::preset::FillMode::Norm, 1.0, rctx.pres);
     }
+    crate::chart_fmt::border(ctx, m, plot, 0.0, &fmt.plot_area);
+    // The axes' lines in the look the pane gave them: the category axis along the bottom (the
+    // left on a horizontal bar chart), the value axis along the left (the bottom).
+    let (bottom, left) = ((Point::new(plot.x0, plot.y1), Point::new(plot.x1, plot.y1)), (Point::new(plot.x0, plot.y0), Point::new(plot.x0, plot.y1)));
+    let (cat_line, val_line) = if horiz { (left, bottom) } else { (bottom, left) };
+    crate::chart_fmt::line(ctx, m, cat_line.0, cat_line.1, &fmt.category_axis);
+    crate::chart_fmt::line(ctx, m, val_line.0, val_line.1, &fmt.value_axis);
+    let val_col = crate::chart_fmt::text_color(&fmt.value_axis).unwrap_or(text_col);
+    let cat_col = crate::chart_fmt::text_color(&fmt.category_axis).unwrap_or(text_col);
     let span = positive_span(max - min);
     // Values past the axis limits (fixed ones, or zero on an axis that starts above it) stop at
     // the plot's edge.
@@ -398,7 +452,7 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
             plot,
             horiz,
             base,
-            text_color: text_col,
+            text_color: val_col,
             grid_color: grid_col,
             min,
             max,
@@ -427,7 +481,7 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     let to_x = |v: f64| xscale.map(|(lo, hi, _)| plot.x0 + (v - lo) / positive_span(hi - lo) * plot.width());
     draw_category_labels(
         ctx,
-        &CategoryLabelDrawing { rctx, chart: c, transform: m, area, plot, horiz, band, slot: &slot, xscale, base, text_color: text_col },
+        &CategoryLabelDrawing { rctx, chart: c, transform: m, area, plot, horiz, band, slot: &slot, xscale, base, text_color: cat_col },
     );
     if let Some(b) = boxes {
         crate::chartex::draw_boxes(ctx, rctx, c, b, m, plot, band, horiz, &to_v);
@@ -477,6 +531,7 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
             to_axis: &to_axis,
             zero,
             base,
+            text_color: text_col,
             error_marks: &mut err_marks,
         },
     );
@@ -537,37 +592,54 @@ fn draw_legend(ctx: &mut RenderContext, draw: &LegendDraw<'_, '_>, mut area: Rec
     let width = draw.width;
     let Some(pos) = c.legend.as_ref().filter(|_| !legend_items.is_empty()) else { return area };
     let vertical = matches!(pos.as_str(), "l" | "r" | "tr");
-    let item_ws: Vec<f64> = legend_items.iter().map(|(n, _, _)| n.chars().count() as f64 * base * 0.55 + base * 1.6).collect();
+    // Each entry's text: its own size, weight and colour (`c:legendEntry`) over the legend's.
+    let own = |i: usize| c.legend_entries.iter().find(|e| usize::try_from(e.idx).ok() == Some(i));
+    let styles: Vec<(f64, bool, Rgba)> = (0..legend_items.len())
+        .map(|i| {
+            let e = own(i);
+            let size = e.and_then(|e| e.size).filter(|v| v.is_finite() && *v > 0.0).map_or(base, |v| v.min(400.0));
+            let col = e.and_then(|e| e.color.as_ref()).map_or(text_col, |cr| rctx.color(cr, None));
+            (size, e.and_then(|e| e.bold).unwrap_or(false), col)
+        })
+        .collect();
+    let item_ws: Vec<f64> = legend_items.iter().zip(&styles).map(|((n, _, _), (sz, _, _))| n.chars().count() as f64 * sz * 0.55 + sz * 1.6).collect();
+    let tallest = styles.iter().map(|s| s.0).fold(base, f64::max);
     let size = if vertical {
-        (item_ws.iter().copied().fold(0.0, f64::max).min(width * 0.4), legend_items.len() as f64 * base * 1.5)
+        (item_ws.iter().copied().fold(0.0, f64::max).min(width * 0.4), styles.iter().map(|s| s.0 * 1.5).sum::<f64>())
     } else {
-        (item_ws.iter().sum::<f64>().min(width * 0.9), base * 1.4)
+        (item_ws.iter().sum::<f64>().min(width * 0.9), tallest * 1.4)
     };
     let (origin, plot_area) = legend_layout(pos, size, area, base, c.legend_overlay);
     area = plot_area;
+    // The legend's box as the pane formats it.
+    if !c.format.legend.shape_is_auto() {
+        let r = Rect::from_origin_size(origin, size).inflate(base * 0.4, base * 0.25);
+        crate::chart_fmt::part(ctx, m, r, 0.0, &c.format.legend);
+    }
     let (mut x, mut y) = (origin.x, origin.y);
-    for (name, paint, outline) in legend_items {
-        let key = Rect::new(x, y + base * 0.3, x + base * 0.7, y + base);
+    for ((name, paint, outline), (sz, bold, col)) in legend_items.iter().zip(&styles) {
+        let (sz, bold, col) = (*sz, *bold, *col);
+        let key = Rect::new(x, y + sz * 0.3, x + sz * 0.7, y + sz);
         fill_with(ctx, paint, key, m);
         if let Some((oc, ow)) = outline.filter(|o| o.1 > 0.0) {
             ctx.set_transform(m);
             ctx.set_paint(color(oc, 1.0));
-            ctx.set_stroke(kurbo::Stroke::new(ow.min(base * 0.2)));
+            ctx.set_stroke(kurbo::Stroke::new(ow.min(sz * 0.2)));
             ctx.stroke_path(&key.to_path(0.1));
         }
-        let tw = name.chars().count() as f64 * base * 0.55 + base;
+        let tw = name.chars().count() as f64 * sz * 0.55 + sz;
         label(
             ctx,
             rctx,
             m,
             name,
-            Rect::new(x + base, y, x + base + tw, y + base * 1.3),
-            LabelStyle { size: base, align: Align::Left, anchor: Anchor::Middle, col: text_col, bold: false },
+            Rect::new(x + sz, y, x + sz + tw, y + sz * 1.3),
+            LabelStyle { size: sz, align: Align::Left, anchor: Anchor::Middle, col, bold },
         );
         if vertical {
-            y += base * 1.5;
+            y += sz * 1.5;
         } else {
-            x += tw + base * 0.6;
+            x += tw + sz * 0.6;
         }
     }
     area
@@ -857,6 +929,7 @@ struct LineDrawing<'a, 'ctx> {
     to_axis: &'a dyn Fn(bool, f64) -> f64,
     zero: f64,
     base: f64,
+    text_color: Rgba,
     error_marks: &'a mut Vec<(f64, f64, f64, f64, bool)>,
 }
 
@@ -885,10 +958,13 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
         let col = if area_kind { series_fill(rctx, c, si, Some(s)) } else { series_line(rctx, c, si, s) };
         let series_stats = s.error_bars.as_ref().map(|_| deckcraft_model::chart::SeriesStats::of(&s.values));
         let mut pts = vec![];
+        // Each point's own value (not the stacked total), for its data label.
+        let mut values = vec![];
         // Whether the series has any x value, found once rather than per point.
         let any_x = s.x_values.iter().flatten().next().is_some();
         for i in 0..ncat {
             let Some(v) = s.values.get(i).copied().flatten() else { continue };
+            let own = v;
             let v = if stacked {
                 let base_v = acc.get(i).copied().unwrap_or(0.0);
                 if let Some(a) = acc.get_mut(i) {
@@ -913,6 +989,7 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
                 err_marks.push((x, to_axis(sec, lo), to_axis(sec, hi), base * 0.4, s.error_bars.as_ref().is_some_and(|e| e.end_cap)));
             }
             pts.push(Point::new(x, to_axis(sec, v)));
+            values.push(own);
         }
         if pts.is_empty() {
             continue;
@@ -938,6 +1015,22 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
             ctx.set_paint(color(col, 1.0));
             for q in &pts {
                 ctx.fill_path(&kurbo::Circle::new(*q, 3.5).to_path(0.1));
+            }
+        }
+        // A line series that asks for value labels (`c:dLbls/c:showVal`) shows each point's value
+        // just above it, as bars do theirs (#2066). Area series keep none (theirs sit inside the
+        // area), and scatter and bubble series, which also come here, are left as they were.
+        if matches!(kind, ChartType::Line | ChartType::LineMarkers | ChartType::StackedLine) && c.series_data_labels(s) {
+            let gap = base * 0.3 + 3.5;
+            for (q, v) in pts.iter().zip(&values) {
+                label(
+                    ctx,
+                    rctx,
+                    m,
+                    &c.data_label(s, *v),
+                    Rect::new(q.x - 40.0, q.y - gap - base * 1.4, q.x + 40.0, q.y - gap),
+                    LabelStyle { size: base * 0.9, align: Align::Center, anchor: Anchor::Bottom, col: draw.text_color, bold: false },
+                );
             }
         }
     }
@@ -1424,6 +1517,16 @@ mod tests {
     use super::*;
 
     const AREA: Rect = Rect::new(0.0, 0.0, 400.0, 300.0);
+
+    #[test]
+    fn category_by_series_cells_are_budgeted() {
+        assert!(!over_cell_budget(&Chart::sample(ChartType::Column)));
+        // Excel's maximum chart (255 series x 32,000 points) is within the budget; one more point is not.
+        assert_eq!(MAX_CHART_CELLS, 8_160_000);
+        assert!(!cells_over_budget(32_000, 255));
+        assert!(cells_over_budget(32_001, 255));
+        assert!(cells_over_budget(usize::MAX, 2));
+    }
 
     #[test]
     fn tiny_data_gets_several_ticks() {

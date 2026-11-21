@@ -494,3 +494,28 @@ fn thai_fonts_that_are_not_installed_are_flagged_unless_drawn_in_their_twin() {
         assert!(psk.is_some_and(|m| m.metric_compatible && m.shown_as.iter().any(|f| f == "TH Sarabun New")), "{found:?}");
     }
 }
+
+/// A missing Thai national font says where SIPA offers it, a Windows Thai font says it comes with
+/// Windows, and other fonts say nothing (ported from WordCraft 8331f2e6, #6826).
+#[test]
+fn a_missing_font_names_where_to_get_it() {
+    let installed = |f: &str| wordcraft_fonts::FontDb::global().families().iter().any(|x| x.eq_ignore_ascii_case(f));
+    let fonts = ["TH Niramit AS", "Angsana New", "Wordcraft Nowhere Face"];
+    if fonts.iter().any(|f| installed(f)) {
+        return; // Installed here: not missing.
+    }
+    let mut s = Session::new(wordcraft_doc::Document::from_text("One\nTwo\nThree"));
+    for (i, font) in fonts.into_iter().enumerate() {
+        s.sel = crate::Selection { anchor: Pos::body(i, 0), focus: Pos::body(i, 3) };
+        s.run("format.font", &json!({"name": font})).unwrap();
+    }
+    let out = s.run("font.missing", &json!({})).unwrap();
+    let listed = out["missing"].as_array().unwrap();
+    let of = |f: &str| listed.iter().find(|x| x["font"] == f).unwrap_or_else(|| panic!("{f} missing: {out}")).clone();
+    let niramit = of("TH Niramit AS");
+    assert_eq!(niramit["download"]["publisher"], "SIPA");
+    assert_eq!(niramit["download"]["url"], "https://www.f0nt.com/release/13-free-fonts-from-sipa/");
+    let angsana = of("Angsana New");
+    assert_eq!((angsana["download"]["windows"].as_bool(), angsana["download"]["url"].is_null()), (Some(true), true));
+    assert!(of("Wordcraft Nowhere Face").get("download").is_none());
+}

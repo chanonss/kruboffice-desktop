@@ -526,6 +526,7 @@ fn main() -> eframe::Result {
             let mut session = Session::new(doc);
             session.system_region = region;
             let mut app = WordApp::new(session, services(file_dialog, &cc.egui_ctx));
+            app.tell_about_font_downloads();
             load_prefs(&mut app);
             load_user_dictionary(&mut app);
             // A region chosen in File › Options replaces the system's for the first blank

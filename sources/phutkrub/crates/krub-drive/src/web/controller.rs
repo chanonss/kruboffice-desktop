@@ -54,6 +54,8 @@ struct State {
     epoch: u64,
     force_refresh: bool,
     files: Option<Vec<(String, String)>>,
+    /// The Drive files this browser opened or saved (`crate::recent`), kept in local storage.
+    recent: Vec<crate::recent::RecentFile>,
 }
 
 #[derive(Clone)]
@@ -90,6 +92,7 @@ impl Drive {
                 epoch: 0,
                 force_refresh: false,
                 files: None,
+                recent: Vec::new(),
             })),
             host: Rc::new(host),
             app: config.app,
@@ -99,6 +102,8 @@ impl Drive {
             project_number,
             backend: crate::backend(config.backend_url, config.backend),
         };
+        this.state.borrow_mut().recent =
+            this.storage().and_then(|s| s.get_item(&this.recent_key()).ok().flatten()).map_or_else(Vec::new, |t| crate::recent::parse(&t));
         if this.backend.is_some() {
             this.restore_session();
         }
@@ -115,6 +120,11 @@ impl Drive {
         let select = self.clone();
         let linked = self.clone();
         let save_over = self.clone();
+        let recent = self.clone();
+        let open_recent = self.clone();
+        let forget = self.clone();
+        let note = self.clone();
+        let relink = self.clone();
         DriveServices {
             status: Box::new(move || status.status()),
             connect: Box::new(move || connect.connect()),
@@ -122,13 +132,115 @@ impl Drive {
             open: Box::new(move |document, revision| open.open(document, revision)),
             files: Box::new(move || files.state.borrow().files.clone()),
             select_file: Box::new(move |id, document, revision| select.select_file(id, document, revision)),
-            save_copy: Box::new(move |name, bytes| save.save_copy(name, bytes)),
+            save_copy: Box::new(move |document, revision, name, bytes| save.save_copy(document, revision, name, bytes)),
             linked_name: Box::new(move |document| {
                 let state = linked.state.borrow();
                 state.linked.as_ref().filter(|(linked, _)| *linked == document).map(|(_, file)| file.name.clone())
             }),
             save_over: Box::new(move |document, revision, bytes| save_over.save_over(document, revision, bytes)),
+            recent: Box::new(move |language| recent.recent(language)),
+            open_recent: Box::new(move |id, document, revision| open_recent.open_recent(id, document, revision)),
+            forget_recent: Box::new(move |id| {
+                if crate::recent::forget(&mut forget.state.borrow_mut().recent, &id) {
+                    forget.keep_recent();
+                }
+            }),
+            note_draft: Box::new(move |document, draft| note.note_draft(document, draft)),
+            relink_draft: Box::new(move |draft, document| relink.relink_draft(&draft, document)),
         }
+    }
+
+    fn storage(&self) -> Option<web_sys::Storage> {
+        web_sys::window()?.local_storage().ok().flatten()
+    }
+
+    fn recent_key(&self) -> String {
+        format!("krub-drive.{}.recent", self.app)
+    }
+
+    /// Write the recent list to local storage (best effort: a full or blocked storage only loses
+    /// the list, never a document).
+    fn keep_recent(&self) {
+        let json = crate::recent::to_json(&self.state.borrow().recent);
+        if let Some(storage) = self.storage() {
+            let _ = storage.set_item(&self.recent_key(), &json);
+        }
+    }
+
+    /// File `file` is now the document's, as opened or saved just now.
+    fn remember(&self, file: &DriveFile) {
+        crate::recent::upsert(&mut self.state.borrow_mut().recent, &file.id, &file.name, &file.version, js_sys::Date::now());
+        self.keep_recent();
+    }
+
+    fn recent(&self, language: &str) -> Vec<crate::RecentDriveFile> {
+        let locale = if language == "th" { "th-TH" } else { "en-GB" };
+        self.state
+            .borrow()
+            .recent
+            .iter()
+            .map(|f| {
+                let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(f.at));
+                let when = date.to_locale_string(locale, &wasm_bindgen::JsValue::UNDEFINED).as_string().unwrap_or_default();
+                crate::RecentDriveFile { id: f.id.clone(), name: f.name.clone(), when, draft: f.draft.clone() }
+            })
+            .collect()
+    }
+
+    fn note_draft(&self, document: u64, draft: Option<String>) {
+        let changed = {
+            let mut state = self.state.borrow_mut();
+            let Some(id) = state.linked.as_ref().filter(|(linked, _)| *linked == document).map(|(_, f)| f.id.clone()) else { return };
+            crate::recent::set_draft(&mut state.recent, &id, draft.as_deref())
+        };
+        if changed {
+            self.keep_recent();
+        }
+    }
+
+    fn relink_draft(&self, draft: &str, document: u64) -> bool {
+        let mut state = self.state.borrow_mut();
+        let Some(file) =
+            crate::recent::by_draft(&state.recent, draft).map(|f| DriveFile { id: f.id.clone(), name: f.name.clone(), version: f.version.clone() })
+        else {
+            return false;
+        };
+        state.linked = Some((document, file));
+        true
+    }
+
+    /// Open a file from the recent list as it is on Drive now.
+    fn open_recent(&self, id: String, document: u64, revision: u64) {
+        let Some(token) = self.token() else {
+            if !self.queue_refresh(move |drive| drive.open_recent(id, document, revision)) {
+                self.notify("Please connect Google Drive first.");
+            }
+            return;
+        };
+        let name = {
+            let state = self.state.borrow();
+            if state.phase != Phase::Connected {
+                return;
+            }
+            state.recent.iter().find(|f| f.id == id).map(|f| f.name.clone())
+        };
+        let Some(name) = name else { return };
+        self.state.borrow_mut().phase = Phase::Working;
+        let this = self.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = fetch(&token, &id, &name).await;
+            this.expired(&result);
+            match result {
+                Ok((bytes, fetched)) => {
+                    let mut state = this.state.borrow_mut();
+                    state.opened = Some((document, revision, name, bytes));
+                    state.fetched = fetched;
+                }
+                Err(_) => this.notify("Could not open the Google Drive file."),
+            }
+            this.state.borrow_mut().phase = Phase::Connected;
+            this.repaint();
+        });
     }
 
     pub fn take_opened(&self) -> Option<Opened> {
@@ -143,7 +255,9 @@ impl Drive {
         if let Some(document) = document
             && name == Some(file.name.as_str())
         {
-            state.linked = Some((document, file));
+            drop(state);
+            self.remember(&file);
+            self.state.borrow_mut().linked = Some((document, file));
         }
     }
 
@@ -528,9 +642,9 @@ impl Drive {
         });
     }
 
-    fn save_copy(&self, name: String, bytes: Vec<u8>) {
+    fn save_copy(&self, document: u64, revision: u64, name: String, bytes: Vec<u8>) {
         let Some(token) = self.token() else {
-            if !self.queue_refresh(move |drive| drive.save_copy(name, bytes)) {
+            if !self.queue_refresh(move |drive| drive.save_copy(document, revision, name, bytes)) {
                 self.notify("Please connect Google Drive first.");
             }
             return;
@@ -544,6 +658,16 @@ impl Drive {
         wasm_bindgen_futures::spawn_local(async move {
             let result = api::upload_copy(&token, this.kind, &name, &bytes).await;
             this.expired(&result);
+            // The document is the new file from now on: saved back to it, and on the recent list.
+            if let Ok(id) = &result
+                && let Ok(version) = api::version(&token, id).await
+            {
+                let file = DriveFile { id: id.clone(), name: name.clone(), version };
+                this.remember(&file);
+                let mut state = this.state.borrow_mut();
+                state.linked = Some((document, file));
+                state.saved = Some((document, revision));
+            }
             this.host.busy.set(false);
             this.state.borrow_mut().phase = Phase::Connected;
             this.notify(match result {
@@ -594,13 +718,21 @@ impl Drive {
             this.host.busy.set(false);
             let mut state = this.state.borrow_mut();
             state.phase = Phase::Connected;
+            let mut saved_file = None;
             if let Ok(version) = &result {
                 if let Some((_, file)) = state.linked.as_mut().filter(|(linked, file)| *linked == document && file.id == id) {
                     file.version = version.clone();
+                    saved_file = Some(DriveFile { id: file.id.clone(), name: file.name.clone(), version: version.clone() });
                 }
                 state.saved = Some((document, revision));
             }
             drop(state);
+            // Saved: the file's newest version is on the list and it has no unsaved changes here.
+            if let Some(file) = saved_file {
+                this.remember(&file);
+                crate::recent::set_draft(&mut this.state.borrow_mut().recent, &file.id, None);
+                this.keep_recent();
+            }
             this.notify(match result {
                 Ok(_) => "Saved to Google Drive.",
                 Err(error) if error == "changed" => "This file changed on Google Drive after you opened it. Save a new copy instead.",

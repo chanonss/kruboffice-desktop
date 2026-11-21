@@ -184,7 +184,7 @@ fn font_group(app: &mut SlideApp, ui: &mut Ui, st: &Value) {
                 let theme_fonts: Vec<String> = fams.iter().take(2).cloned().collect();
                 // Theme fonts, then the pinned fonts and every font ([`krub_icons::fonts`]); the list
                 // stays open while fonts are pinned in it.
-                widgets::dropdown_closing(ui, "font", &font, 150.0, en, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                widgets::dropdown_closing(ui, "Font", &font, 150.0, en, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
                     let themed = if theme_fonts.len() == 2 { 2 } else { 0 };
                     let style = widgets::pin_style(ui);
                     let pins = krub_icons::fonts::pinned(ui.ctx());
@@ -228,8 +228,8 @@ fn font_group(app: &mut SlideApp, ui: &mut Ui, st: &Value) {
                     }
                 });
                 let size_text = size.map(|s| widgets::fmt_num(s, "")).unwrap_or_default();
-                dropdown(ui, "size", &size_text, 52.0, en, |ui| {
-                    for s in deckcraft_engine::cmd::format::SIZES.iter().chain([72.0, 80.0, 88.0, 96.0].iter()) {
+                dropdown(ui, "Font size", &size_text, 52.0, en, |ui| {
+                    for s in deckcraft_engine::cmd::format::SIZES.iter() {
                         if ui.button(widgets::fmt_num(*s, "")).clicked() {
                             run(app, "format.size", json!({"size": s}));
                             ui.close();
@@ -416,7 +416,7 @@ fn paragraph_group(app: &mut SlideApp, ui: &mut Ui, st: &Value) {
                         }
                     }
                 });
-                let r = icon_toggle(ui, Icon::SmartArt, tl!("Convert to SmartArt"), enabled(app, "smartArt.fromText"), false);
+                let r = icon_toggle(ui, Icon::SmartArt, tl!("Convert to Diagram"), enabled(app, "smartArt.fromText"), false);
                 egui::Popup::menu(&r).show(|ui| smartart_gallery(app, ui, "smartArt.fromText", json!({}), "", ("", ""), None));
             });
         });

@@ -795,9 +795,11 @@ fn add_entry_style(s: &mut Session) {
     }
 }
 
-fn page_of(s: &mut Session, pos: &Pos) -> u32 {
+/// The page holding `pos`: its index in the layout (to order and deduplicate by) and its number
+/// in its section's format (`ii`, `ก`), as the list writes it. Page "1" when no page holds it.
+fn page_of(s: &mut Session, formats: &[wordcraft_doc::section::NumFormat], pos: &Pos) -> (usize, String) {
     let l = s.layout();
-    l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1)
+    super::references::page_label_or_first(&l, formats, pos)
 }
 
 /// Entry lines (text, hanging indent) for a generated list.
@@ -832,7 +834,7 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
             }
         }
     }
-    let mut with_pages: Vec<(String, u32)> = marks.into_iter().map(|(e, _)| (e, 0)).collect();
+    let mut with_pages: Vec<(String, (usize, String))> = marks.into_iter().map(|(e, _)| (e, (0, String::new()))).collect();
     // Pages (layout once).
     let positions: Vec<Pos> = {
         let mut v = Vec::new();
@@ -855,21 +857,23 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
         }
         v
     };
+    let formats = super::references::page_formats(s);
     for (i, pos) in positions.iter().enumerate() {
-        let pg = page_of(s, pos);
+        let pg = page_of(s, &formats, pos);
         if let Some(x) = with_pages.get_mut(i) {
             x.1 = pg;
         }
     }
     if kind.starts_with("TOC \\c") {
-        return with_pages.into_iter().map(|(t, p)| (format!("{t}\t{p}"), false)).collect();
+        return with_pages.into_iter().map(|(t, p)| (format!("{t}\t{}", p.1), false)).collect();
     }
     // Index / TOA: group by entry, sort, list pages.
     let lang = super::default_lang(s);
-    let mut grouped: std::collections::BTreeMap<(SortKey, String), Vec<u32>> = Default::default();
+    // Each page once, in page order (by its place in the layout, not its label: `ii` before `1`).
+    let mut grouped: std::collections::BTreeMap<(SortKey, String), Vec<(usize, String)>> = Default::default();
     for (e, p) in with_pages {
         let pages = grouped.entry((sort_key(&e, lang.as_deref()), e)).or_default();
-        if !pages.contains(&p) {
+        if !pages.iter().any(|(i, _)| *i == p.0) {
             pages.push(p);
         }
     }
@@ -883,7 +887,7 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
                 out.push((l, false));
             }
         }
-        let list = pages.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
+        let list = pages.iter().map(|(_, label)| label.as_str()).collect::<Vec<_>>().join(", ");
         out.push(if kind.starts_with("INDEX") { (format!("{e}, {list}"), true) } else { (format!("{e}\t{list}"), false) });
     }
     out
@@ -898,9 +902,10 @@ fn cross_ref(s: &mut Session, v: &Value) -> CmdResult {
     let find = |ts: Vec<(String, Pos)>| ts.into_iter().find(|(t, _)| t == target || t.starts_with(target));
     let (text, pos) = find(targets).ok_or_else(|| CmdError::Params(format!("no {to} `{target}`")))?;
     let show = p::str(v, "show").unwrap_or("text");
-    let page = page_of(s, &pos);
+    let formats = super::references::page_formats(s);
+    let page = page_of(s, &formats, &pos).1;
     let result = match show {
-        "page" => page.to_string(),
+        "page" => page.clone(),
         "number" => text.split(':').next().unwrap_or(&text).trim().to_string(),
         "aboveBelow" => {
             if pos < s.sel.focus {

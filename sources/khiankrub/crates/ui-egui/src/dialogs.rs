@@ -157,6 +157,11 @@ pub enum Dialog {
         form: Box<crate::dialogs_character::CharForm>,
         /// The selected text, for the preview.
         sample: String,
+        /// Formatting a bullet for Define New Bullet (#2786): OK hands the font, size, bold,
+        /// italic and colour back to that dialog instead of formatting the text, and Cancel goes
+        /// back to it unchanged.
+        #[serde(skip)]
+        bullet: Option<Box<crate::dialogs_bullet::DefineBulletForm>>,
     },
     Paragraph {
         /// Right-to-left reading order (Direction in Word's Paragraph dialog).
@@ -368,6 +373,12 @@ pub enum Dialog {
     },
     /// TH Sarabun New, the font of new documents, isn't installed: offer its download page
     /// (shown once at launch, unless turned off).
+    /// The document's missing fonts KhianKrub knows where to get, and how ([`crate::font_download`]).
+    FontDownload {
+        fonts: Vec<crate::font_download::Row>,
+        /// "Don't show this again".
+        dont_show: bool,
+    },
     MissingFont {
         dont_remind: bool,
     },
@@ -557,6 +568,11 @@ pub struct TableForm {
     pub column_width: f32,
     /// Every grid column's width (display units), in order.
     pub column_widths: Vec<f32>,
+    /// Which grid columns are automatic (no set width: they share what the others leave).
+    pub column_auto: Vec<bool>,
+    /// The column whose width box is hovered or being typed in (not a document property).
+    #[serde(skip)]
+    pub hot_column: Option<usize>,
     /// Every paragraph in the table keeps with the next one.
     pub keep_with_next: bool,
     pub cell_width_on: bool,
@@ -621,6 +637,8 @@ impl TableForm {
             header_row: row.header,
             column_width: fin(t.grid.get(t.grid_col(r, c)).copied().unwrap_or(72.0)) / k,
             column_widths: t.grid.iter().map(|w| fin(*w) / k).collect(),
+            column_auto: t.auto_columns(),
+            hot_column: None,
             keep_with_next: t.rows.iter().flat_map(|r| &r.cells).flat_map(|c| &c.blocks).filter_map(|b| b.as_para()).count() > 0
                 && t.rows.iter().flat_map(|r| &r.cells).flat_map(|c| &c.blocks).filter_map(|b| b.as_para()).all(|p| p.props.keep_next == Some(true)),
             cell_width_on: cell.width.is_some(),
@@ -632,6 +650,37 @@ impl TableForm {
             }
             .into(),
             margins: wordcraft_layout::default_cell_margins(&s.doc, t).map(|m| fin(m) / k),
+        })
+    }
+
+    /// The grid columns being adjusted: those whose width or automatic setting differs from
+    /// `basis`, and the one whose box is hovered or focused.
+    pub fn adjusted_columns(&self, basis: &TableForm) -> Vec<usize> {
+        let moved = |a: f32, b: f32| (a - b).abs() > 1e-4;
+        let mut v: Vec<usize> = (0..self.column_widths.len())
+            .filter(|&i| {
+                self.column_auto.get(i) != basis.column_auto.get(i)
+                    || !self.column_auto.get(i).copied().unwrap_or(false)
+                        && moved(self.column_widths.get(i).copied().unwrap_or(0.0), basis.column_widths.get(i).copied().unwrap_or(0.0))
+            })
+            .collect();
+        if let Some(h) = self.hot_column.filter(|h| !v.contains(h)) {
+            v.push(h);
+        }
+        v
+    }
+
+    /// `columnWidths` for `table.properties` (`null` for an automatic column) when a width or
+    /// an automatic setting differs from `basis`.
+    pub fn column_widths_param(&self, basis: &TableForm) -> Option<Value> {
+        let k = crate::options::unit().pt_per_unit();
+        let moved = |a: f32, b: f32| (a - b).abs() > 1e-4;
+        let same_len = self.column_widths.len() == basis.column_widths.len() && self.column_auto.len() == self.column_widths.len();
+        let differs = self.column_widths.iter().zip(&basis.column_widths).any(|(a, b)| moved(*a, *b)) || self.column_auto != basis.column_auto;
+        (same_len && differs).then(|| {
+            json!(
+                self.column_widths.iter().zip(&self.column_auto).map(|(w, auto)| if *auto { Value::Null } else { json!(w * k) }).collect::<Vec<_>>()
+            )
         })
     }
 
@@ -684,8 +733,8 @@ impl TableForm {
         if self.header_row != basis.header_row {
             v.insert("headerRow".into(), json!(self.header_row));
         }
-        if self.column_widths.len() == basis.column_widths.len() && self.column_widths.iter().zip(&basis.column_widths).any(|(a, b)| moved(*a, *b)) {
-            v.insert("columnWidths".into(), json!(self.column_widths.iter().map(|w| w * k).collect::<Vec<_>>()));
+        if let Some(widths) = self.column_widths_param(basis) {
+            v.insert("columnWidths".into(), widths);
         } else if moved(self.column_width, basis.column_width) {
             v.insert("columnWidth".into(), json!(self.column_width * k));
         }
@@ -882,6 +931,7 @@ impl Dialog {
             Dialog::SaveChanges { .. } => "saveChanges",
             Dialog::DiscardRecovery { .. } => "discardRecovery",
             Dialog::MissingFont { .. } => "missingFont",
+            Dialog::FontDownload { .. } => "fontDownload",
             Dialog::UpdateStatus { .. } => "updateStatus",
             Dialog::UpdatePermission => "updatePermission",
             Dialog::RecipientList { .. } => "recipientList",
@@ -943,9 +993,11 @@ impl Dialog {
         let st = app.session.run("format.state", &json!({})).unwrap_or_default();
         let s = |k: &str| st.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         Some(match name {
+            "fontDownload" => crate::font_download::open(app),
             "font" => Dialog::Font {
                 form: Box::new(crate::dialogs_character::CharForm::from_state(app, &st)),
                 sample: crate::dialogs_character::preview_text(app),
+                bullet: None,
             },
             "paragraph" | "asianTypography" => {
                 let tab = if name == "asianTypography" { 2 } else { 0 };
@@ -1249,11 +1301,66 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
     }
 }
 
+/// KhianKrub's tables for the shared About dialog: who wrote WordCraft and which AI models
+/// helped (left out of the web build, which doesn't carry them).
+struct AboutHost;
+
+impl krub_icons::about::Host for AboutHost {
+    fn contributors(&mut self, ui: &mut Ui) {
+        crate::credits::contributors_ui(ui);
+    }
+    fn models(&mut self, ui: &mut Ui) {
+        crate::credits::models_ui(ui);
+    }
+    fn has_credits(&self) -> bool {
+        !cfg!(target_arch = "wasm32")
+    }
+}
+
+/// One frame of the shared About dialog; `true` once it closed. `tab` is its open tab
+/// (About, Contributors, AI models, Licences).
+fn about(ctx: &egui::Context, tab: &mut u8) -> bool {
+    let t = crate::theme::Tokens::get(ctx);
+    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s));
+    let (source_label, source_url) = if cfg!(target_arch = "wasm32") {
+        ("github.com/chanonss/khiankrub-web", "https://github.com/chanonss/khiankrub-web")
+    } else {
+        (tl!("KrubOffice on GitHub"), "https://github.com/chanonss/kruboffice-desktop")
+    };
+    let info = krub_icons::about::Info {
+        name: tl!("KhianKrub").to_string(),
+        english: "KhianKrub",
+        letter: "ข",
+        color: t.title_bar,
+        version: env!("CARGO_PKG_VERSION"),
+        build,
+        tagline: tl!("A free, open-source word processor for Thai and English.").to_string(),
+        upstream: "WordCraft",
+        upstream_url: "https://github.com/storytold/wordcraft",
+        source_label: source_label.to_string(),
+        source_url,
+        credits: vec![(tl!("Contributed patches").to_string(), "KhianKrub Plus".to_string())],
+    };
+    let mut i = usize::from(*tab);
+    let closed = krub_icons::about::show(ctx, &info, &mut i, &|s: &str| tl!(s).to_string(), &mut AboutHost);
+    *tab = u8::try_from(i).unwrap_or(0);
+    closed
+}
+
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
+    drop_stale_table_preview(app);
     let Some(mut d) = app.dialog.take() else {
         ctx.data_mut(|d| d.remove::<(egui::Id, u8)>(dialog_top_key()));
         return;
     };
+    // About is the dialog shared by the three KrubOffice apps (owner, 2026-11-18), drawn by
+    // `krub_icons::about` with its own frame, not this module's window.
+    if let Dialog::About { tab } = &mut d {
+        if !about(ctx, tab) {
+            app.dialog = Some(d);
+        }
+        return;
+    }
     let mut open = true;
     let mut close = false;
     let title = match &d {
@@ -1285,6 +1392,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::SaveChanges { .. } => "KhianKrub",
         Dialog::DiscardRecovery { .. } => "Discard recovery copy",
         Dialog::MissingFont { .. } => "Font Not Installed",
+        Dialog::FontDownload { .. } => "Get the Missing Fonts",
         Dialog::UpdateStatus { .. } => "Check for Updates",
         Dialog::UpdatePermission => "Updates",
         Dialog::RecipientList { .. } => "Recipient List",
@@ -1341,11 +1449,31 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     if shown.is_some() {
         count_dialog_frame(ctx, id);
     }
+    if !open && !close && back_to_bullet(app, &mut d) {
+        // The title bar's close box is Cancel: a dialog opened from Define New Bullet goes back
+        // to it, as its Cancel button does (#2786).
+        return;
+    }
     if open && !close {
         app.dialog = Some(d);
     } else {
         app.canvas.want_focus = true;
     }
+}
+
+/// Back to Define New Bullet from a Character or Symbol dialog it opened, when `d` is one (#2786).
+pub(crate) fn back_to_bullet(app: &mut WordApp, d: &mut Dialog) -> bool {
+    let form = match d {
+        Dialog::Font { bullet, .. } => bullet.take().map(|b| *b),
+        Dialog::Insert(i) => match i.as_mut() {
+            crate::dialogs_insert::InsertDialog::Symbol(f) => f.bullet.take().map(|b| *b),
+            _ => None,
+        },
+        _ => None,
+    };
+    let Some(form) = form else { return false };
+    app.dialog = Some(Dialog::Insert(Box::new(crate::dialogs_insert::InsertDialog::DefineBullet(form))));
+    true
 }
 
 /// Labels of Page Setup's paper size (#1433), in one place in case Word's wording differs.
@@ -1427,6 +1555,92 @@ fn page_layout_commands(
     } else {
         vec![orientation, ("layout.margins", json!({"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0})), size, margins]
     })
+}
+
+/// What Table Properties has put on the page ahead of OK: the document as it was, and the
+/// column settings applied over it.
+pub(crate) struct TablePreview {
+    pub(crate) snapshot: wordcraft_engine::EditSnapshot,
+    applied: Option<Value>,
+}
+
+/// Owner, 2026-11-17: column widths in Table Properties show on the page as they change, without
+/// OK, and the columns being adjusted are tinted. Each change puts the document back as it was
+/// before the dialog's first one and applies the dialog's column settings again, so the preview
+/// leaves no undo steps of its own; OK and Cancel restore it first.
+fn preview_column_widths(app: &mut WordApp, form: &TableForm, basis: &TableForm) {
+    app.column_highlight = form.adjusted_columns(basis);
+    let want = form.column_widths_param(basis);
+    if app.table_preview.as_ref().map_or(want.is_none(), |p| p.applied == want) {
+        return;
+    }
+    let snapshot = match app.table_preview.take() {
+        Some(p) => {
+            app.session.restore(p.snapshot.clone());
+            p.snapshot
+        }
+        None => app.session.edit_snapshot(),
+    };
+    if let Some(widths) = &want
+        && app.run("table.properties", json!({"columnWidths": widths})).is_err()
+    {
+        app.session.restore(snapshot);
+        return;
+    }
+    app.table_preview = Some(TablePreview { snapshot, applied: want });
+}
+
+/// Tint the cells of the grid columns Table Properties is adjusting ([`WordApp::column_highlight`])
+/// in the caret's table, on every page it is drawn on.
+pub(crate) fn paint_column_highlight(
+    app: &WordApp,
+    painter: &egui::Painter,
+    t: &crate::theme::Tokens,
+    layout: &wordcraft_layout::DocLayout,
+    rects: &[egui::Rect],
+    scale: f32,
+) {
+    if app.column_highlight.is_empty() {
+        return;
+    }
+    let story = app.session.sel.focus.story;
+    let Some((tp, _, _)) = app.session.sel.focus.path.cell() else { return };
+    let Some(table) = app.session.doc.table(story, &tp) else { return };
+    let fill = t.accent.gamma_multiply(0.18);
+    let edge = egui::Stroke::new(1.5, t.accent);
+    for (pi, page) in layout.pages.iter().enumerate() {
+        for it in &page.items {
+            let wordcraft_layout::Placed::Cell { rect, covered: false, table: cp, row, cell, story: st, .. } = it else { continue };
+            if *cp != tp || *st != story {
+                continue;
+            }
+            let g = table.grid_col(*row, *cell);
+            let span = table.rows.get(*row).and_then(|r| r.cells.get(*cell)).map_or(1, |c| c.span());
+            if !(g..g + span).any(|x| app.column_highlight.contains(&x)) {
+                continue;
+            }
+            let (Some(a), Some(b)) = (
+                crate::table_resize::to_screen(rects, layout, scale, pi, rect.x, rect.y),
+                crate::table_resize::to_screen(rects, layout, scale, pi, rect.x + rect.w, rect.y + rect.h),
+            ) else {
+                continue;
+            };
+            let r = egui::Rect::from_min_max(a, b);
+            painter.rect_filled(r, 0.0, fill);
+            painter.rect_stroke(r, 0.0, edge, egui::StrokeKind::Inside);
+        }
+    }
+}
+
+/// A Table Properties preview left behind when the dialog closed some other way (Esc, its close
+/// button, another dialog): the document goes back as it was.
+pub(crate) fn drop_stale_table_preview(app: &mut WordApp) {
+    if !matches!(app.dialog, Some(Dialog::TableProperties { .. })) {
+        app.column_highlight.clear();
+        if let Some(p) = app.table_preview.take() {
+            app.session.restore(p.snapshot);
+        }
+    }
 }
 
 /// Run a dialog's commands as one undo step. If one fails, put the document and the undo stack
@@ -1537,7 +1751,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             false
         }
 
-        Dialog::Font { form, sample } => crate::dialogs_character::body(app, ui, form, sample),
+        Dialog::Font { form, sample, bullet } => crate::dialogs_character::body(app, ui, form, sample, bullet),
         Dialog::Paragraph {
             rtl,
             align,
@@ -1852,11 +2066,20 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 form.page = page;
             }
             let (ok, cancel) = buttons(ui, tl!("OK"));
-            if ok {
-                let changes = form.changes(basis);
-                if changes.as_object().is_some_and(|m| !m.is_empty()) {
-                    let _ = app.run("table.properties", changes);
+            if ok || cancel {
+                app.column_highlight.clear();
+                // The preview goes; OK applies everything once, as one undo step.
+                if let Some(p) = app.table_preview.take() {
+                    app.session.restore(p.snapshot);
                 }
+                if ok {
+                    let changes = form.changes(basis);
+                    if changes.as_object().is_some_and(|m| !m.is_empty()) {
+                        let _ = app.run("table.properties", changes);
+                    }
+                }
+            } else {
+                preview_column_widths(app, form, basis);
             }
             ok || cancel
         }
@@ -2363,59 +2586,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::About { tab } => {
-            ui.set_width(660.0);
-            if cfg!(target_arch = "wasm32") {
-                *tab = 0;
-            }
-            if !cfg!(target_arch = "wasm32") {
-                ui.horizontal(|ui| {
-                    for (i, l) in ["About", "Contributors", "Models"].into_iter().enumerate() {
-                        let i = i as u8;
-                        if ui.steady_label(*tab == i, tl!(l)).clicked() {
-                            *tab = i;
-                        }
-                    }
-                });
-            }
-            ui.separator();
-            match *tab {
-                1 => crate::credits::contributors_ui(ui),
-                2 => crate::credits::models_ui(ui),
-                _ => {
-                    ui.label(egui::RichText::new(tl!("KhianKrub")).font(semibold(22.0)));
-                    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
-                    ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
-                    let description = if cfg!(target_arch = "wasm32") {
-                        tl!("A free word processor for Thai and English.\nBased on WordCraft by the ArtCraft team. Fork by Chanon Sarasuk.")
-                    } else {
-                        tl!(
-                            "A free, open-source word processor for Thai and English.\nBased on WordCraft by the ArtCraft team. Fork by Chanon Sarasuk."
-                        )
-                    };
-                    ui.label(description);
-                    ui.add_space(6.0);
-                    if cfg!(target_arch = "wasm32") {
-                        ui.hyperlink_to("github.com/chanonss/khiankrub-web", "https://github.com/chanonss/khiankrub-web");
-                    } else {
-                        ui.hyperlink_to(tl!("KrubOffice: github.com/chanonss/kruboffice-desktop"), "https://github.com/chanonss/kruboffice-desktop");
-                    }
-                    ui.hyperlink_to(tl!("Original project: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
-                    ui.add_space(6.0);
-                    krub_icons::tabler_credit(ui, tl!("Icons from Tabler Icons by Paweł Kuna (MIT License)"), tl!("Tabler Icons license"));
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new(tl!(
-                            "MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors. Modifications copyright (c) 2026 Chanon Sarasuk."
-                        ))
-                        .small()
-                        .weak(),
-                    );
-                }
-            }
-            let (ok, cancel) = buttons(ui, tl!("Close"));
-            ok || cancel
-        }
+        // Drawn by `about` before the window opens.
+        Dialog::About { .. } => true,
         Dialog::DiscardRecovery { name, .. } => {
             ui.label(crate::i18n::fmt(tl!("Discard the recovery copy of {name}?"), &[("name", name)]));
             ui.label(tl!("This cannot be undone. Your original file stays unchanged."));
@@ -2442,6 +2614,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             false
         }
+        Dialog::FontDownload { fonts, dont_show } => crate::font_download::body(app, ui, fonts, dont_show),
         Dialog::MissingFont { dont_remind } => {
             let font = wordcraft_doc::styles::THAI_FONT;
             ui.label(egui::RichText::new(crate::i18n::fmt(tl!("{font} is not installed"), &[("font", font)])).font(semibold(15.0)));
@@ -3145,12 +3318,7 @@ fn table_properties(app: &WordApp, ui: &mut Ui, f: &mut TableForm) {
                 egui::Grid::new("tp_border_line").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
                     ui.label(tl!("Style:"));
                     let styles = [("single", "Single"), ("double", "Double"), ("dotted", "Dotted"), ("dashed", "Dashed")];
-                    let label = styles.iter().find(|(value, _)| *value == f.border_style).map_or(f.border_style.as_str(), |(_, label)| *label);
-                    egui::ComboBox::from_id_salt("tp_border_style").selected_text(tl!(label)).show_ui(ui, |ui| {
-                        for (value, label) in styles {
-                            ui.steady_value(&mut f.border_style, value.to_string(), tl!(label));
-                        }
-                    });
+                    crate::line_looks::names(ui, egui::Id::new("tp_border_style"), 120.0, &mut f.border_style, &styles);
                     ui.end_row();
                     ui.label(tl!("Width (pt):"));
                     ui.add(crate::numfield::NumField::new(&mut f.border_width).range(0.25..=6.0).speed(0.25).max_decimals(2));
@@ -3207,15 +3375,27 @@ fn table_properties(app: &WordApp, ui: &mut Ui, f: &mut TableForm) {
             if f.page == 2 {
                 heading(ui, "Column");
                 // Every column of the table, so each width can be set here, not only the caret's.
+                // A column set to Automatic has no width of its own: it takes what the others leave
+                // of the table's width. The page shows each change as it's made, the columns being
+                // adjusted tinted.
+                f.hot_column = None;
                 egui::ScrollArea::vertical().max_height(220.0).id_salt("tp_col_scroll").show(ui, |ui| {
-                    egui::Grid::new("tp_col").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-                        for (i, w) in f.column_widths.iter_mut().enumerate() {
-                            ui.label(format!("{} {}:", tl!("Column"), i + 1));
-                            ui.add(len(w, 0.1, unit));
+                    egui::Grid::new("tp_col").num_columns(3).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+                        let n = f.column_widths.len();
+                        f.column_auto.resize(n, false);
+                        for i in 0..n {
+                            let label = ui.label(format!("{} {}:", tl!("Column"), i + 1));
+                            let auto = f.column_auto[i];
+                            let field = ui.add_enabled(!auto, len(&mut f.column_widths[i], 0.1, unit));
+                            let check = ui.checkbox(&mut f.column_auto[i], tl!("Automatic"));
                             ui.end_row();
+                            if label.hovered() || field.hovered() || field.has_focus() || check.hovered() {
+                                f.hot_column = Some(i);
+                            }
                         }
                     });
                 });
+                ui.label(egui::RichText::new(tl!("Automatic columns share the width the other columns leave.")).small().weak());
             }
             if f.page == 3 {
                 heading(ui, "Cell");

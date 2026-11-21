@@ -104,6 +104,26 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"on"?: bool} (no value: switch the data labels on or off)"#)
         .when(has_chart),
+        // The shared chart pane (owner, 2026-11-19): one change to one part of the chart.
+        CommandSpec::new("chart.format", "Format Chart", "Format › Current Selection › Format Selection", |s, v| {
+            let part = p::str(v, "part").and_then(krub_chart_format::part_from_id).ok_or_else(|| {
+                CmdError::Params("`part`: chartArea|plotArea|title|legend|categoryAxis|valueAxis|gridlines|series1…".into())
+            })?;
+            let key = p::str(v, "edit").ok_or_else(|| CmdError::Params("`edit` names the change: fill, borderColor, shadow…".into()))?;
+            let value = match v.get("value") {
+                Some(Value::String(t)) => t.clone(),
+                Some(Value::Bool(b)) => b.to_string(),
+                Some(Value::Number(n)) => n.to_string(),
+                _ => "true".to_string(),
+            };
+            let e = krub_chart_format::Edit::from_pair(key, &value).ok_or_else(|| CmdError::Params("`edit` and `value` don't go together".into()))?;
+            edit(s, move |c| {
+                c.format.apply(part, &e);
+                Ok(())
+            })
+        })
+        .params(r#"{"part": "chartArea|plotArea|title|legend|categoryAxis|valueAxis|gridlines|series1…", "edit": "fill|fillColor|fillTransparency|border|borderColor|borderWidth|borderTransparency|compound|dash|roundedCorners|shadow|shadowColor|shadowTransparency|shadowBlur|shadowAngle|shadowDistance|glowSize|glowColor|glowTransparency|softEdge|textFill|textColor|textTransparency|textOutline|textOutlineColor|textOutlineWidth|fontSize|reset", "value": "auto|none|solid, RRGGBB, a number (pt, %, degrees), true|false; fontSize auto"}"#)
+        .when(has_chart),
     ]
 }
 

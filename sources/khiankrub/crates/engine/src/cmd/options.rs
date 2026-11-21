@@ -246,6 +246,8 @@ fn dictionaries_folder(f: &str) -> Result<Option<String>, CmdError> {
     if !path.is_absolute() {
         return Err(CmdError::Params(format!("`dictionariesFolder`: {f:?} isn't a full path")));
     }
+    // Its files are read from now on, and on every start: only from inside the read root (#3737).
+    crate::file_access::check_read(&path.to_string_lossy()).map_err(CmdError::Failed)?;
     if !path.is_dir() {
         return Err(CmdError::Failed(format!("no folder at {}", path.display())));
     }

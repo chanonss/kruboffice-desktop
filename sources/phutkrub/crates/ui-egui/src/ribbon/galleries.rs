@@ -124,46 +124,21 @@ pub(super) fn smartart_gallery(
     });
 }
 
-/// Shapes gallery popup body: every preset by category. Returns the chosen preset.
+/// Shapes gallery popup body: the shared Insert › Shapes menu (owner, 2026-11-19;
+/// `krub_icons::shape_gallery`): recently used, then every preset by group, the freeform tools in
+/// the Lines row and Action Buttons last. Returns the chosen preset or tool.
 pub fn shapes_gallery(ui: &mut Ui) -> Option<&'static str> {
-    let t = Tokens::get(ui.ctx());
-    let mut out = None;
-    ui.set_max_width(330.0);
-    egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-        for cat in deckcraft_geom::preset::Category::ALL {
-            ui.label(egui::RichText::new(crate::i18n::tc("shapes", cat.label())).font(theme::bold(12.0)));
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
-                for p in deckcraft_geom::preset::CATALOG.iter().filter(|p| p.category == cat) {
-                    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(3), t.hover);
-                    }
-                    paint_preset(ui.painter(), r.shrink(4.0), p.name, Color32::TRANSPARENT, t.text);
-                    if resp.on_hover_text(p.label).clicked() {
-                        out = Some(p.name);
-                    }
-                }
-                if cat == deckcraft_geom::preset::Category::Lines {
-                    for (name, label) in deckcraft_engine::tools::FREEFORM_TOOLS {
-                        let (r, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
-                        if resp.hovered() {
-                            ui.painter().rect_filled(r, CornerRadius::same(3), t.hover);
-                        }
-                        paint_freeform_icon(ui.painter(), r.shrink(5.0), name, t.text);
-                        if resp.on_hover_text(label).clicked() {
-                            out = Some(name);
-                        }
-                    }
-                }
-            });
-            ui.add_space(4.0);
-        }
-    });
-    if out.is_some() {
-        ui.close();
-    }
-    out
+    let tools: Vec<(&str, String)> =
+        deckcraft_engine::tools::FREEFORM_TOOLS.iter().map(|(id, l)| (*id, crate::i18n::tc("shapes", l).to_string())).collect();
+    let tools: Vec<(&str, &str)> = tools.iter().map(|(id, l)| (*id, l.as_str())).collect();
+    let tr = |s: &str| crate::i18n::tc("shapes", s).to_string();
+    let opts = krub_icons::shape_gallery::Options { action_buttons: true, line_tools: &tools, extras: &[] };
+    let picked = egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| krub_icons::shape_gallery::show(ui, &tr, &opts)).inner?;
+    ui.close();
+    // The `&'static` name the callers expect: the catalog's or the tool's own.
+    deckcraft_geom::preset::info(&picked)
+        .map(|i| i.name)
+        .or_else(|| deckcraft_engine::tools::FREEFORM_TOOLS.iter().find(|(id, _)| *id == picked).map(|(id, _)| *id))
 }
 
 /// Draw a preset's outline (gallery icons).
@@ -374,17 +349,4 @@ pub(super) fn quick_styles(app: &mut SlideApp, ui: &mut Ui) {
             ui.end_row();
         }
     });
-}
-
-/// Gallery glyphs for the freeform tools: a wave (curve), a polygon (freeform), a squiggle (scribble).
-fn paint_freeform_icon(p: &egui::Painter, r: Rect, name: &str, ink: Color32) {
-    let at = |x: f32, y: f32| egui::pos2(r.min.x + x * r.width(), r.min.y + y * r.height());
-    let pts: Vec<egui::Pos2> = match name {
-        "curve" => (0..=24).map(|i| i as f32 / 24.0).map(|u| at(u, 0.5 - 0.38 * (u * std::f32::consts::TAU).sin())).collect(),
-        "freeform" => {
-            [(0.0, 0.85), (0.15, 0.2), (0.55, 0.45), (0.8, 0.05), (1.0, 0.75), (0.45, 1.0), (0.0, 0.85)].iter().map(|(x, y)| at(*x, *y)).collect()
-        }
-        _ => (0..=40).map(|i| i as f32 / 40.0).map(|u| at(u, 0.5 + 0.35 * (u * 19.0).sin() * (1.0 - u * 0.4))).collect(),
-    };
-    p.add(egui::Shape::line(pts, egui::Stroke::new(1.3, ink)));
 }

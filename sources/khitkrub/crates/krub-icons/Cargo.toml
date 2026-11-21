@@ -10,4 +10,7 @@ workspace = true
 
 [dependencies]
 egui = { workspace = true, features = ["default_fonts"] }
+krub-chart-format = { path = "../krub-chart-format" }
+craft-drawingml = { workspace = true }
+kurbo = { workspace = true }
 

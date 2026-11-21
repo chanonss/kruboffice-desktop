@@ -163,6 +163,30 @@ impl Table {
         self.grid.len().max(self.rows.iter().map(|r| r.cells.iter().map(Cell::span).sum::<usize>()).max().unwrap_or(0))
     }
 
+    /// Which grid columns are automatic: none of the single-column cells that start in it has a
+    /// preferred width, while another column's cells do. In a table with a width, the fixed
+    /// columns keep theirs and the automatic ones share what is left. A table with no widths at
+    /// all is wholly automatic instead (sized by its content), so it has none of these.
+    pub fn auto_columns(&self) -> Vec<bool> {
+        let n = self.grid.len();
+        let (mut auto, mut fixed) = (vec![false; n], vec![false; n]);
+        for row in &self.rows {
+            let mut g = 0usize;
+            for c in &row.cells {
+                if c.span() == 1 && g < n {
+                    if c.props.width.is_none() && c.props.width_pct.is_none() {
+                        auto[g] = true;
+                    } else {
+                        fixed[g] = true;
+                    }
+                }
+                g = g.saturating_add(c.span());
+            }
+        }
+        let out: Vec<bool> = auto.iter().zip(&fixed).map(|(a, f)| *a && !*f).collect();
+        if out.iter().all(|a| *a) || !out.iter().any(|a| *a) { vec![false; n] } else { out }
+    }
+
     /// Grid column where cell `c` of row `r` starts.
     pub fn grid_col(&self, r: usize, c: usize) -> usize {
         self.rows.get(r).map(|row| row.cells.iter().take(c).map(Cell::span).sum()).unwrap_or(0)

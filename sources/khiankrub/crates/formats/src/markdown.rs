@@ -634,10 +634,18 @@ fn link_dest(s: &str, at: usize) -> Option<(String, usize)> {
     i += ws;
     let r = s.get(i..)?;
     let (dest, used) = if let Some(inner) = r.strip_prefix('<') {
-        let end = inner.find(['>', '\n'])?;
-        if inner.get(end..)?.starts_with('\n') {
-            return None;
-        }
+        // The first `>` not escaped by a backslash ends it; a line break first means no link.
+        let b = inner.as_bytes();
+        let mut k = 0;
+        let end = loop {
+            match b.get(k)? {
+                b'\\' => k += 1,
+                b'>' => break k,
+                b'\n' => return None,
+                _ => {}
+            }
+            k += 1;
+        };
         (inner.get(..end)?.to_string(), end + 2)
     } else {
         let mut depth = 0i32;
@@ -1014,18 +1022,16 @@ fn emit(mut nodes: Vec<Node>) -> Vec<Inline> {
         }
         out.push(Inline::Text(t.to_string(), f));
     };
-    let base_of = |nodes: &[Node], k: usize| -> Fmt {
-        // Delimiter literals take the formatting (link, …) of neighbouring text.
-        for j in (0..k).rev() {
-            if let Some(Node::Text(_, f)) = nodes.get(j) {
-                return Fmt { bold: false, italic: false, strike: false, ..f.clone() };
-            }
-        }
-        Fmt::default()
-    };
-    for (k, n) in nodes.iter().enumerate() {
+    // Delimiter literals take the formatting (link, …) of the text before them: the last text
+    // node, tracked here rather than searched for backwards from every delimiter (quadratic on
+    // a paragraph of delimiters).
+    let mut last_text: Option<&Fmt> = None;
+    for n in &nodes {
         match n {
-            Node::Text(t, f) => push(&mut out, t, f, em, strong, strike),
+            Node::Text(t, f) => {
+                push(&mut out, t, f, em, strong, strike);
+                last_text = Some(f);
+            }
             Node::Inl(Inline::Text(t, f)) => push(&mut out, t, f, em, strong, strike),
             Node::Inl(other) => out.push(other.clone()),
             Node::Delim { ch, left, opens, closes, .. } => {
@@ -1036,9 +1042,11 @@ fn emit(mut nodes: Vec<Node>) -> Vec<Inline> {
                         Emph::Strike => strike = strike.saturating_sub(1),
                     }
                 }
-                let lit: String = std::iter::repeat_n(*ch, *left).collect();
-                let f = base_of(&nodes, k);
-                push(&mut out, &lit, &f, em, strong, strike);
+                if *left > 0 {
+                    let lit: String = std::iter::repeat_n(*ch, *left).collect();
+                    let f = last_text.map_or_else(Fmt::default, |f| Fmt { bold: false, italic: false, strike: false, ..f.clone() });
+                    push(&mut out, &lit, &f, em, strong, strike);
+                }
                 for e in opens {
                     match e {
                         Emph::Em => em += 1,
@@ -1229,8 +1237,35 @@ fn inlines_md_impl(inlines: &[Inline], in_table: bool) -> String {
     out
 }
 
+/// `l` as a Markdown link destination that reads back as exactly `l`, the target
+/// `is_safe_href` passed. What Markdown would decode (a backslash escape, an entity reference)
+/// or end the destination on (`<`, `>`) is backslash-escaped, never deleted: deleting `<` or `>`
+/// could turn an accepted relative target into `javascript:…` or `//host`. Control characters
+/// can't be written in a destination and are left out, as the safety check ignores them.
 fn link_target(l: &str) -> String {
-    if l.contains([' ', '(', ')', '<', '>']) { format!("<{}>", l.replace(['<', '>', '\n'], "")) } else { l.to_string() }
+    let l: String = l.chars().filter(|c| !c.is_ascii_control()).collect();
+    let mut out = String::with_capacity(l.len() + 2);
+    for (i, c) in l.char_indices() {
+        let rest = l.get(i + c.len_utf8()..).unwrap_or("");
+        match c {
+            '<' | '>' => out.push('\\'),
+            // A backslash is literal unless punctuation (or the closing `)`/`>`) follows it.
+            '\\' if rest.chars().next().is_none_or(|n| n.is_ascii_punctuation()) => out.push('\\'),
+            '&' if entity_like(rest) => out.push('\\'),
+            _ => {}
+        }
+        out.push(c);
+    }
+    if l.contains(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>')) { format!("<{out}>") } else { out }
+}
+
+/// Whether `rest` (the text after a `&`) starts like an entity reference (`amp;`, `#106;`,
+/// `#x6A;`), which a Markdown reader would decode.
+fn entity_like(rest: &str) -> bool {
+    let Some(end) = within(rest, 34).find(';') else { return false };
+    let body = rest.get(..end).unwrap_or("");
+    let body = body.strip_prefix('#').map_or(body, |n| n.strip_prefix(['x', 'X']).unwrap_or(n));
+    !body.is_empty() && body.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn marker(m: Mark) -> &'static str {

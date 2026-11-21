@@ -37,6 +37,23 @@ impl SheetApp {
         }
     }
 
+    /// Save as Picture (owner, 2026-11-20): picture `id`'s own bytes, named "Picture" in the
+    /// interface's language: a download on the web, the save picker's path on the desktop.
+    pub(crate) fn save_picture(&mut self, id: u32) {
+        let Some((name, bytes)) = gridcraft_engine::cmd::insert::objects::picture_file(&self.session, id) else { return };
+        let ext = name.rsplit_once('.').map_or("png", |(_, e)| e).to_string();
+        let name = format!("{}.{ext}", self.ui.language.tr("Picture"));
+        if let Some(download) = &self.services.download {
+            download(&name, &bytes);
+            return;
+        }
+        let Some(pick) = &self.services.pick_save else { return };
+        let Some(path) = pick(&name) else { return };
+        if let Err(e) = self.run("picture.save", json!({"id": id, "path": path})) {
+            self.alert(e);
+        }
+    }
+
     /// Builds the selected sheets' print-ready PDF and hands it to the desktop worker or the
     /// browser. Rendering errors use the usual alert; asynchronous spooler errors stay visible
     /// on the Print page. The engine command still returns PDF bytes without submitting.

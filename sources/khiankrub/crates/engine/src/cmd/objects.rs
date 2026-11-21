@@ -212,6 +212,9 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"maxPixels"?: n}"#)
         .when(has_picture),
         CommandSpec::new("picture.reset", "Reset Picture", "Picture Format › Adjust", reset).when(has_picture),
+        CommandSpec::new("picture.save", "Save as Picture", "Picture › Context Menu", save_picture)
+            .params(r#"{"path": string (the extension of the picture's own format is added when missing)} → {"path", "format", "bytes"}"#)
+            .when(has_picture),
         CommandSpec::new("picture.change", "Change Picture", "Picture Format › Adjust", |s, v| {
             let bytes = if let Some(d) = p::str(v, "data") {
                 super::insert::base64_decode(d).ok_or_else(|| CmdError::Params("bad base64".into()))?
@@ -709,7 +712,12 @@ fn shape_effects(s: &mut Session, v: &Value) -> CmdResult {
 
 /// Smallest width/height an object can be resized to, points (a text box keeps room for a line).
 pub fn min_size(o: &InlineObject) -> f32 {
-    if matches!(o, InlineObject::Shape { story: Some(_), .. }) { 18.0 } else { 4.0 }
+    match o {
+        InlineObject::Shape { story: Some(_), .. } => 18.0,
+        // A line or connector may be flat (straight across or down): no height, or no width.
+        InlineObject::Shape { kind, .. } if kind.is_open() => 0.0,
+        _ => 4.0,
+    }
 }
 
 /// Largest object offset or move, points.
@@ -1104,6 +1112,37 @@ fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> 
             *media = key.clone();
         }
     })
+}
+
+/// The file format of a picture's bytes, as a file extension: what Save as Picture writes. Word's
+/// metafiles and SVG are recognised beside the image formats [`super::insert::image_ext`] knows.
+pub fn picture_format(bytes: &[u8]) -> &'static str {
+    match bytes.get(..4) {
+        Some([0xD7, 0xCD, 0xC6, 0x9A]) => "wmf",
+        Some([0x01, 0x00, 0x00, 0x00]) if bytes.get(40..44) == Some(b" EMF") => "emf",
+        _ if bytes.iter().take(256).copied().skip_while(u8::is_ascii_whitespace).take(5).eq(*b"<?xml") || bytes.starts_with(b"<svg") => "svg",
+        _ => super::insert::image_ext(bytes),
+    }
+}
+
+/// The selected picture's bytes as the document holds them (after any recolouring, before
+/// cropping) and a file name for them in their own format: "Picture.png" (owner, 2026-11-20).
+pub fn selected_picture_file(s: &Session) -> Option<(String, std::sync::Arc<Vec<u8>>)> {
+    let (_, InlineObject::Image { media, .. }) = selected(s)? else { return None };
+    let bytes = s.doc.media.get(&media)?.clone();
+    let ext = picture_format(&bytes);
+    Some((format!("Picture.{ext}"), bytes))
+}
+
+/// Save as Picture: the selected picture's bytes to `path`, in their own format.
+fn save_picture(s: &mut Session, v: &Value) -> CmdResult {
+    let path = p::str(v, "path").filter(|p| !p.trim().is_empty()).ok_or_else(|| CmdError::Params("`path` required".into()))?;
+    let (_, bytes) = selected_picture_file(s).ok_or_else(|| CmdError::Disabled("select a picture first".into()))?;
+    let format = picture_format(&bytes);
+    let has_ext = std::path::Path::new(path).extension().is_some_and(|e| !e.is_empty());
+    let path = if has_ext { path.to_string() } else { format!("{path}.{format}") };
+    crate::io::write_file(&path, &bytes).map_err(CmdError::Failed)?;
+    Ok(json!({"path": path, "format": format, "bytes": bytes.len()}))
 }
 
 fn reset(s: &mut Session, _: &Value) -> CmdResult {
@@ -1656,6 +1695,30 @@ mod tests {
         s.run("insert.picture", &json!({"data": data})).unwrap();
         s.run("insert.picture", &json!({"data": data})).unwrap();
         assert_eq!(s.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(Vec::len), Some(2));
+    }
+
+    /// Save as Picture writes the selected picture's own bytes, adding its format's extension
+    /// when the path has none (owner, 2026-11-20).
+    #[test]
+    fn save_as_picture_writes_the_pictures_own_bytes() {
+        let bytes = png(20, 10);
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        assert!(s.run("picture.save", &json!({"path": "x.png"})).is_err(), "nothing selected");
+        s.run("insert.picture", &json!({"data": super::super::insert::base64_encode(&bytes)})).unwrap();
+        let (name, held) = selected_picture_file(&s).unwrap();
+        assert_eq!((name.as_str(), held.as_slice()), ("Picture.png", bytes.as_slice()));
+        let dir = std::env::temp_dir().join(format!("khiankrub-save-picture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let base = dir.join("รูปภาพ");
+        let out = s.run("picture.save", &json!({"path": base.to_str().unwrap()})).unwrap();
+        assert_eq!(out["format"], "png");
+        let written = std::fs::read(dir.join("รูปภาพ.png")).unwrap();
+        assert_eq!(written, bytes);
+        assert!(s.run("picture.save", &json!({})).is_err(), "a path is required");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(picture_format(&[0xD7, 0xCD, 0xC6, 0x9A, 0, 0]), "wmf");
+        assert_eq!(picture_format(b"<svg xmlns='http://www.w3.org/2000/svg'/>"), "svg");
+        assert_eq!(picture_format(&[0xFF, 0xD8, 0xFF, 0xE0]), "jpeg");
     }
 
     #[test]

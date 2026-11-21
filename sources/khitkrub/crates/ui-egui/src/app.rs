@@ -69,17 +69,21 @@ impl SheetApp {
             desktop_dark: None,
             name_box: None,
             keytips: keytips::KeyTips::default(),
+            keytip_tabs: Vec::new(),
             shots: control::Shots::default(),
             capture_epoch: 0,
             capture_geometry: None,
             capture_geometry_from_raw: false,
             selected_object: None,
+            chart_cache: Default::default(),
             clipboard_text_at_copy: None,
             cut_text: None,
             tab_run: None,
             macros: macro_ui::MacroUi::default(),
             started: now_ms(),
             allow_close: false,
+            window_controls: false,
+            viewport_commands: Vec::new(),
             bring_forward: false,
             open_switch_windows: false,
             ui_window: None,
@@ -98,12 +102,15 @@ impl SheetApp {
     ///
     /// [`logic`]: SheetApp::logic
     pub fn setup_context(ctx: &egui::Context, dark: bool) {
-        crate::fonts::start_scan();
         Self::setup_context_for_language(ctx, dark, i18n::Language::En);
     }
 
-    /// Sets up fonts and visuals for a specific persisted interface language.
+    /// Sets up fonts and visuals for a specific persisted interface language, and starts
+    /// cataloging the machine's fonts. The desktop starts here: without the scan the font list
+    /// offers only the standard names and no workbook font is ever bound, so a cell set in an
+    /// installed font drew in the default face (a no-op on the web, which has no system fonts).
     pub fn setup_context_for_language(ctx: &egui::Context, dark: bool, language: i18n::Language) {
+        crate::fonts::start_scan();
         ctx.set_fonts(theme::font_definitions_for_language(language));
         theme::apply(ctx, dark);
     }
@@ -119,6 +126,7 @@ impl SheetApp {
         // Floating pictures' textures go with their workbook, even when no sheet is painted.
         let open: Vec<u64> = self.session.documents().iter().map(|d| d.uid).collect();
         floating_pictures::forget_closed(ctx, &open);
+        self.chart_cache.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).retain_docs(open.iter().copied());
         self.apply_font_state(ctx);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -230,7 +238,9 @@ impl SheetApp {
         }
         // The web start screen has a top bar of its own and no window title to show yet.
         let start = self.web_start_screen();
-        if self.chrome.title_bar && !start {
+        // The ribbon's bar is also the title bar (owner, 2026-11-18); File, which hides the ribbon,
+        // keeps the same bar without tabs.
+        if self.chrome.title_bar && !start && self.backstage.is_some() {
             ribbon::title_bar(self, ui);
         }
         if start {
@@ -263,6 +273,9 @@ impl SheetApp {
         macro_ui::question_box(self, &ctx);
         widgets::message_box(self, &ctx);
         widgets::toast(self, &ctx);
+        // Last, so its resize cursors win over the widgets under the window edges.
+        ribbon::window_frame(self, &ctx);
+        self.flush_viewport_commands(&ctx);
         // Requests are admitted in `logic`, for the root viewport, so only its pass issues them.
         if ctx.viewport_id() == egui::ViewportId::ROOT {
             control::issue_screenshots(self, &ctx);
@@ -359,6 +372,12 @@ impl SheetApp {
             return format!("{}R x {}C", cur.height(), cur.width());
         }
         sel.active.a1()
+    }
+
+    pub(crate) fn flush_viewport_commands(&mut self, ctx: &egui::Context) {
+        for command in self.viewport_commands.drain(..) {
+            ctx.send_viewport_cmd(command);
+        }
     }
 }
 
@@ -595,5 +614,45 @@ mod lifecycle_tests {
             .get(&ctx.viewport_id())
             .is_some_and(|output| output.commands.iter().any(|c| matches!(c, egui::ViewportCommand::RequestPaintWhileHidden)));
         assert!(painted, "logic must ask for a real UI pass while a synthetic step is unapplied");
+    }
+
+    #[test]
+    /// The desktop sets up fonts with `setup_context_for_language`, which never started the font
+    /// scan: no installed font was bound, so a cell set in one drew in the default face and the
+    /// font list offered only the standard names. Setting an installed font on the whole sheet
+    /// (and on a range) must bind it in the context the grid paints with.
+    fn an_installed_font_set_on_the_whole_sheet_is_bound_for_painting() {
+        let ctx = egui::Context::default();
+        SheetApp::setup_context_for_language(&ctx, false, i18n::Language::En);
+        assert!(crate::fonts::scan_started(), "the desktop's font setup starts the font scan");
+        // Blocks until the scan is done. A machine with no installed font has nothing to bind.
+        let Some(family) =
+            crate::fonts::catalog().iter().find(|f| std::fs::read(&f.path).is_ok_and(|b| theme::font_parses(&b, f.index))).map(|f| f.family.clone())
+        else {
+            return;
+        };
+        assert!(crate::fonts::families().contains(&family), "the font list offers {family:?}");
+        let mut app = app();
+        // A full pass, as eframe runs: it loads the font set that logic applied the pass before.
+        let frame = |app: &mut SheetApp| {
+            let _ = ui_pass(&ctx, raw_with_size(egui::vec2(900.0, 700.0)), |ui| app.logic(&ui.ctx().clone()));
+        };
+        frame(&mut app);
+        for range in ["A1:XFD1048576", "B2:C4"] {
+            app.run("selection.set", serde_json::json!({"range": range})).expect("select");
+            app.run("home.fontName", serde_json::json!({"name": family})).expect("set the font");
+        }
+        let doc = app.session.doc().expect("a workbook");
+        let sheet = doc.wb.active().expect("a sheet");
+        for cell in ["D7", "B2"] {
+            let at = CellRef::parse(cell).expect("a cell");
+            assert_eq!(doc.wb.styles.get(sheet.style_id(at)).font.name, family, "{cell} takes the font");
+        }
+        for _ in 0..4 {
+            frame(&mut app);
+        }
+        assert!(app.fonts_bound.contains(&family), "{family:?} bound for the workbook");
+        let role = egui::FontFamily::Name(crate::fonts::role_key(&family, false, false).into());
+        assert!(ctx.fonts_mut(|f| f.families().contains(&role)), "{family:?} is in the active font set");
     }
 }

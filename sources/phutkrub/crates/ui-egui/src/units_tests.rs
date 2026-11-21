@@ -89,6 +89,7 @@ fn the_format_pane_keeps_inches_by_default() {
 fn the_shape_pane_size_boxes_show_and_take_centimetres() {
     let app = app_with_shape(Unit::Centimeters);
     let mut h = harness(app);
+    crate::panels::show_shape_tab(&h.ctx, krub_icons::shape_pane::Tab::SizePosition);
     h.run_steps(3);
     // The shared Shape pane's Width: and Height: boxes (PhutKrub's own number boxes).
     let shown = text_values(&h);
@@ -258,9 +259,10 @@ fn the_format_pane_scales_and_positions_from_the_centre() {
 fn the_shape_pane_takes_a_line_transparency() {
     let mut h = harness(app_with_shape(Unit::default()));
     h.run_steps(3);
-    // Area, Line and Glow each have a Transparency box; the Line one is the second.
+    // Fill and Line shows Area's and Line's Transparency boxes (Glow's is under Effects); the
+    // Line one is the second.
     let boxes: Vec<_> = h.query_all_by_label("Transparency value").collect();
-    assert_eq!(boxes.len(), 3, "Area, Line and Glow");
+    assert_eq!(boxes.len(), 2, "Area and Line");
     boxes[1].focus();
     h.run_steps(1);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);

@@ -1,4 +1,3 @@
-use super::about::about;
 use super::analysis::{analysis_toolpak, cancel_solver_options, goal_seek, in_solver_options, solver, solver_results};
 use super::charts::{recommended_charts, select_data};
 use super::command_search::command_search;
@@ -141,24 +140,40 @@ pub(crate) fn build_params(d: &Dialog) -> Json {
 }
 
 /// Takes and draws the active dialog, dispatches its body by name, consumes picture-inbox results, runs OK/confirm commands, handles Esc/close and restores the back-dialog stack.
-pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
-    let Some(mut d) = app.dialog.take() else { return };
+/// The dialogs drawn with a frame of their own rather than this module's window: the macro
+/// step editor (a large resizable window) and About (shared by the three KrubOffice apps,
+/// `krub_icons::about`). Returns the dialog back when it is neither.
+fn own_frame(app: &mut SheetApp, ctx: &egui::Context, mut d: Dialog) -> Option<Dialog> {
     let home = app.ui_window();
-    // The macro step editor is a large resizable window of its own.
-    if d.name == "macroEditor" {
-        let mut open = true;
-        crate::macro_editor::window(app, ctx, &mut d, &mut open);
-        if !open {
-            app.macros.editor = None;
-            app.grid.macro_overlay = None;
-        } else if app.ui_window() != home {
-            // Something run from the editor switched windows: the editor stays in its own.
-            app.return_dialog(home, d);
-        } else {
-            app.dialog = Some(d);
+    match d.name.as_str() {
+        "macroEditor" => {
+            let mut open = true;
+            crate::macro_editor::window(app, ctx, &mut d, &mut open);
+            if !open {
+                app.macros.editor = None;
+                app.grid.macro_overlay = None;
+            } else if app.ui_window() != home {
+                // Something run from the editor switched windows: the editor stays in its own.
+                app.return_dialog(home, d);
+            } else {
+                app.dialog = Some(d);
+            }
+            None
         }
-        return;
+        "about" => {
+            if !super::about::window(ctx, &mut d) {
+                app.dialog = Some(d);
+            }
+            None
+        }
+        _ => Some(d),
     }
+}
+
+pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
+    let Some(d) = app.dialog.take() else { return };
+    let Some(mut d) = own_frame(app, ctx, d) else { return };
+    let home = app.ui_window();
     if d.name == "pasteSpecial" {
         paste_special_shortcuts(&mut d, ctx);
     }
@@ -167,7 +182,6 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
     let mut confirm = false;
     let width = match d.name.as_str() {
         "formatCells" => 560.0,
-        "about" => 820.0,
         "insertFunction" | "commandSearch" | "nameManager" | "manageRules" | "journal" | "agents" | "equation" => 520.0,
         "macros" => 480.0,
         "recommendedCharts" => 600.0,
@@ -193,6 +207,7 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
         "advancedFilter" => window.default_height(0.0),
         _ => window,
     };
+    let window = super::sort_dialog::window(window, &d.name, ctx, app.ui.language);
     let (window, collapsed) = place_window(app, ctx, &mut d, window, window_id);
     let shown = window.show(ctx, |ui| {
             if let Some(key) = &collapsed {
@@ -233,7 +248,6 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                     ui.add_space(4.0);
                     ui.label(format!("{} engine commands are available. See docs/mcp.md and docs/control-protocol.md.", gridcraft_engine::command_specs().len()));
                 }
-                "about" => about(ui, &mut d),
                 "journal" => {
                     egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                         for (id, p) in app.session.journal.iter().rev().take(500) {

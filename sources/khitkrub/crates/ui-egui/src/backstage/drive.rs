@@ -29,13 +29,14 @@ impl SheetApp {
         Ok(json!({"googleDrive": self.drive_file_name()}))
     }
 
-    /// Upload the active workbook to Drive as a new file; the workbook stays as it is.
+    /// Upload the active workbook to Drive as a new file, which it then saves back to.
     fn save_copy_to_drive(&mut self) -> Result<(), String> {
-        let title = self.session.active().map(|d| d.display_title()).ok_or("No workbook is open")?;
+        let (title, uid, revision) = self.session.active().map(|d| (d.display_title(), d.uid, d.revision)).ok_or("No workbook is open")?;
         let bytes = self.xlsx_bytes()?;
         let name = if title.to_ascii_lowercase().ends_with(".xlsx") { title } else { format!("{title}.xlsx") };
+        // Once it's on Drive, the workbook is that file: saved back to it from then on.
         if let Some(drive) = &self.services.google_drive {
-            (drive.save_copy)(name, bytes);
+            (drive.save_copy)(uid, revision, name, bytes);
         }
         Ok(())
     }

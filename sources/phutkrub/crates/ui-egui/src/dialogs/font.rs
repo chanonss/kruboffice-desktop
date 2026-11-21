@@ -1,4 +1,4 @@
-use super::{Dialog, SlideApp, Ui, buttons, check, choice, color_label, finite_pt, json, json_text, labeled_text, seed_once, vec2};
+use super::{Dialog, SlideApp, Ui, buttons, check, choice, color_label, finite_pt, json, json_text, labeled_text, line_choice, seed_once, vec2};
 
 fn seed_font_fields(d: &mut Dialog) {
     seed_once(d, "family", json_text(d.params.get("family"), ""));
@@ -62,13 +62,22 @@ pub(super) fn font_dialog(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bo
     });
     ui.horizontal(|ui| {
         ui.add_sized(vec2(88.0, 20.0), egui::Label::new("Underline"));
-        choice(
+        use krub_icons::line_style::Look;
+        line_choice(
             ui,
             d,
             "font_dialog_underline",
             "Underline",
             "underline",
-            &[("none", "None"), ("sng", "Single"), ("dbl", "Double"), ("heavy", "Heavy"), ("dotted", "Dotted"), ("dash", "Dash"), ("wavy", "Wavy")],
+            &[
+                ("none", "None", None),
+                ("sng", "Single", Some(Look::Solid)),
+                ("dbl", "Double", Some(Look::Double)),
+                ("heavy", "Heavy", Some(Look::Thick)),
+                ("dotted", "Dotted", Some(Look::Dotted)),
+                ("dash", "Dash", Some(Look::Dashed)),
+                ("wavy", "Wavy", Some(Look::Wave)),
+            ],
         );
         ui.add_space(8.0);
         let _ = labeled_text(ui, d, "Color", "color", 110.0);

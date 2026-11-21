@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Check vendored Quiet Glass library equality against sibling repo paths."""
+"""Check that the vendored shared crates (krub-icons, krub-chart-format) are identical in the
+sibling repos."""
 import sys
 from pathlib import Path
 
 
+CRATES = ["krub-icons", "krub-chart-format"]
+
+
 def main():
-    source = Path(__file__).resolve().parents[1] / "crates/krub-icons"
     if len(sys.argv) < 2:
         print("usage: python3 packaging/check-icon-sync.py sibling-repo [sibling-repo ...]")
         return 2
     ok = True
-    for repo in sys.argv[1:]:
-        target = Path(repo) / "crates/krub-icons"
+    for repo, crate in [(r, c) for r in sys.argv[1:] for c in CRATES]:
+        source = Path(__file__).resolve().parents[1] / "crates" / crate
+        target = Path(repo) / "crates" / crate
         # Finder metadata is local UI state, not part of the vendored library.
         source_files = {p.relative_to(source) for p in source.rglob("*") if p.is_file() and p.name != ".DS_Store"}
         target_files = {p.relative_to(target) for p in target.rglob("*") if p.is_file() and p.name != ".DS_Store"}

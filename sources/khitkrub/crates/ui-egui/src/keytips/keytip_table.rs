@@ -59,7 +59,7 @@ fn matches_target(action: &Action, target: &str) -> bool {
     match action {
         Action::Command(id) | Action::CommandWith(id, _) | Action::Pending(id) | Action::Control(id) => *id == target,
         Action::Dialog(name) | Action::DialogWith(name, _) => format!("dialog:{name}") == target,
-        Action::Tab(_) => false,
+        Action::Tab(_) | Action::TabNumber(_) | Action::StepTab(_) | Action::IntoTab => false,
     }
 }
 

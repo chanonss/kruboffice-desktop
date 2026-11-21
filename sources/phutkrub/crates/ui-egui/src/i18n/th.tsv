@@ -126,7 +126,6 @@
 	Compression options	ตัวเลือกการบีบอัด
 	Convert	แปลง
 	Convert to Shapes	แปลงเป็นรูปร่าง
-	Convert to SmartArt	แปลงเป็น SmartArt
 	Convert to Text	แปลงเป็นข้อความ
 	Copy	คัดลอก
 	Copy path	คัดลอกที่อยู่ไฟล์
@@ -463,7 +462,6 @@
 	Select	เลือก
 	Select All	เลือกทั้งหมด
 	Select None	ไม่เลือกเลย
-	Select a SmartArt graphic to edit its text.	เลือกกราฟิก SmartArt เพื่อแก้ไขข้อความ
 	Select a chart first.	เลือกแผนภูมิก่อน
 	Select a shape to format it.	เลือกรูปร่างเพื่อจัดรูปแบบ
 	Select a word on the slide, or type one above.	เลือกคำบนสไลด์ หรือพิมพ์คำด้านบน
@@ -504,9 +502,6 @@
 	Slides per page	จำนวนสไลด์ต่อหน้า
 	Slides sized for:	ขนาดสไลด์สำหรับ:
 	Slides:	สไลด์:
-	SmartArt Styles	ลักษณะ SmartArt
-	SmartArt items	รายการ SmartArt
-	SmartArt text	ข้อความ SmartArt
 	Smooth Corners	มุมเรียบ
 	Snap	จับยึด
 	Snap objects to grid	จับยึดวัตถุกับเส้นตาราง
@@ -648,7 +643,6 @@
 	Distribute	กระจาย
 	Duplicate	ทำสำเนา
 	Edit Data	แก้ไขข้อมูล
-	Edit SmartArt Text	แก้ไขข้อความ SmartArt
 	Effect Options	ตัวเลือกเอฟเฟกต์
 	End Show	จบการนำเสนอ
 	Export…	ส่งออก…
@@ -671,8 +665,6 @@
 	Insert Below	แทรกด้านล่าง
 	Insert Layout	แทรกเค้าโครง
 	Insert Left	แทรกทางซ้าย
-	Insert Picture in SmartArt	แทรกรูปภาพใน SmartArt
-	Insert Picture in SmartArt…	แทรกรูปภาพใน SmartArt…
 	Insert Placeholder	แทรกตัวยึดตำแหน่ง
 	Insert Right	แทรกทางขวา
 	Insert Synonym	แทรกคำพ้องความหมาย
@@ -1086,7 +1078,7 @@
 	Picture Format	รูปแบบรูปภาพ
 	Table Design	ออกแบบตาราง
 	Chart Design	ออกแบบแผนภูมิ
-	SmartArt Design	ออกแบบ SmartArt
+	SmartArt Design	ออกแบบไดอะแกรม
 	Slide Master	ต้นแบบสไลด์
 	Top	บน
 	Middle	กลาง
@@ -1225,7 +1217,6 @@
 	Cell Size	ขนาดเซลล์
 	Chart Type and Data	ชนิดและข้อมูลแผนภูมิ
 	Create Graphic	สร้างกราฟิก
-	Choose a shape, picture, table, chart or SmartArt graphic on the slide to see its commands here.	เลือกรูปร่าง รูปภาพ ตาราง แผนภูมิ หรือกราฟิก SmartArt บนสไลด์ เพื่อดูคำสั่งของสิ่งนั้นที่นี่
 	Area	พื้นที่
 	Effect	เอฟเฟกต์
 	Style	ลักษณะ
@@ -1234,6 +1225,8 @@
 	Radius	รัศมี
 	Soft Edge	ขอบนุ่ม
 	Keep ratio	คงสัดส่วน
+	Fill and Line	สีและเส้น
+	Size and Position	ขนาดและที่ตั้ง
 	Order	จัดลำดับ
 	Solid	เส้นทึบ
 	Dot	จุด
@@ -1285,3 +1278,376 @@ shapes	Flowchart	ผังงาน
 shapes	Stars and Banners	ดาวและแถบป้าย
 shapes	Callouts	กล่องคำอธิบาย
 shapes	Action Buttons	ปุ่มการทำงาน
+	Convert to Diagram	แปลงเป็นไดอะแกรม
+	Diagram	ไดอะแกรม
+	Diagram items	รายการในไดอะแกรม
+	Diagram text	ข้อความในไดอะแกรม
+	Select a Diagram graphic to edit its text.	เลือกไดอะแกรมเพื่อแก้ไขข้อความ
+	Decorative Text	ข้อความตกแต่ง
+	Decorative Text style {}	ลักษณะข้อความตกแต่ง {}
+	Files you opened or saved on Google Drive in this browser. Saving goes back to the file on Drive.	ไฟล์ที่เปิดหรือบันทึกบน Google Drive ในเบราว์เซอร์นี้ เมื่อบันทึก จะบันทึกกลับไปที่ไฟล์บน Drive
+	Unsaved changes in this browser	มีการแก้ไขที่ยังไม่ได้บันทึกในเบราว์เซอร์นี้
+	Open with the unsaved changes	เปิดพร้อมการแก้ไขที่ยังไม่ได้บันทึก
+	Open the Google Drive version	เปิดเวอร์ชันบน Google Drive
+	Remove from this list	เอาออกจากรายการนี้
+	Diagram Styles	ลักษณะไดอะแกรม
+	Decorative Text Styles	ลักษณะข้อความตกแต่ง
+	Choose a shape, picture, table, chart or Diagram graphic on the slide to see its commands here.	เลือกรูปร่าง รูปภาพ ตาราง แผนภูมิ หรือไดอะแกรมบนสไลด์ เพื่อดูคำสั่งของสิ่งนั้นที่นี่
+	About {app}	เกี่ยวกับ{app}
+	Contributors	ผู้ร่วมพัฒนา
+	AI models	โมเดล AI
+	Licences	สัญญาอนุญาต
+	Version {version}	เวอร์ชัน {version}
+	Platform	แพลตฟอร์ม
+	Based on	พัฒนาต่อยอดจาก
+	Adapted by	ปรับปรุงโดย
+	Licence	สัญญาอนุญาต
+	{project} by the ArtCraft team	{project} โดยทีม ArtCraft
+	MIT or Apache-2.0	MIT หรือ Apache-2.0
+	Original project {project}	โครงการต้นฉบับ {project}
+	Report a problem	แจ้งปัญหา
+	Adapted for Thai	ปรับปรุงสำหรับภาษาไทย
+	Original project	โครงการต้นฉบับ
+	The ArtCraft team and the {project} contributors	ทีม ArtCraft และผู้ร่วมพัฒนา {project}
+	Icons: Tabler Icons by Paweł Kuna	ไอคอน: Tabler Icons โดย Paweł Kuna
+	Fonts and the other open-source parts are listed in the NOTICE and ATTRIBUTION files that come with the program.	ฟอนต์และส่วนประกอบโอเพนซอร์สอื่น ๆ ระบุไว้ในไฟล์ NOTICE และ ATTRIBUTION ที่มากับโปรแกรม
+	Web	เว็บ
+	KrubOffice on GitHub	KrubOffice บน GitHub
+	A free, open-source presentation app for Thai and English.	โปรแกรมงานนำเสนอ ฟรีและโอเพนซอร์ส สำหรับภาษาไทยและภาษาอังกฤษ
+	Your name	ชื่อของคุณ
+	Set your name in Preferences	ตั้งชื่อของคุณได้ที่ ตัวเลือก
+	Present from Current Slide	นำเสนอจากสไลด์ปัจจุบัน
+	Search commands and help	ค้นหาคำสั่งและวิธีใช้
+	Draft in this browser	ฉบับร่างในเบราว์เซอร์นี้
+	Saved	บันทึกแล้ว
+	Not saved	ยังไม่ได้บันทึก
+	Round Dot	จุดกลม
+	Long Dash	เส้นประยาว
+	Double	สองเส้น
+	Thick Thin	หนาบาง
+	Thin Thick	บางหนา
+	Triple	สามเส้น
+	Heavy	เส้นหนา
+	Wavy	เส้นคลื่น
+	Text	ข้อความ
+	Format:	จัดรูปแบบ:
+	Border	เส้นขอบ
+	Compound type:	ชนิดเส้นผสม:
+	Dash type:	ชนิดเส้นประ:
+	Rounded corners	มุมมน
+	Blur:	ความเบลอ:
+	Angle:	มุม:
+	Distance:	ระยะห่าง:
+	Size:	ขนาด:
+	Font size:	ขนาดฟอนต์:
+	Reset to Automatic	กลับเป็นอัตโนมัติ
+	Chart Area	พื้นที่แผนภูมิ
+	Plot Area	พื้นที่พล็อต
+	Chart Title	ชื่อแผนภูมิ
+	Legend	คำอธิบายแผนภูมิ
+	Horizontal Axis	แกนนอน
+	Vertical Axis	แกนตั้ง
+	Gridlines have no effects.	เส้นตารางไม่มีเอฟเฟกต์
+	This part shows no text.	ส่วนนี้ไม่มีข้อความ
+	Series {n}	ชุดข้อมูล {n}
+	Shadow color	สีเงา
+	Text color	สีข้อความ
+	Outline color	สีเส้นขอบ
+	Blur	ความเบลอ
+	Distance	ระยะห่าง
+	Font size	ขนาดฟอนต์
+shapes	Recently Used Shapes	รูปร่างที่ใช้ล่าสุด
+shapes	Line	เส้น
+shapes	Arrow	ลูกศร
+shapes	Connector: Elbow	เส้นเชื่อม: หักมุม
+shapes	Connector: Curved	เส้นเชื่อม: โค้ง
+shapes	Connector: Elbow (one bend)	เส้นเชื่อม: หักมุมครั้งเดียว
+shapes	Line: Rising	เส้น: ทแยงขึ้น
+shapes	Rectangle	สี่เหลี่ยมผืนผ้า
+shapes	Rectangle: Rounded Corners	สี่เหลี่ยมผืนผ้า: มุมมน
+shapes	Rectangle: Single Corner Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมเดียว
+shapes	Rectangle: Top Corners Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมบน
+shapes	Rectangle: Diagonal Corners Snipped	สี่เหลี่ยมผืนผ้า: ตัดมุมทแยง
+shapes	Rectangle: Top Corners One Rounded and One Snipped	สี่เหลี่ยมผืนผ้า: มุมบนมนหนึ่ง ตัดหนึ่ง
+shapes	Rectangle: Single Corner Rounded	สี่เหลี่ยมผืนผ้า: มนมุมเดียว
+shapes	Rectangle: Top Corners Rounded	สี่เหลี่ยมผืนผ้า: มุมบนมน
+shapes	Rectangle: Diagonal Corners Rounded	สี่เหลี่ยมผืนผ้า: มุมทแยงมน
+shapes	Text Box	กล่องข้อความ
+shapes	Oval	วงรี
+shapes	Isosceles Triangle	สามเหลี่ยมหน้าจั่ว
+shapes	Right Triangle	สามเหลี่ยมมุมฉาก
+shapes	Parallelogram	สี่เหลี่ยมด้านขนาน
+shapes	Trapezoid	สี่เหลี่ยมคางหมู
+shapes	Trapezoid: Uneven Sides	สี่เหลี่ยมคางหมู: ด้านไม่เท่า
+shapes	Diamond	สี่เหลี่ยมขนมเปียกปูน
+shapes	Regular Pentagon	ห้าเหลี่ยมด้านเท่า
+shapes	Hexagon	หกเหลี่ยม
+shapes	Heptagon	เจ็ดเหลี่ยม
+shapes	Octagon	แปดเหลี่ยม
+shapes	Decagon	สิบเหลี่ยม
+shapes	Dodecagon	สิบสองเหลี่ยม
+shapes	Partial Circle	วงกลมบางส่วน
+shapes	Quarter Wedge	ลิ่มหนึ่งในสี่
+shapes	Chord	คอร์ดวงกลม
+shapes	Teardrop	หยดน้ำ
+shapes	Frame	กรอบ
+shapes	Corner Tabs: Triangles	แถบมุม: สามเหลี่ยม
+shapes	Corner Tabs: Squares	แถบมุม: สี่เหลี่ยม
+shapes	Corner Tabs: Quarter Circles	แถบมุม: หนึ่งในสี่วงกลม
+shapes	Half Frame	กรอบครึ่ง
+shapes	L-Shape	รูปตัว L
+shapes	Diagonal Stripe	แถบทแยง
+shapes	Cross	กากบาท
+shapes	Plaque	ป้าย
+shapes	Cylinder	ทรงกระบอก
+shapes	Cube	ลูกบาศก์
+shapes	Bevel	ขอบนูน
+shapes	Donut	วงแหวน
+shapes	Block Arc	ส่วนโค้งทึบ
+shapes	Folded Corner	มุมพับ
+shapes	Smiley Face	หน้ายิ้ม
+shapes	Heart	หัวใจ
+shapes	Lightning Bolt	สายฟ้า
+shapes	Sun	ดวงอาทิตย์
+shapes	Moon	ดวงจันทร์
+shapes	Cloud	เมฆ
+shapes	Gear: 6 Teeth	เฟือง: 6 ซี่
+shapes	Gear: 9 Teeth	เฟือง: 9 ซี่
+shapes	Funnel	กรวย
+shapes	Arc	ส่วนโค้ง
+shapes	Double Bracket	วงเล็บคู่
+shapes	Double Brace	วงเล็บปีกกาคู่
+shapes	Left Bracket	วงเล็บซ้าย
+shapes	Right Bracket	วงเล็บขวา
+shapes	Left Brace	วงเล็บปีกกาซ้าย
+shapes	Right Brace	วงเล็บปีกกาขวา
+shapes	Chart Marker: Cross Lines	เครื่องหมายแผนภูมิ: เส้นไขว้
+shapes	Chart Marker: Star Lines	เครื่องหมายแผนภูมิ: เส้นดาว
+shapes	Chart Marker: Plus Lines	เครื่องหมายแผนภูมิ: เส้นบวก
+shapes	Arrow: Right	ลูกศร: ขวา
+shapes	Arrow: Left	ลูกศร: ซ้าย
+shapes	Arrow: Up	ลูกศร: ขึ้น
+shapes	Arrow: Down	ลูกศร: ลง
+shapes	Arrow: Left-Right	ลูกศร: ซ้าย-ขวา
+shapes	Arrow: Up-Down	ลูกศร: ขึ้น-ลง
+shapes	Arrow: Quad	ลูกศร: สี่ทิศ
+shapes	Arrow: Left-Right-Up	ลูกศร: ซ้าย-ขวา-ขึ้น
+shapes	Arrow: Bent	ลูกศร: หักงอ
+shapes	Arrow: U-Turn	ลูกศร: กลับรถ
+shapes	Arrow: Curved Right	ลูกศร: โค้งขวา
+shapes	Arrow: Curved Left	ลูกศร: โค้งซ้าย
+shapes	Arrow: Curved Up	ลูกศร: โค้งขึ้น
+shapes	Arrow: Curved Down	ลูกศร: โค้งลง
+shapes	Arrow: Left-Up	ลูกศร: ซ้าย-ขึ้น
+shapes	Arrow: Bent-Up	ลูกศร: หักขึ้น
+shapes	Arrow: Striped Right	ลูกศร: ขวามีแถบ
+shapes	Arrow: Notched Right	ลูกศร: ขวามีรอยบาก
+shapes	Arrow: Pentagon	ลูกศร: ห้าเหลี่ยม
+shapes	Arrow: Chevron	ลูกศร: บั้ง
+shapes	Arrow: Circular	ลูกศร: วงกลม
+shapes	Arrow: Circular Counter-clockwise	ลูกศร: วงกลมทวนเข็มนาฬิกา
+shapes	Arrow: Circular Two-headed	ลูกศร: วงกลมสองหัว
+shapes	Arrow: Swoosh	ลูกศร: โค้งพุ่ง
+shapes	Callout: Right Arrow	คำอธิบาย: ลูกศรขวา
+shapes	Callout: Down Arrow	คำอธิบาย: ลูกศรลง
+shapes	Callout: Left Arrow	คำอธิบาย: ลูกศรซ้าย
+shapes	Callout: Up Arrow	คำอธิบาย: ลูกศรขึ้น
+shapes	Callout: Left-Right Arrow	คำอธิบาย: ลูกศรซ้าย-ขวา
+shapes	Callout: Up-Down Arrow	คำอธิบาย: ลูกศรขึ้น-ลง
+shapes	Callout: Quad Arrow	คำอธิบาย: ลูกศรสี่ทิศ
+shapes	Plus Sign	เครื่องหมายบวก
+shapes	Minus Sign	เครื่องหมายลบ
+shapes	Multiplication Sign	เครื่องหมายคูณ
+shapes	Division Sign	เครื่องหมายหาร
+shapes	Equals	เครื่องหมายเท่ากับ
+shapes	Not Equal	เครื่องหมายไม่เท่ากับ
+shapes	Flowchart: Process	ผังงาน: กระบวนการ
+shapes	Flowchart: Alternate Process	ผังงาน: กระบวนการทางเลือก
+shapes	Flowchart: Decision	ผังงาน: การตัดสินใจ
+shapes	Flowchart: Data	ผังงาน: ข้อมูล
+shapes	Flowchart: Predefined Process	ผังงาน: กระบวนการที่กำหนดไว้
+shapes	Flowchart: Internal Storage	ผังงาน: หน่วยเก็บภายใน
+shapes	Flowchart: Document	ผังงาน: เอกสาร
+shapes	Flowchart: Multidocument	ผังงาน: หลายเอกสาร
+shapes	Flowchart: Terminator	ผังงาน: จุดเริ่มต้น/สิ้นสุด
+shapes	Flowchart: Preparation	ผังงาน: การเตรียมการ
+shapes	Flowchart: Manual Input	ผังงาน: ป้อนข้อมูลด้วยมือ
+shapes	Flowchart: Manual Operation	ผังงาน: ทำงานด้วยมือ
+shapes	Flowchart: Connector	ผังงาน: จุดเชื่อม
+shapes	Flowchart: Off-page Connector	ผังงาน: จุดเชื่อมต่างหน้า
+shapes	Flowchart: Card	ผังงาน: บัตร
+shapes	Flowchart: Punched Tape	ผังงาน: เทปเจาะรู
+shapes	Flowchart: Summing Junction	ผังงาน: จุดรวม
+shapes	Flowchart: Or	ผังงาน: หรือ
+shapes	Flowchart: Collate	ผังงาน: เรียงชุด
+shapes	Flowchart: Sort	ผังงาน: เรียงลำดับ
+shapes	Flowchart: Extract	ผังงาน: แยกออก
+shapes	Flowchart: Merge	ผังงาน: รวม
+shapes	Flowchart: Stored Data	ผังงาน: ข้อมูลที่เก็บไว้
+shapes	Flowchart: Delay	ผังงาน: หน่วงเวลา
+shapes	Flowchart: Sequential Access Storage	ผังงาน: หน่วยเก็บแบบลำดับ
+shapes	Flowchart: Magnetic Disk	ผังงาน: ดิสก์แม่เหล็ก
+shapes	Flowchart: Direct Access Storage	ผังงาน: หน่วยเก็บแบบเข้าถึงโดยตรง
+shapes	Flowchart: Display	ผังงาน: การแสดงผล
+shapes	Flowchart: Offline Storage	ผังงาน: หน่วยเก็บนอกระบบ
+shapes	Explosion: 8 Points	ระเบิด: 8 แฉก
+shapes	Explosion: 14 Points	ระเบิด: 14 แฉก
+shapes	Star: 4 Points	ดาว: 4 แฉก
+shapes	Star: 5 Points	ดาว: 5 แฉก
+shapes	Star: 6 Points	ดาว: 6 แฉก
+shapes	Star: 7 Points	ดาว: 7 แฉก
+shapes	Star: 8 Points	ดาว: 8 แฉก
+shapes	Star: 10 Points	ดาว: 10 แฉก
+shapes	Star: 12 Points	ดาว: 12 แฉก
+shapes	Star: 16 Points	ดาว: 16 แฉก
+shapes	Star: 24 Points	ดาว: 24 แฉก
+shapes	Star: 32 Points	ดาว: 32 แฉก
+shapes	Ribbon: Tilted Up	ริบบิ้น: เอียงขึ้น
+shapes	Ribbon: Tilted Down	ริบบิ้น: เอียงลง
+shapes	Ribbon: Curved and Tilted Up	ริบบิ้น: โค้งเอียงขึ้น
+shapes	Ribbon: Curved and Tilted Down	ริบบิ้น: โค้งเอียงลง
+shapes	Ribbon: Left-Right Fold	ริบบิ้น: พับซ้าย-ขวา
+shapes	Scroll: Vertical	ม้วนกระดาษ: แนวตั้ง
+shapes	Scroll: Horizontal	ม้วนกระดาษ: แนวนอน
+shapes	Wave	คลื่น
+shapes	Double Wave	คลื่นคู่
+shapes	Speech Bubble: Rectangle	กรอบคำพูด: สี่เหลี่ยม
+shapes	Speech Bubble: Rectangle with Corners Rounded	กรอบคำพูด: สี่เหลี่ยมมุมมน
+shapes	Speech Bubble: Oval	กรอบคำพูด: วงรี
+shapes	Thought Bubble: Cloud	กรอบความคิด: เมฆ
+shapes	Callout: Line	คำอธิบาย: เส้น
+shapes	Callout: Bent Line	คำอธิบาย: เส้นหักมุม
+shapes	Callout: Double Bent Line	คำอธิบาย: เส้นหักมุมสองครั้ง
+shapes	Callout: Line with Accent Bar	คำอธิบาย: เส้นมีแถบเน้น
+shapes	Callout: Bent Line with Accent Bar	คำอธิบาย: เส้นหักมุมมีแถบเน้น
+shapes	Callout: Double Bent Line with Accent Bar	คำอธิบาย: เส้นหักมุมสองครั้งมีแถบเน้น
+shapes	Callout: Line with No Border	คำอธิบาย: เส้นไม่มีขอบ
+shapes	Callout: Bent Line with No Border	คำอธิบาย: เส้นหักมุมไม่มีขอบ
+shapes	Callout: Double Bent Line with No Border	คำอธิบาย: เส้นหักมุมสองครั้งไม่มีขอบ
+shapes	Callout: Line with Border and Accent Bar	คำอธิบาย: เส้นมีขอบและแถบเน้น
+shapes	Callout: Bent Line with Border and Accent Bar	คำอธิบาย: เส้นหักมุมมีขอบและแถบเน้น
+shapes	Callout: Double Bent Line with Border and Accent Bar	คำอธิบาย: เส้นหักมุมสองครั้งมีขอบและแถบเน้น
+shapes	Action Button: Go Back or Previous	ปุ่มการทำงาน: ย้อนกลับหรือก่อนหน้า
+shapes	Action Button: Go Forward or Next	ปุ่มการทำงาน: ไปข้างหน้าหรือถัดไป
+shapes	Action Button: Go to Beginning	ปุ่มการทำงาน: ไปที่จุดเริ่มต้น
+shapes	Action Button: Go to End	ปุ่มการทำงาน: ไปที่จุดสิ้นสุด
+shapes	Action Button: Go Home	ปุ่มการทำงาน: ไปหน้าแรก
+shapes	Action Button: Get Information	ปุ่มการทำงาน: ข้อมูล
+shapes	Action Button: Go Back	ปุ่มการทำงาน: ย้อนกลับ
+shapes	Action Button: Video	ปุ่มการทำงาน: วิดีโอ
+shapes	Action Button: Document	ปุ่มการทำงาน: เอกสาร
+shapes	Action Button: Sound	ปุ่มการทำงาน: เสียง
+shapes	Action Button: Help	ปุ่มการทำงาน: วิธีใช้
+shapes	Action Button: Custom	ปุ่มการทำงาน: กำหนดเอง
+shapes	Straight Arrow Connector	เส้นเชื่อมตรงมีลูกศร
+shapes	Elbow Arrow Connector	เส้นเชื่อมหักมุมมีลูกศร
+shapes	Curved Arrow Connector	เส้นเชื่อมโค้งมีลูกศร
+shapes	New Drawing Canvas	พื้นที่วาดภาพใหม่
+shapes	Curve	เส้นโค้ง
+shapes	Freeform: Shape	รูปอิสระ: รูปร่าง
+shapes	Freeform: Scribble	รูปอิสระ: ลายเส้น
+
+# Insert Diagram (the shared KrubOffice picker): its text, categories, and every layout's name and description.
+	All layouts	ทั้งหมด
+	Insert Diagram	แทรกไดอะแกรม
+	One item per line. Start a line with Tab for a sub-point.	บรรทัดละหนึ่งรายการ กด Tab หน้าบรรทัดเพื่อทำเป็นหัวข้อย่อย
+	Leave empty for sample text	เว้นว่างไว้เพื่อใช้ข้อความตัวอย่าง
+	List	รายการ
+	Process	กระบวนการ
+	Cycle	วงจร
+	Hierarchy	ลำดับชั้น
+	Relationship	ความสัมพันธ์
+	Matrix	เมทริกซ์
+	Pyramid	พีระมิด
+	Vertical Bullet List	รายการหัวข้อ แนวตั้ง
+	Basic Block List	รายการกล่องพื้นฐาน
+	Horizontal Bullet List	รายการหัวข้อ แนวนอน
+	Basic Process	กระบวนการพื้นฐาน
+	Basic Chevron Process	ลูกศรบั้งพื้นฐาน
+	Vertical Process	กระบวนการแนวตั้ง
+	Step Up Process	กระบวนการ ขั้นบันได
+	Basic Cycle	วงจรพื้นฐาน
+	Block Cycle	วงจรกล่อง
+	Basic Radial	รัศมีพื้นฐาน
+	Basic Pyramid	พีระมิดพื้นฐาน
+	Inverted Pyramid	พีระมิดกลับหัว
+	Basic Matrix	เมทริกซ์พื้นฐาน
+	Titled Matrix	เมทริกซ์มีหัวเรื่อง
+	Vertical Picture List	รายการรูปภาพ แนวตั้ง
+	Picture Caption List	รายการรูปภาพ พร้อมคำบรรยาย
+	Picture Accent Process	กระบวนการ เน้นรูปภาพ
+	Horizontal Picture List	รายการรูปภาพ แนวนอน
+	Basic Timeline	เส้นเวลาพื้นฐาน
+	Basic Venn	เวนน์พื้นฐาน
+	Basic Target	เป้าพื้นฐาน
+	Text Cycle	วงจรข้อความ
+	Continuous Cycle	วงจรต่อเนื่อง
+	Horizontal Hierarchy	ลำดับชั้นแนวนอน
+	Grid Matrix	เมทริกซ์ตาราง
+	Gear	เฟือง
+	Segmented Cycle	วงจรแบ่งส่วน
+	Multidirectional Cycle	วงจรหลายทิศทาง
+	Organization Chart	แผนผังองค์กร
+	Half Circle Organization Chart	แผนผังองค์กร ครึ่งวงกลม
+	Cycle Matrix	เมทริกซ์วงจร
+	Segmented Pyramid	พีระมิดแบ่งส่วน
+	Basic Pie	วงกลมแบ่งส่วน พื้นฐาน
+	Name and Title Organization Chart	แผนผังองค์กร ชื่อและตำแหน่ง
+	Vertical Box List	รายการกล่องแนวตั้ง
+	Trapezoid List	รายการ สี่เหลี่ยมคางหมู
+	Table List	รายการแบบตาราง
+	Accent Process	กระบวนการเน้น
+	Continuous Block Process	กระบวนการ กล่องต่อเนื่อง
+	Basic Bending Process	กระบวนการหักเลี้ยว พื้นฐาน
+	Linear Venn	เวนน์แนวเส้น
+	Stacked Venn	เวนน์ซ้อน
+	Nested Target	เป้าซ้อน
+	Shows items as wide bars, one under another, with their sub-points.	แสดงรายการเป็นแถบกว้างเรียงลงมา พร้อมหัวข้อย่อย
+	Shows items of equal weight as blocks in rows.	แสดงรายการที่มีความสำคัญเท่ากันเป็นกล่องเรียงแถว
+	Shows items side by side as columns, with sub-points under each.	แสดงรายการเรียงข้างกันเป็นคอลัมน์ มีหัวข้อย่อยอยู่ใต้แต่ละคอลัมน์
+	Shows steps in order, left to right, with arrows between them.	แสดงขั้นตอนตามลำดับจากซ้ายไปขวา พร้อมลูกศรเชื่อม
+	Shows steps in order as arrow-shaped chevrons.	แสดงขั้นตอนตามลำดับเป็นรูปลูกศรบั้ง
+	Shows steps in order from top to bottom.	แสดงขั้นตอนตามลำดับจากบนลงล่าง
+	Shows steps that rise like stairs, each a step higher.	แสดงขั้นตอนที่สูงขึ้นทีละขั้นเหมือนขั้นบันได
+	Shows steps that repeat, around a circle.	แสดงขั้นตอนที่เกิดซ้ำเป็นวงจร
+	Shows steps that repeat as blocks around a circle, with arrows between them.	แสดงขั้นตอนที่เกิดซ้ำเป็นกล่องรอบวงกลม มีลูกศรคั่น
+	Shows items around a central idea: the first item is the centre.	แสดงรายการรอบแนวคิดหลัก โดยใช้รายการแรกเป็นศูนย์กลาง
+	Shows a tree: each item below the item it belongs to.	แสดงลำดับชั้นโดยวางรายการไว้ใต้รายการที่เกี่ยวข้อง
+	Shows parts that build on each other, largest at the bottom.	แสดงส่วนที่ต่อยอดกัน โดยส่วนใหญ่ที่สุดอยู่ด้านล่าง
+	Shows parts that narrow down, largest at the top.	แสดงส่วนที่แคบลงเรื่อย ๆ โดยส่วนใหญ่ที่สุดอยู่ด้านบน
+	Shows parts of a whole as quadrants.	แสดงส่วนต่าง ๆ ของภาพรวมเป็นสี่ส่วน
+	Shows four parts around a central idea: the first item is the title.	แสดงสี่ส่วนรอบแนวคิดหลัก โดยใช้รายการแรกเป็นหัวเรื่อง
+	Shows items one under another, each with a picture.	แสดงรายการเรียงลงมา แต่ละรายการมีรูปภาพ
+	Shows pictures side by side, each with its caption below.	แสดงรูปภาพเรียงข้างกัน มีคำบรรยายอยู่ใต้แต่ละรูป
+	Shows steps in order, each with a picture.	แสดงขั้นตอนตามลำดับ แต่ละขั้นมีรูปภาพ
+	Shows items side by side, each with a picture above its text.	แสดงรายการเรียงข้างกัน มีรูปภาพอยู่เหนือข้อความ
+	Shows events in order along a line.	แสดงเหตุการณ์ตามลำดับบนเส้นเวลา
+	Shows overlapping ideas as overlapping circles.	แสดงแนวคิดที่ซ้อนทับกันเป็นวงกลมซ้อนกัน
+	Shows items as rings around a centre, from the outside in.	แสดงรายการเป็นวงแหวนรอบจุดศูนย์กลาง จากด้านนอกเข้าด้านใน
+	Shows steps that repeat as text around a circle of arrows.	แสดงขั้นตอนที่เกิดซ้ำเป็นข้อความรอบวงลูกศร
+	Shows steps that repeat without end, on a ring.	แสดงขั้นตอนที่วนซ้ำไม่สิ้นสุดบนวงแหวน
+	Shows a tree from left to right.	แสดงลำดับชั้นจากซ้ายไปขวา
+	Shows four parts on two axes.	แสดงสี่ส่วนบนแกนสองแกน
+	Shows ideas that drive one another, as gears.	แสดงแนวคิดที่ขับเคลื่อนกันและกันเป็นรูปเฟือง
+	Shows items that combine into one result, through a funnel.	แสดงรายการที่รวมกันเป็นผลลัพธ์เดียวผ่านกรวย
+	Shows the parts of a whole as segments of a circle.	แสดงส่วนต่าง ๆ ของภาพรวมเป็นส่วนของวงกลม
+	Shows items that can lead to one another in both directions.	แสดงรายการที่นำไปสู่กันและกันได้ทั้งสองทาง
+	Shows who reports to whom in an organization.	แสดงสายการบังคับบัญชาในองค์กร
+	Shows an organization, each person under a half circle.	แสดงโครงสร้างองค์กร โดยแต่ละคนอยู่ใต้ครึ่งวงกลม
+	Shows four parts around a centre that turn into one another.	แสดงสี่ส่วนรอบจุดศูนย์กลางที่เปลี่ยนเป็นกันและกัน
+	Shows parts of a whole as a pyramid of triangles.	แสดงส่วนต่าง ๆ ของภาพรวมเป็นพีระมิดของรูปสามเหลี่ยม
+	Shows the parts of a whole as slices of a circle.	แสดงส่วนต่าง ๆ ของภาพรวมเป็นชิ้นของวงกลม
+	Shows an organization with each person's name and title.	แสดงโครงสร้างองค์กรพร้อมชื่อและตำแหน่งของแต่ละคน
+	Shows items as boxes one under another, each with a heading.	แสดงรายการเป็นกล่องเรียงลงมา แต่ละกล่องมีหัวข้อ
+	Shows groups side by side as trapezoids, with their sub-points.	แสดงกลุ่มเรียงข้างกันเป็นสี่เหลี่ยมคางหมู พร้อมหัวข้อย่อย
+	Shows a heading item across the top and the items under it as columns.	แสดงรายการหลักเป็นแถบด้านบน และรายการย่อยเป็นคอลัมน์ด้านล่าง
+	Shows steps in order, each with its details below.	แสดงขั้นตอนตามลำดับ มีรายละเอียดอยู่ใต้แต่ละขั้น
+	Shows steps in order on one long arrow.	แสดงขั้นตอนตามลำดับบนลูกศรยาวเส้นเดียว
+	Shows many steps in order, in rows that turn.	แสดงขั้นตอนจำนวนมากตามลำดับ ในแถวที่วกกลับ
+	Shows overlapping ideas as circles in a row.	แสดงแนวคิดที่ซ้อนทับกันเป็นวงกลมเรียงแถว
+	Shows ideas that grow from one another, as circles inside circles.	แสดงแนวคิดที่ต่อยอดจากกันเป็นวงกลมซ้อนอยู่ในวงกลม
+	Shows items held inside one another, as nested boxes.	แสดงรายการที่อยู่ภายในกันและกันเป็นกล่องซ้อน
+	Save as Picture…	บันทึกเป็นรูปภาพ…
+	Save Media as…	บันทึกสื่อเป็น…
+	Select a picture, video or audio first.	เลือกรูปภาพ วิดีโอ หรือเสียงก่อน
+	This media is linked, not kept in the presentation.	สื่อนี้เป็นลิงก์ ไม่ได้เก็บไว้ในงานนำเสนอ

@@ -9,9 +9,10 @@ description = "DeckCraft renderer: slides, layouts and masters to pixels (vello_
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
 deckcraft-geom = { workspace = true }
 deckcraft-color = { workspace = true }
-deckcraft-metafile = { workspace = true }
+craft-metafile = { workspace = true }
 deckcraft-model = { workspace = true }
 deckcraft-anim = { workspace = true }
 deckcraft-fonts = { workspace = true }
@@ -25,3 +26,6 @@ skrifa = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 vello_cpu = { workspace = true, features = ["multithreading"] }
+
+[dev-dependencies]
+craft-metafile = { workspace = true, features = ["write"] }

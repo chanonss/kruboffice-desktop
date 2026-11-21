@@ -43,14 +43,17 @@ fn load_installed() -> TrDict {
         log::info!("Turkish spelling: no Hunspell tr_TR dictionary installed");
         return TrDict::default();
     };
-    let read = |p: &std::path::Path| std::fs::read_to_string(p);
-    match (read(&aff), read(&dic)) {
-        (Ok(aff_text), Ok(dic_text)) => TrDict::from_hunspell(&aff_text, &dic_text).unwrap_or_else(|e| {
-            log::warn!("Turkish spelling: {e}");
-            TrDict::default()
-        }),
-        _ => TrDict::default(),
-    }
+    load(&aff, &dic).unwrap_or_else(|e| {
+        log::warn!("Turkish spelling: {e}");
+        TrDict::default()
+    })
+}
+
+/// Read a Turkish Hunspell pair from disk: size-capped and decoded per the `.aff`'s `SET` line,
+/// like the other languages' dictionaries (#3661).
+pub(crate) fn load(aff: &std::path::Path, dic: &std::path::Path) -> Result<TrDict, String> {
+    let (aff_text, dic_text) = crate::hunspell::decode(&crate::hunspell::read_capped(aff)?, &crate::hunspell::read_capped(dic)?)?;
+    TrDict::from_hunspell(&aff_text, &dic_text)
 }
 
 /// Use this Turkish dictionary from now on.

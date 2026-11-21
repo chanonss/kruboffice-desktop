@@ -1,6 +1,9 @@
-//! Word-style keytips: Alt (or F10) shows letter badges over ribbon tabs, then over a tab's
-//! controls; numbered badges also reach the customized Quick Access Toolbar. Typing never
-//! reaches the document while active.
+//! Word-style keytips: Alt (or F10) shows badges over ribbon tabs, then over a tab's controls.
+//! Owner, 2026-11-19 (`krub_icons::tab_keys`, the same in the three apps): a tab's badge is the
+//! number printed on it (1–9, 0 for the tenth; its letter still works), ← → step between tabs,
+//! ↓ goes into the commands; Alt taps arm keytips on macOS too (Option alone types nothing); the
+//! Quick Access Toolbar's badges are Q1, Q2…, and Search is U. Typing never reaches the document
+//! while active.
 
 use egui::{Align2, CornerRadius, Rect, Stroke, Ui, Vec2};
 
@@ -84,8 +87,8 @@ const TAB_LETTERS: [(&str, &str); 11] = [
 /// Word's contextual table tabs take two letters (Alt, J, T and Alt, J, L), shown in a table.
 const TABLE_TAB_LETTERS: [(&str, &str); 2] = [("Table Design", "JT"), ("Table Layout", "JL")];
 
-/// The Search box's badge beside the tab badges (Word's Alt, Q).
-pub const SEARCH_LETTER: &str = "Q";
+/// The user icon's badge, which opens Search (Q before the toolbar took Q1, Q2…).
+pub const SEARCH_LETTER: &str = krub_icons::tab_keys::USER_LETTER;
 
 /// The letter badge for a tab (empty when it has none).
 pub fn tab_letter(tab: &str) -> &'static str {
@@ -188,7 +191,7 @@ fn controls(tab: &str) -> Vec<Control> {
             c("Pictures", "insert.picture"),
             m("Shapes", "insert.shape"),
             c("Icons", "insert.icon"),
-            c("SmartArt", "insert.smartArt"),
+            c("Diagram", "insert.smartArt"),
             c("Chart", "insert.chart"),
             d("Link", "link"),
             d("Bookmark", "bookmark"),
@@ -486,13 +489,51 @@ pub fn badge(ui: &Ui, rect: Rect, letter: &str) {
     p.text(r.center(), Align2::CENTER_CENTER, letter, font, t.on_accent);
 }
 
-/// Record a tab badge over a tab's real rect, called as each tab is laid out. After a typed
-/// prefix (J, or Quick Access Toolbar digits) only the badges it can still complete show.
-pub fn record_tab(rect: Rect, tab: &str, prefix: &str, out: &mut Vec<(Rect, String)>) {
-    let l = tab_letter(tab);
-    if !l.is_empty() && l.starts_with(prefix) {
-        out.push((rect, l.to_string()));
+/// Record a tab badge over a tab's real rect, called as each tab is laid out: the tab's number
+/// (`index` from File at 0), or its letter past the tenth. Where the tab already shows its number
+/// (`numbers_shown`) that number lights up instead (the ribbon draws it gold), so no badge is
+/// added. After a typed prefix (J, Q) only the badges it can still complete show.
+pub fn record_tab(rect: Rect, tab: &str, index: usize, numbers_shown: bool, prefix: &str, out: &mut Vec<(Rect, String)>) {
+    let number = krub_icons::tab_keys::tab_badge(index);
+    if numbers_shown && number.is_some() {
+        return;
     }
+    let l = number.unwrap_or_else(|| tab_letter(tab).to_string());
+    if !l.is_empty() && l.starts_with(prefix) {
+        out.push((rect, l));
+    }
+}
+
+/// Choose a tab from the keyboard while the tab badges show: a number picks the numbered tab and
+/// opens its badges, ← → step between the numbered tabs, ↓ opens the current tab's badges.
+/// `true` when the key was one of these.
+fn tab_key(app: &mut WordApp, key: egui::Key) -> bool {
+    let numbered = app.keytip_tabs.len().saturating_sub(1).min(10);
+    let current = app.keytip_tabs.iter().position(|t| *t == app.ui.tab).unwrap_or(0);
+    let pick = match key {
+        egui::Key::ArrowLeft | egui::Key::ArrowRight => {
+            let to = krub_icons::tab_keys::step(current, numbered, key == egui::Key::ArrowRight);
+            if let Some(tab) = app.keytip_tabs.get(to).cloned() {
+                let _ = app.run("ui.tab", serde_json::json!({ "tab": tab }));
+            }
+            return true;
+        }
+        egui::Key::ArrowDown => {
+            if current > 0 {
+                app.ui.keytips = Phase::Commands;
+            }
+            return true;
+        }
+        k => match krub_icons::tab_keys::tab_number(k) {
+            Some(n) if app.ui.keytip_prefix.is_empty() && n <= numbered => app.keytip_tabs.get(n).cloned(),
+            _ => return false,
+        },
+    };
+    if let Some(tab) = pick {
+        let _ = app.run("ui.tab", serde_json::json!({ "tab": tab }));
+        app.ui.keytips = Phase::Commands;
+    }
+    true
 }
 
 /// Record a control badge over the control's real rect. `index` is the control's position in
@@ -522,15 +563,20 @@ pub fn handle_key(app: &mut WordApp, key: egui::Key) -> bool {
                 app.ui.keytips = if app.ui.keytips == Phase::Tabs { Phase::Off } else { Phase::Tabs };
             }
             k => {
+                // Numbers and arrows choose a tab (owner, 2026-11-19).
+                if app.ui.keytips == Phase::Tabs && tab_key(app, k) {
+                    app.ui.keytip_prefix.clear();
+                    return true;
+                }
                 let Some(name) = keys::key_name(k).map(|n| n.to_ascii_uppercase()) else {
                     // A key with no keytip cancels the mode.
                     app.ui.keytips = Phase::Off;
                     app.ui.keytip_prefix.clear();
                     return true;
                 };
-                // Quick Access Toolbar badges are all digits; a pending prefix keeps its kind.
+                // Quick Access Toolbar badges are Q then digits; a pending prefix keeps its kind.
                 let typed = if app.ui.keytip_prefix.is_empty() { name.as_str() } else { app.ui.keytip_prefix.as_str() };
-                if app.ui.keytips == Phase::Tabs && typed.chars().all(|c| c.is_ascii_digit()) {
+                if app.ui.keytips == Phase::Tabs && typed.starts_with(krub_icons::tab_keys::QAT_LETTER) {
                     qat_key(app, &name);
                     return true;
                 }
@@ -550,7 +596,7 @@ pub fn handle_key(app: &mut WordApp, key: egui::Key) -> bool {
                                 // File opens the Backstage: no ribbon commands to badge.
                                 app.ui.keytips = if tab == "File" { Phase::Off } else { Phase::Commands };
                             }
-                            // Q is the title bar's Search box, as in Word (#819).
+                            // U is the user icon, where Search lives (Q before, as in Word, #819).
                             None if name == SEARCH_LETTER => {
                                 app.ui.keytips = Phase::Off;
                                 let _ = app.run("tools.search", serde_json::json!({}));
@@ -584,15 +630,10 @@ pub fn handle_key(app: &mut WordApp, key: egui::Key) -> bool {
     false
 }
 
-/// The first nine buttons use one digit. Further buttons use a leading zero and equally wide
-/// numbers, so no complete badge is the prefix of another, even for the maximum-size toolbar.
+/// Q then the button's number: Q1–Q9, then Q01, Q02… (`krub_icons::tab_keys::qat_label`), so no
+/// complete badge is the prefix of another, even for the maximum-size toolbar.
 pub(crate) fn qat_label(index: usize, count: usize) -> String {
-    if index < 9 {
-        (index + 1).to_string()
-    } else {
-        let width = count.saturating_sub(9).to_string().len();
-        format!("0{:0width$}", index.saturating_sub(8))
-    }
+    krub_icons::tab_keys::qat_label(index, count)
 }
 
 fn qat_key(app: &mut WordApp, name: &str) {
@@ -658,8 +699,8 @@ fn alt_transition(app: &mut WordApp, pressed: bool, modifiers: egui::Modifiers) 
 /// registry's Alt+letter shortcuts are untouched).
 ///
 /// Keytips arm on a bare Alt *release* with no key pressed in between — the same chord Word
-/// uses. On macOS they never arm from Alt at all, because Option is how you type accented
-/// characters there and hijacking it would swallow the next letter.
+/// uses — on every platform (owner, 2026-11-19): on macOS an Option tap alone types nothing, and
+/// Option with a letter (an accent) is not a tap.
 pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
     if suppressed(app, ctx) || !ctx.input(|i| i.focused) {
         app.ui.keytips = Phase::Off;
@@ -673,8 +714,6 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
         });
         return;
     }
-    // On macOS Option+key types accents, so Alt must never arm keytips there.
-    const ALT_ARMS: bool = !cfg!(target_os = "macos");
     let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
     // Alt pressed or let go while dragging (an object, a selection) is part of the drag (Alt
     // moves an object freely), not a keytip tap.
@@ -731,7 +770,7 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
             });
         });
     }
-    if ALT_ARMS && alt_released && !other_key {
+    if krub_icons::tab_keys::is_tap(alt_released, other_key) {
         app.ui.keytips = if app.ui.keytips == Phase::Tabs { Phase::Off } else { Phase::Tabs };
         app.ui.keytip_prefix.clear();
     } else if f10 {
@@ -806,7 +845,7 @@ mod tests {
                             release.insert(0, key_event(key, false, alt));
                         }
                     }
-                    for expected in [if cfg!(target_os = "macos") { Phase::Off } else { Phase::Tabs }, Phase::Off] {
+                    for expected in [Phase::Tabs, Phase::Off] {
                         if same_frame {
                             input_frame(&ctx, &mut a, press.iter().chain(&release).cloned().collect());
                         } else {
@@ -944,7 +983,7 @@ mod tests {
     }
 
     /// Alt+drag selects a column (#237); releasing Alt afterwards must not open keytips. A bare
-    /// Alt tap still does (off macOS, where Option types accents).
+    /// Alt tap still does, Option on macOS too (2026-11-19).
     #[test]
     fn alt_click_or_drag_does_not_arm_keytips_on_release() {
         let ctx = egui::Context::default();
@@ -973,7 +1012,7 @@ mod tests {
         // A bare tap (press and release in separate frames) arms them.
         frame(&mut a, vec![key(true, alt)]);
         frame(&mut a, vec![key(false, egui::Modifiers::NONE)]);
-        let tap = if cfg!(target_os = "macos") { Phase::Off } else { Phase::Tabs };
+        let tap = Phase::Tabs;
         assert_eq!(a.ui.keytips, tap);
     }
 
@@ -1029,6 +1068,8 @@ mod tests {
         let bold_index = a.session.ribbon.qat().iter().position(|id| *id == "format.bold").unwrap();
         assert_eq!(bold_index, 0);
         activate(&mut a);
+        // Q, then the button's number (owner, 2026-11-19: the digits choose tabs).
+        handle_key(&mut a, egui::Key::Q);
         handle_key(&mut a, egui::Key::Num1);
         assert_eq!(a.session.run("format.state", &serde_json::json!({})).unwrap()["bold"], true);
         assert_eq!(a.ui.keytips, Phase::Off);
@@ -1036,6 +1077,7 @@ mod tests {
         let mut b = app();
         let before = b.session.doc.clone();
         activate(&mut b);
+        handle_key(&mut b, egui::Key::Q);
         handle_key(&mut b, egui::Key::Num2); // Undo is disabled in an untouched document.
         assert_eq!(b.session.doc, before);
         assert!(!b.session.can_redo());
@@ -1050,14 +1092,16 @@ mod tests {
         commands.insert(9, "format.bold".into());
         a.session.ribbon.qat = Some(commands);
         activate(&mut a);
+        handle_key(&mut a, egui::Key::Q);
         handle_key(&mut a, egui::Key::Num0);
         handle_key(&mut a, egui::Key::Num0);
         assert_eq!(a.ui.keytips, Phase::Tabs);
         assert_eq!(a.session.run("format.state", &serde_json::json!({})).unwrap()["bold"], false);
-        handle_key(&mut a, egui::Key::Num1); // 001: first button after the first nine.
+        handle_key(&mut a, egui::Key::Num1); // Q001: first button after the first nine.
         assert_eq!(a.session.run("format.state", &serde_json::json!({})).unwrap()["bold"], true);
         assert_eq!(a.ui.keytips, Phase::Off);
         activate(&mut a);
+        handle_key(&mut a, egui::Key::Q);
         handle_key(&mut a, egui::Key::Num0);
         handle_key(&mut a, egui::Key::Escape);
         assert!(a.ui.keytip_prefix.is_empty());
@@ -1093,6 +1137,8 @@ mod tests {
         h.input_mut().events.push(key(egui::Key::F10));
         h.step();
         assert_eq!(h.state().ui.keytips, Phase::Tabs);
+        h.input_mut().events.extend([key(egui::Key::Q), egui::Event::Text("q".into())]);
+        h.step();
         h.input_mut().events.extend([key(egui::Key::Num2), egui::Event::Text("2".into())]);
         h.step();
         assert_eq!(h.state().ui.keytips, Phase::Off);
@@ -1102,13 +1148,15 @@ mod tests {
         h.input_mut().events.push(egui::Event::Text("hello".into()));
         h.step();
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "hello");
-        if !cfg!(target_os = "macos") {
+        {
             let alt = egui::Modifiers { alt: true, ..Default::default() };
             h.input_mut().events.extend([key_event(egui::Key::AltLeft, true, egui::Modifiers::NONE), egui::Event::ModifiersChanged(alt)]);
             h.step();
             h.input_mut().events.extend([key_event(egui::Key::AltLeft, false, alt), egui::Event::ModifiersChanged(egui::Modifiers::NONE)]);
             h.step();
             assert_eq!(h.state().ui.keytips, Phase::Tabs);
+            h.input_mut().events.extend([key(egui::Key::Q), egui::Event::Text("q".into())]);
+            h.step();
             h.input_mut().events.extend([key(egui::Key::Num2), egui::Event::Text("2".into())]);
             h.step();
             assert_eq!(h.state_mut().session.run("format.state", &serde_json::json!({})).unwrap()["bold"], false);
@@ -1149,15 +1197,52 @@ mod tests {
         assert!(b.ui.keytips_enabled, "older preferences retain enabled KeyTips");
     }
 
-    /// Alt, then Q opens Search like Alt+Q (#819); no tab owns Q.
+    /// The numbers on the tabs choose them (owner, 2026-11-19): a number opens that tab's badges,
+    /// ← → step round the numbered tabs, ↓ goes into the commands, 0 is the tenth.
     #[test]
-    fn alt_then_q_opens_search() {
+    fn numbers_and_arrows_choose_tabs() {
+        let mut a = app();
+        a.keytip_tabs = ["File", "Home", "Insert", "Design", "Layout", "References", "Review", "View"].map(String::from).to_vec();
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::Num2));
+        assert_eq!(a.ui.tab, "Insert");
+        assert_eq!(a.ui.keytips, Phase::Commands, "the tab's own badges follow");
+        a.ui.keytips = Phase::Off;
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::ArrowRight));
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Design", Phase::Tabs));
+        assert!(handle_key(&mut a, egui::Key::ArrowLeft));
+        assert!(handle_key(&mut a, egui::Key::ArrowLeft));
+        assert_eq!(a.ui.tab, "Home");
+        assert!(handle_key(&mut a, egui::Key::ArrowLeft));
+        assert_eq!(a.ui.tab, "View", "wraps round to the last tab");
+        assert!(handle_key(&mut a, egui::Key::ArrowDown));
+        assert_eq!(a.ui.keytips, Phase::Commands);
+        a.ui.keytips = Phase::Off;
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::Num9), "a number past the last tab is still taken");
+        assert_eq!(a.ui.tab, "View", "and changes nothing");
+        let mut out = Vec::new();
+        record_tab(Rect::NOTHING, "Home", 1, false, "", &mut out);
+        record_tab(Rect::NOTHING, "File", 0, false, "", &mut out);
+        record_tab(Rect::NOTHING, "Insert", 2, true, "", &mut out);
+        assert_eq!(
+            out.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(),
+            ["1", "F"],
+            "Home shows 1, File its letter; a shown number lights up instead"
+        );
+    }
+
+    /// Alt, then U (the user icon, where Search lives since 2026-11-18) opens Search (#819); no
+    /// tab owns U.
+    #[test]
+    fn alt_then_u_opens_search() {
         let mut a = app();
         a.ui.backstage = false;
         a.dialog = None;
         assert!(TAB_LETTERS.iter().all(|(_, l)| *l != SEARCH_LETTER));
         activate(&mut a);
-        assert!(handle_key(&mut a, egui::Key::Q));
+        assert!(handle_key(&mut a, egui::Key::U));
         assert_eq!(a.ui.keytips, Phase::Off);
         assert!(matches!(a.dialog, Some(crate::dialogs::Dialog::Commands { .. })), "{:?}", a.dialog.as_ref().map(|d| d.name()));
     }

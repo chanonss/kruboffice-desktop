@@ -1,39 +1,42 @@
-//! Insert › SmartArt (a picker of layouts by category, with previews drawn in code) and the
+//! Insert › Diagram (the shared KrubOffice picker, with previews drawn in code here) and the
 //! SmartArt Text Pane (the selected graphic's items as an editable outline). Each change runs one
 //! command (`insert.smartArt`, `smartArt.items`, `smartArt.addShape`…), so agents get the same
 //! result without the UI. The picker is shown through [`crate::dialogs_insert::InsertDialog`];
 //! the pane through [`crate::panes`].
 
-use crate::widgets::SteadyUi;
-use egui::{Color32, Painter, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Color32, Painter, Rect, Stroke, Ui, pos2, vec2};
+use krub_icons::diagram_picker;
 use serde::Serialize;
 use serde_json::{Value, json};
 use wordcraft_doc::props::Rgb;
 use wordcraft_doc::smart_art::{MAX_ITEMS, SmartArtColors, SmartArtLayout, SmartArtSpec};
 
 use crate::WordApp;
-use crate::theme::{Tokens, c32, regular, semibold};
+use crate::theme::{Tokens, c32};
 
-/// The picker's categories (`All` first), in the order shown.
-pub const CATEGORIES: [&str; 8] = ["All", "List", "Process", "Cycle", "Hierarchy", "Relationship", "Matrix", "Pyramid"];
-
-/// Insert › SmartArt: the category shown and the layout picked.
+/// Insert › Diagram: the category shown, the layout picked (its id) and the items typed. The
+/// dialog itself is the shared [`krub_icons::diagram_picker`].
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartArtForm {
     pub category: String,
-    pub layout: SmartArtLayout,
+    pub layout: String,
+    pub text: String,
 }
 
 impl SmartArtForm {
     pub fn new(_app: &WordApp) -> SmartArtForm {
-        SmartArtForm { category: "All".into(), layout: SmartArtLayout::default() }
+        let s = diagram_picker::State::new(SmartArtLayout::default().id());
+        SmartArtForm { category: s.category, layout: s.layout, text: s.text }
     }
+}
 
-    /// The layouts the current category shows.
-    pub fn shown(&self) -> Vec<SmartArtLayout> {
-        SmartArtLayout::ALL.into_iter().filter(|l| self.category == "All" || l.category() == self.category).collect()
-    }
+/// The layouts KhianKrub offers, for the shared picker.
+pub fn layouts() -> Vec<diagram_picker::Layout> {
+    SmartArtLayout::ALL
+        .into_iter()
+        .map(|l| diagram_picker::Layout { id: l.id(), name: l.label(), category: l.category(), description: l.description() })
+        .collect()
 }
 
 /// Theme accent `n` (1–6) of the document.
@@ -131,7 +134,138 @@ pub fn preview(p: &Painter, r: Rect, layout: SmartArtLayout, colors: SmartArtCol
                 p.circle_stroke(q, s * 0.3, Stroke::new(1.0, col(k)));
             }
         }
+        SmartArtLayout::VerticalBulletList => {
+            for k in 0..3 {
+                let y = 0.04 + k as f32 * 0.33;
+                block(0.0, y, 1.0, y + 0.15, k, 3.0);
+                p.rect_filled(Rect::from_min_max(at(0.06, y + 0.15), at(1.0, y + 0.27)), 0.0, col(k).gamma_multiply(0.2));
+                p.circle_filled(at(0.13, y + 0.21), s * 0.015, col(k));
+            }
+        }
+        SmartArtLayout::Chevron => {
+            for k in 0..3 {
+                let x = k as f32 * 0.33;
+                // Two halves either side of the point's axis, each convex.
+                for half in [[(0.0, 0.36), (0.26, 0.36), (0.34, 0.5), (0.08, 0.5)], [(0.08, 0.5), (0.34, 0.5), (0.26, 0.64), (0.0, 0.64)]] {
+                    p.add(egui::Shape::convex_polygon(half.iter().map(|&(u, v)| at(x + u, v)).collect(), col(k), Stroke::NONE));
+                }
+            }
+        }
+        SmartArtLayout::OrgChart => {
+            p.line_segment([at(0.5, 0.24), at(0.5, 0.32)], thin);
+            p.line_segment([at(0.2, 0.32), at(0.8, 0.32)], thin);
+            for x in [0.2, 0.5, 0.8] {
+                p.line_segment([at(x, 0.32), at(x, 0.4)], thin);
+            }
+            p.line_segment([at(0.1, 0.54), at(0.1, 0.89)], thin);
+            for y in [0.66, 0.85] {
+                p.line_segment([at(0.1, y), at(0.14, y)], thin);
+            }
+            block(0.36, 0.06, 0.64, 0.24, 0, 0.0);
+            for (k, x) in [0.06, 0.36, 0.66].into_iter().enumerate() {
+                block(x, 0.4, x + 0.28, 0.54, k + 1, 0.0);
+            }
+            block(0.14, 0.6, 0.34, 0.72, 4, 0.0);
+            block(0.14, 0.79, 0.34, 0.91, 5, 0.0);
+        }
+        SmartArtLayout::Timeline => {
+            p.add(egui::Shape::convex_polygon(vec![at(0.9, 0.44), at(1.0, 0.5), at(0.9, 0.56)], col(0).gamma_multiply(0.5), Stroke::NONE));
+            p.rect_filled(Rect::from_min_max(at(0.0, 0.475), at(0.9, 0.525)), 0.0, col(0).gamma_multiply(0.5));
+            for k in 0..4 {
+                let x = 0.1 + k as f32 * 0.24;
+                p.circle_filled(at(x, 0.5), s * 0.045, Color32::WHITE);
+                p.circle_stroke(at(x, 0.5), s * 0.045, Stroke::new(2.0, col(k)));
+                let y = if k % 2 == 0 { 0.3 } else { 0.68 };
+                p.rect_filled(Rect::from_min_max(at(x - 0.08, y), at(x + 0.08, y + 0.03)), 1.0, line);
+            }
+        }
+        SmartArtLayout::Target => {
+            let tc = at(0.32, 0.5);
+            for (k, r) in [0.3, 0.2, 0.1].into_iter().enumerate() {
+                p.circle_filled(tc, s * r, col(k).gamma_multiply(0.4 + 0.3 * k as f32));
+            }
+            for (k, y) in [0.25, 0.35, 0.45].into_iter().enumerate() {
+                p.line_segment([at(0.32, y), at(0.7, y)], thin);
+                p.rect_filled(Rect::from_min_max(at(0.72, y - 0.02), at(0.98, y + 0.02)), 1.0, col(k));
+            }
+        }
+        SmartArtLayout::Funnel => {
+            for (k, (x, y)) in [(0.38, 0.17), (0.62, 0.17), (0.5, 0.33)].into_iter().enumerate() {
+                p.circle_filled(at(x, y), s * 0.1, col(k + 1));
+            }
+            let mouth = [at(0.1, 0.06), at(0.9, 0.06), at(0.58, 0.5), at(0.58, 0.6), at(0.42, 0.6), at(0.42, 0.5), at(0.1, 0.06)];
+            p.add(egui::Shape::line(mouth.to_vec(), Stroke::new(1.5, col(0))));
+            p.add(egui::Shape::convex_polygon(vec![at(0.45, 0.64), at(0.55, 0.64), at(0.5, 0.72)], col(0).gamma_multiply(0.6), Stroke::NONE));
+            block(0.3, 0.76, 0.7, 0.94, 4, 3.0);
+        }
+        SmartArtLayout::Gear => {
+            for (k, (x, y, r, teeth)) in [(0.36, 0.58, 0.3, 9), (0.78, 0.26, 0.2, 6), (0.8, 0.76, 0.15, 6)].into_iter().enumerate() {
+                gear(p, at(x, y), s * r, teeth, col(k));
+            }
+        }
+        SmartArtLayout::VerticalProcess => {
+            for k in 0..3 {
+                let y = k as f32 * 0.37;
+                block(0.25, y, 0.75, y + 0.24, k, 3.0);
+                if k < 2 {
+                    let ay = y + 0.27;
+                    p.add(egui::Shape::convex_polygon(
+                        vec![at(0.45, ay), at(0.55, ay), at(0.5, ay + 0.07)],
+                        col(k).gamma_multiply(0.6),
+                        Stroke::NONE,
+                    ));
+                }
+            }
+        }
+        SmartArtLayout::InvertedPyramid => {
+            // Half the pyramid's width at height `y` (base at 0.05, apex at 0.95).
+            let hw = |y: f32| 0.45 * (0.95 - y) / 0.9;
+            for (k, (y0, y1)) in [(0.05, 0.34), (0.34, 0.63), (0.63, 0.95)].into_iter().enumerate() {
+                let pts = if k == 2 {
+                    vec![at(0.5 - hw(y0), y0), at(0.5 + hw(y0), y0), at(0.5, y1)]
+                } else {
+                    vec![at(0.5 - hw(y0), y0), at(0.5 + hw(y0), y0), at(0.5 + hw(y1), y1), at(0.5 - hw(y1), y1)]
+                };
+                p.add(egui::Shape::convex_polygon(pts, col(k), Stroke::new(1.0, Color32::WHITE)));
+            }
+        }
+        SmartArtLayout::HorizontalHierarchy => {
+            p.line_segment([at(0.3, 0.5), at(0.36, 0.5)], thin);
+            p.line_segment([at(0.36, 0.25), at(0.36, 0.75)], thin);
+            for y in [0.25, 0.75] {
+                p.line_segment([at(0.36, y), at(0.42, y)], thin);
+            }
+            block(0.0, 0.4, 0.3, 0.6, 0, 3.0);
+            block(0.42, 0.16, 0.7, 0.34, 1, 3.0);
+            block(0.42, 0.66, 0.7, 0.84, 2, 3.0);
+            p.line_segment([at(0.7, 0.25), at(0.74, 0.25)], thin);
+            p.line_segment([at(0.74, 0.12), at(0.74, 0.38)], thin);
+            for y in [0.12, 0.38] {
+                p.line_segment([at(0.74, y), at(0.76, y)], thin);
+            }
+            block(0.76, 0.05, 1.0, 0.19, 3, 3.0);
+            block(0.76, 0.31, 1.0, 0.45, 4, 3.0);
+        }
+        SmartArtLayout::LinearVenn => {
+            for k in 0..4 {
+                let q = at(0.14 + k as f32 * 0.24, 0.5);
+                p.circle_filled(q, s * 0.15, col(k).gamma_multiply(0.45));
+                p.circle_stroke(q, s * 0.15, Stroke::new(1.0, col(k)));
+            }
+        }
     }
+}
+
+/// A gear of `teeth` round `c`, its teeth reaching `r`.
+fn gear(p: &Painter, c: egui::Pos2, r: f32, teeth: usize, fill: Color32) {
+    p.circle_filled(c, r * 0.8, fill);
+    let step = std::f32::consts::TAU / teeth as f32;
+    for k in 0..teeth {
+        let a = -std::f32::consts::FRAC_PI_2 + step * k as f32;
+        let pt = |da: f32, rr: f32| c + vec2((a + da * step).cos(), (a + da * step).sin()) * r * rr;
+        p.add(egui::Shape::convex_polygon(vec![pt(-0.3, 0.7), pt(-0.2, 1.0), pt(0.2, 1.0), pt(0.3, 0.7)], fill, Stroke::NONE));
+    }
+    p.circle_filled(c, r * 0.25, Color32::from_white_alpha(200));
 }
 
 /// A colour variant's name in the interface language.
@@ -156,99 +290,32 @@ pub fn swatches(p: &Painter, r: Rect, colors: SmartArtColors, theme: &[Rgb]) {
 pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
     let t = Tokens::get(ui.ctx());
     let theme = app.session.doc.settings.theme_colors.clone();
-    let mut chosen = None;
-    // Keep the action buttons outside the scroll area, even in a short window.
-    let max_height = (ui.ctx().content_rect().height() - 130.0).max(100.0);
-    egui::ScrollArea::vertical().id_salt("smart_art_picker").max_height(max_height).auto_shrink([true, true]).show(ui, |ui| {
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(120.0);
-                for cat in CATEGORIES {
-                    if ui.steady_label(f.category == cat, tl!(cat)).clicked() {
-                        f.category = cat.to_string();
-                        if !f.shown().contains(&f.layout)
-                            && let Some(first) = f.shown().first()
-                        {
-                            f.layout = *first;
-                        }
-                    }
-                }
-            });
-            let (separator, _) = ui.allocate_exact_size(vec2(8.0, 304.0), Sense::hover());
-            ui.painter().line_segment([separator.center_top(), separator.center_bottom()], Stroke::new(1.0, t.border));
-            ui.vertical(|ui| {
-                ui.set_width(3.0 * 96.0 + 16.0);
-                ui.set_min_height(2.0 * 96.0 + 8.0);
-                egui::Grid::new("smart_art_layouts").spacing(vec2(8.0, 8.0)).show(ui, |ui| {
-                    for (k, layout) in f.shown().into_iter().enumerate() {
-                        let (rect, resp) = ui.allocate_exact_size(vec2(96.0, 96.0), Sense::click());
-                        let on = f.layout == layout;
-                        let fill = if on {
-                            t.checked
-                        } else if resp.hovered() {
-                            t.hover
-                        } else {
-                            t.input
-                        };
-                        ui.painter().rect(rect, 4.0, fill, Stroke::new(1.0, if on { t.accent } else { t.border }), egui::StrokeKind::Inside);
-                        preview(
-                            ui.painter(),
-                            Rect::from_min_size(rect.min + vec2(14.0, 4.0), vec2(68.0, 62.0)),
-                            layout,
-                            SmartArtColors::default(),
-                            &theme,
-                            t.text_dim,
-                        );
-                        // A label wider than the tile (a long translation) breaks at its middle space.
-                        let label = tl!(layout.label());
-                        let width = |text: &str| ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.to_string(), regular(10.5), t.text).size().x);
-                        let lines = if width(label) <= rect.width() - 6.0 {
-                            vec![label.to_string()]
-                        } else {
-                            let split = label
-                                .match_indices(' ')
-                                .map(|(i, _)| (label[..i].to_string(), label[i + 1..].to_string()))
-                                .min_by(|a, b| width(&a.0).max(width(&a.1)).total_cmp(&width(&b.0).max(width(&b.1))));
-                            split.map_or_else(|| vec![label.to_string()], |(a, b)| vec![a, b])
-                        };
-                        for (n, line) in lines.iter().rev().enumerate() {
-                            ui.painter().text(
-                                pos2(rect.center().x, rect.bottom() - 11.0 - 12.5 * n as f32),
-                                egui::Align2::CENTER_CENTER,
-                                line,
-                                regular(10.5),
-                                t.text,
-                            );
-                        }
-                        let resp = resp.on_hover_text(label);
-                        if resp.clicked() {
-                            f.layout = layout;
-                        }
-                        if resp.double_clicked() {
-                            chosen = Some(layout);
-                        }
-                        if k % 3 == 2 {
-                            ui.end_row();
-                        }
-                    }
-                });
-            });
-            let (separator, _) = ui.allocate_exact_size(vec2(8.0, 304.0), Sense::hover());
-            ui.painter().line_segment([separator.center_top(), separator.center_bottom()], Stroke::new(1.0, t.border));
-            ui.vertical(|ui| {
-                ui.set_width(200.0);
-                let (rect, _) = ui.allocate_exact_size(vec2(200.0, 150.0), Sense::hover());
-                ui.painter().rect(rect, 4.0, t.input, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-                preview(ui.painter(), rect.shrink(10.0), f.layout, SmartArtColors::default(), &theme, t.text_dim);
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new(tl!(f.layout.label())).font(semibold(13.0)));
-                ui.add(egui::Label::new(tl!(f.layout.description())).wrap());
-            });
-        });
+    let layouts = layouts();
+    let mut state = diagram_picker::State { category: f.category.clone(), layout: f.layout.clone(), text: f.text.clone() };
+    // Keep the action buttons in the window, even a short one.
+    let max_height = (ui.ctx().content_rect().height() - 190.0).max(100.0);
+    let outcome = diagram_picker::show(ui, &|s| tl!(s).to_string(), &layouts, &mut state, max_height, &mut |p, r, id| {
+        if let Some(layout) = SmartArtLayout::ALL.into_iter().find(|l| l.id() == id) {
+            preview(p, r, layout, SmartArtColors::default(), &theme, t.text_dim);
+        }
     });
-    let (ok, cancel) = crate::dialogs_insert::buttons(ui, "OK", "Cancel", true);
-    let Some(layout) = chosen.or(ok.then_some(f.layout)) else { return cancel };
-    app.run("insert.smartArt", json!({"layout": layout.id()})).is_ok() || cancel
+    (f.category, f.layout, f.text) = (state.category.clone(), state.layout.clone(), state.text.clone());
+    match outcome {
+        diagram_picker::Outcome::Open => false,
+        diagram_picker::Outcome::Cancel => true,
+        diagram_picker::Outcome::Insert => app.run("insert.smartArt", insert_params(&state)).is_ok(),
+    }
+}
+
+/// The `insert.smartArt` params for what the picker shows: the layout, and the typed items
+/// (none typed: the layout's sample items).
+pub fn insert_params(state: &diagram_picker::State) -> Value {
+    let items: Vec<Value> = state.items().into_iter().map(|(text, level)| json!({"text": text, "level": level})).collect();
+    let mut params = json!({"layout": state.layout});
+    if !items.is_empty() {
+        params["items"] = Value::Array(items);
+    }
+    params
 }
 
 /// The `smartArt.items` params for `g` with item `i`'s text replaced by `text`.
@@ -372,6 +439,18 @@ mod tests {
             h.run_steps(3);
             assert!(wordcraft_engine::cmd::smart_art::selected_smart_art(&h.state().session).is_some());
         }
+    }
+
+    #[test]
+    fn typed_items_become_the_diagram_with_tabs_as_sub_points() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut state = diagram_picker::State::new("hierarchy");
+        assert_eq!(insert_params(&state), json!({"layout": "hierarchy"}));
+        state.text = "Lead\n\tTeam A\n\tTeam B\n".into();
+        app.run("insert.smartArt", insert_params(&state)).unwrap();
+        let g = wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).unwrap();
+        assert_eq!(g.layout, SmartArtLayout::Hierarchy);
+        assert_eq!(g.items.iter().map(|i| (i.text.as_str(), i.level)).collect::<Vec<_>>(), [("Lead", 0), ("Team A", 1), ("Team B", 1)]);
     }
 
     #[test]

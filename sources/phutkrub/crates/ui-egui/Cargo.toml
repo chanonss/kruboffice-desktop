@@ -9,6 +9,7 @@ description = "DeckCraft egui frontend (PowerPoint-style UI); swappable — noth
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
 krub-icons = { path = "../krub-icons" }
 krub-drive = { path = "../krub-drive" }
 deckcraft-geom = { workspace = true }

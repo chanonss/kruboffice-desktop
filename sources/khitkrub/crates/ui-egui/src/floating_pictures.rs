@@ -174,6 +174,30 @@ mod tests {
         bytes.into_inner()
     }
 
+    /// Save as Picture on the web: the picture's own bytes download as "Picture.png" (owner,
+    /// 2026-11-20).
+    #[test]
+    fn save_as_picture_downloads_the_pictures_own_bytes() {
+        let bytes = png(3, 2, [10, 20, 30, 255]);
+        let mut session = gridcraft_engine::Session::new();
+        session.new_workbook();
+        let file = std::env::temp_dir().join(format!("khitkrub-save-picture-ui-{}.png", std::process::id()));
+        std::fs::write(&file, &bytes).unwrap();
+        let out = session.execute("insert.picture", serde_json::json!({"path": file.to_str().unwrap()})).unwrap();
+        let _ = std::fs::remove_file(&file);
+        let id = session.doc().unwrap().wb.active().unwrap().images.first().map(|im| im.id).unwrap_or_else(|| panic!("{out}"));
+        let mut app = crate::SheetApp::new(session, Default::default());
+        let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+        let sink = got.clone();
+        app.services.download = Some(Box::new(move |name: &str, data: &[u8]| sink.lock().unwrap().push((name.to_string(), data.to_vec()))));
+        app.save_picture(id);
+        let held = app.session.doc().unwrap().wb.active().unwrap().images[0].data.clone();
+        assert_eq!(got.lock().unwrap().first().map(|(n, b)| (n.clone(), b.clone())), Some(("Picture.png".to_string(), held.to_vec())));
+        // An id with no picture downloads nothing.
+        app.save_picture(id + 99);
+        assert_eq!(got.lock().unwrap().len(), 1);
+    }
+
     fn key(doc: u64, id: u32, data: &[u8]) -> Key {
         Key { doc, id, len: data.len() }
     }

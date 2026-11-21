@@ -9,6 +9,7 @@ use gridcraft_model::{Chart, ChartKind, Color, DefinedName, LegendPos, LineDash,
 
 use crate::drawing::{dml_color, srgb};
 use crate::xml::{El, esc, num};
+use krub_chart_format::{self as kf, Part};
 
 // ---------------------------------------------------------------- reading
 
@@ -287,7 +288,62 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         source: None,
         by_rows: false,
         pivot: root.path(&["pivotSource", "name"]).map(|n| strip_book(n.text.trim()).to_string()).filter(|n| !n.is_empty()),
+        format: read_formats(root, chart, plot, &groups, x_ax, y_ax),
     })
+}
+
+/// The shared tree (`krub_chart_format::X`) of `el`, at most `depth` levels and 64 children each.
+fn x_of(el: &El, depth: usize) -> kf::X {
+    let local = |n: &str| n.rsplit(':').next().unwrap_or(n).to_string();
+    kf::X {
+        name: local(&el.name),
+        attrs: el.attrs.iter().map(|(k, v)| (local(k), v.clone())).collect(),
+        kids: if depth == 0 { Vec::new() } else { el.children.iter().take(64).map(|k| x_of(k, depth - 1)).collect() },
+    }
+}
+
+/// A part's look from its `c:spPr`, `c:txPr` and title text, when fully understood.
+fn part_of(el: &El) -> kf::Format {
+    let mut x = kf::X { name: "part".into(), ..Default::default() };
+    for name in ["spPr", "txPr", "tx"] {
+        if let Some(k) = el.child(name) {
+            x.kids.push(x_of(k, 8));
+        }
+    }
+    kf::read_part_strict(&x)
+}
+
+/// The chart pane's formats (`krub_chart_format`) of a chart part.
+fn read_formats(root: &El, chart: &El, plot: &El, groups: &[(&El, ChartKind)], x_ax: Option<&El>, y_ax: Option<&El>) -> kf::Formats {
+    let mut f = kf::Formats {
+        chart_area: part_of(root),
+        plot_area: part_of(plot),
+        rounded_corners: root.child_val("roundedCorners") == Some("1"),
+        title: chart.child("title").map(part_of).unwrap_or_default(),
+        legend: chart.child("legend").map(part_of).unwrap_or_default(),
+        category_axis: x_ax.map(part_of).unwrap_or_default(),
+        value_axis: y_ax.map(part_of).unwrap_or_default(),
+        gridlines: y_ax.and_then(|a| a.child("majorGridlines")).map(part_of).unwrap_or_default(),
+        ..Default::default()
+    };
+    // A series written with only a colour (`c:spPr` with a fill, or a 2.25-pt line) or with no
+    // line (scatter, stock) keeps that as its colour, not as a pane format.
+    let plain = |ser: &El| {
+        let Some(sp) = ser.child("spPr") else { return true };
+        let ln = sp.child("ln");
+        let w = ln.and_then(|l| l.attr("w"));
+        matches!(w, Some("28575" | "19050")) || (ln.is_none() && sp.child("effectLst").is_none())
+    };
+    f.series = groups
+        .iter()
+        .flat_map(|(g, _)| g.kids("ser"))
+        .take(kf::MAX_SERIES)
+        .map(|ser| if plain(ser) { kf::Format::default() } else { part_of(ser) })
+        .collect();
+    while f.series.last().is_some_and(kf::Format::is_auto) {
+        f.series.pop();
+    }
+    f
 }
 
 // ---------------------------------------------------------------- writing
@@ -536,7 +592,7 @@ fn multi_level_cat(f: &str, values: &str, wb: &Workbook, si: usize) -> Option<St
     Some(s)
 }
 
-fn series_xml(s: &Series, idx: usize, g: G, wb: &Workbook, si: usize) -> String {
+fn series_xml(s: &Series, idx: usize, g: G, wb: &Workbook, si: usize, own: &kf::Format) -> String {
     let mut x = format!("<c:ser><c:idx val=\"{idx}\"/><c:order val=\"{idx}\"/>");
     if let Some(n) = &s.name {
         if is_ref(n) || is_defined_name(wb, si, n) {
@@ -547,6 +603,13 @@ fn series_xml(s: &Series, idx: usize, g: G, wb: &Workbook, si: usize) -> String 
         }
     }
     let color = s.color.as_ref().and_then(|c: &Color| srgb(c, &wb.theme));
+    // The chart pane's look for this series (`krub_chart_format`) wins over its colour.
+    let color = if own.shape_is_auto() {
+        color
+    } else {
+        x.push_str(&kf::sp_pr(own));
+        None
+    };
     let line_like = matches!(g, G::Line { .. } | G::Radar | G::Scatter { lines: true });
     match (&color, line_like) {
         (Some(c), true) => {
@@ -561,7 +624,9 @@ fn series_xml(s: &Series, idx: usize, g: G, wb: &Workbook, si: usize) -> String 
         (Some(c), false) => {
             let _ = write!(x, "<c:spPr><a:solidFill>{c}</a:solidFill></c:spPr>");
         }
-        (None, _) if g == (G::Scatter { lines: false }) || g == G::Stock => x.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>"),
+        (None, _) if own.shape_is_auto() && (g == (G::Scatter { lines: false }) || g == G::Stock) => {
+            x.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>")
+        }
         _ => {}
     }
     match g {
@@ -669,7 +734,7 @@ fn dlbls(show: bool) -> String {
 }
 
 fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb: &Workbook, si: usize) -> String {
-    let sers: String = series.iter().map(|(i, s)| series_xml(s, *i, g, wb, si)).collect();
+    let sers: String = series.iter().map(|(i, s)| series_xml(s, *i, g, wb, si, &ch.format.get(Part::Series(*i)))).collect();
     let dl = dlbls(ch.data_labels);
     let ax = format!("<c:axId val=\"{}\"/><c:axId val=\"{}\"/>", axes.0, axes.1);
     match g {
@@ -709,6 +774,30 @@ fn title_xml(t: &str) -> String {
     s
 }
 
+/// The chart's own title with the chart pane's text look and box (`krub_chart_format`).
+fn chart_title_xml(t: &str, f: &kf::Format) -> String {
+    if f.is_auto() {
+        return title_xml(t);
+    }
+    let (attrs, kids) = kf::run_props(&f.text);
+    let mut s = String::from("<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/>");
+    for line in t.split('\n') {
+        if f.text.is_auto() {
+            let _ = write!(s, "<a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>{}</a:t></a:r></a:p>", esc(line));
+        } else {
+            let _ = write!(
+                s,
+                "<a:p><a:pPr><a:defRPr{attrs}>{kids}</a:defRPr></a:pPr><a:r><a:rPr lang=\"en-US\"{attrs}>{kids}</a:rPr><a:t>{}</a:t></a:r></a:p>",
+                esc(line)
+            );
+        }
+    }
+    s.push_str("</c:rich></c:tx><c:overlay val=\"0\"/>");
+    s.push_str(&kf::sp_pr(f));
+    s.push_str("</c:title>");
+    s
+}
+
 struct Ax<'a> {
     cat: bool,
     id: u32,
@@ -718,6 +807,20 @@ struct Ax<'a> {
     grid: bool,
     title: Option<&'a str>,
     crosses_max: bool,
+}
+
+/// An axis written by [`axis_xml`] with the chart pane's look (`krub_chart_format`) for `part`:
+/// its `c:spPr` and `c:txPr` after the tick labels, and the gridlines' `c:spPr`.
+fn axis_look(f: &kf::Formats, part: Part, xml: String) -> String {
+    let own = f.get(part);
+    let mut look = kf::sp_pr(&own);
+    look.push_str(&kf::tx_pr(&own.text));
+    let mut xml =
+        if look.is_empty() { xml } else { xml.replacen("<c:tickLblPos val=\"nextTo\"/>", &format!("<c:tickLblPos val=\"nextTo\"/>{look}"), 1) };
+    if part == Part::ValueAxis && !f.gridlines.shape_is_auto() {
+        xml = xml.replacen("<c:majorGridlines/>", &format!("<c:majorGridlines>{}</c:majorGridlines>", kf::sp_pr(&f.gridlines)), 1);
+    }
+    xml
 }
 
 fn axis_xml(a: &Ax<'_>) -> String {
@@ -756,8 +859,9 @@ fn strip_book(link: &str) -> &str {
 /// Chart part XML for a model chart on sheet `si`.
 pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart, book_name: &str) -> String {
     let mut s = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<c:chartSpace xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><c:roundedCorners val=\"0\"/>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<c:chartSpace xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">",
     );
+    let _ = write!(s, "<c:roundedCorners val=\"{}\"/>", u8::from(ch.format.rounded_corners));
     if (1..=48).contains(&ch.style) {
         let _ = write!(s, "<c:style val=\"{}\"/>", ch.style);
     }
@@ -770,7 +874,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart, book_name: &str) -> Str
     s.push_str("<c:chart>");
     match &ch.title {
         Some(t) if !t.is_empty() => {
-            s.push_str(&title_xml(t));
+            s.push_str(&chart_title_xml(t, &ch.format.title));
             s.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         _ => s.push_str("<c:autoTitleDeleted val=\"1\"/>"),
@@ -812,70 +916,67 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart, book_name: &str) -> Str
     match primary_g {
         G::Pie | G::Doughnut => {}
         G::Scatter { .. } | G::Bubble => {
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 1,
-                cross: 2,
-                pos: "b",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "l",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::CategoryAxis,
+                axis_xml(&Ax { cat: false, id: 1, cross: 2, pos: "b", delete: false, grid: false, title: ch.x_title.as_deref(), crosses_max: false }),
+            ));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::ValueAxis,
+                axis_xml(&Ax {
+                    cat: false,
+                    id: 2,
+                    cross: 1,
+                    pos: "l",
+                    delete: false,
+                    grid: ch.gridlines,
+                    title: ch.y_title.as_deref(),
+                    crosses_max: false,
+                }),
+            ));
         }
         G::Bar { bar: true, .. } => {
-            s.push_str(&axis_xml(&Ax {
-                cat: true,
-                id: 1,
-                cross: 2,
-                pos: "l",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "b",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::CategoryAxis,
+                axis_xml(&Ax { cat: true, id: 1, cross: 2, pos: "l", delete: false, grid: false, title: ch.x_title.as_deref(), crosses_max: false }),
+            ));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::ValueAxis,
+                axis_xml(&Ax {
+                    cat: false,
+                    id: 2,
+                    cross: 1,
+                    pos: "b",
+                    delete: false,
+                    grid: ch.gridlines,
+                    title: ch.y_title.as_deref(),
+                    crosses_max: false,
+                }),
+            ));
         }
         _ => {
-            s.push_str(&axis_xml(&Ax {
-                cat: true,
-                id: 1,
-                cross: 2,
-                pos: "b",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "l",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::CategoryAxis,
+                axis_xml(&Ax { cat: true, id: 1, cross: 2, pos: "b", delete: false, grid: false, title: ch.x_title.as_deref(), crosses_max: false }),
+            ));
+            s.push_str(&axis_look(
+                &ch.format,
+                Part::ValueAxis,
+                axis_xml(&Ax {
+                    cat: false,
+                    id: 2,
+                    cross: 1,
+                    pos: "l",
+                    delete: false,
+                    grid: ch.gridlines,
+                    title: ch.y_title.as_deref(),
+                    crosses_max: false,
+                }),
+            ));
         }
     }
     if secondary.is_some() {
@@ -892,6 +993,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart, book_name: &str) -> Str
             u8::from(t.show_keys)
         );
     }
+    s.push_str(&kf::sp_pr(&ch.format.plot_area));
     s.push_str("</c:plotArea>");
     let pos = match ch.legend {
         LegendPos::None => None,
@@ -901,8 +1003,16 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart, book_name: &str) -> Str
         LegendPos::Right => Some("r"),
     };
     if let Some(p) = pos {
-        let _ = write!(s, "<c:legend><c:legendPos val=\"{p}\"/><c:overlay val=\"0\"/></c:legend>");
+        let _ = write!(
+            s,
+            "<c:legend><c:legendPos val=\"{p}\"/><c:overlay val=\"0\"/>{}{}</c:legend>",
+            kf::sp_pr(&ch.format.legend),
+            kf::tx_pr(&ch.format.legend.text)
+        );
     }
-    s.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart></c:chartSpace>");
+    s.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
+    s.push_str(&kf::sp_pr(&ch.format.chart_area));
+    s.push_str(&kf::tx_pr(&ch.format.chart_area.text));
+    s.push_str("</c:chartSpace>");
     s
 }

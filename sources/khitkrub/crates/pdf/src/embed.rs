@@ -286,9 +286,14 @@ pub(crate) fn current() -> Arc<FaceSet> {
     FACES.read().unwrap_or_else(PoisonError::into_inner).clone().unwrap_or_default()
 }
 
-/// The PDF objects of one embedded face: `[Type0, CIDFontType2, FontDescriptor, FontFile2,
-/// ToUnicode]` with ids `id..id + 5`. `used` maps glyph id → (character, advance).
-pub(crate) fn objects(face: &EmbeddedFace, id: u32, used: &std::collections::BTreeMap<u16, (String, u16)>) -> Vec<(u32, Vec<u8>)> {
+/// Writes the PDF objects of one embedded face: `[Type0, CIDFontType2, FontDescriptor,
+/// FontFile2, ToUnicode]` with ids `id..id + 5`. `used` maps glyph id → (character, advance).
+pub(crate) fn write_objects(
+    face: &EmbeddedFace,
+    id: u32,
+    used: &std::collections::BTreeMap<u16, (String, u16)>,
+    out: &mut craft_pdf::classic::Writer,
+) -> Result<(), craft_pdf::classic::Error> {
     let (cid, desc, file, to_unicode) = (id + 1, id + 2, id + 3, id + 4);
     let name = &face.name;
     let mut widths = String::new();
@@ -296,14 +301,10 @@ pub(crate) fn objects(face: &EmbeddedFace, id: u32, used: &std::collections::BTr
         let _ = write!(widths, "{gid} [{w}] ");
     }
     let [x0, y0, x1, y1] = face.bbox;
-    let mut font_file = format!("<< /Length {} /Length1 {} >>\nstream\n", face.bytes.len(), face.bytes.len()).into_bytes();
-    font_file.extend_from_slice(&face.bytes);
-    font_file.extend_from_slice(b"\nendstream");
     let mut cmap = String::from(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
     );
-    let entries: Vec<_> = used.iter().collect();
-    let entries: Vec<_> = entries.into_iter().filter(|(_, (t, _))| !t.is_empty()).collect();
+    let entries: Vec<_> = used.iter().filter(|(_, (t, _))| !t.is_empty()).collect();
     for chunk in entries.chunks(100) {
         let _ = writeln!(cmap, "{} beginbfchar", chunk.len());
         for (gid, (text, _)) in chunk {
@@ -313,27 +314,25 @@ pub(crate) fn objects(face: &EmbeddedFace, id: u32, used: &std::collections::BTr
         cmap.push_str("endbfchar\n");
     }
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
-    let mut to_unicode_obj = format!("<< /Length {} >>\nstream\n", cmap.len()).into_bytes();
-    to_unicode_obj.extend_from_slice(cmap.as_bytes());
-    to_unicode_obj.extend_from_slice(b"\nendstream");
-    vec![
-        (id, format!("<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{cid} 0 R] /ToUnicode {to_unicode} 0 R >>").into_bytes()),
-        (
-            cid,
-            format!(
-                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {desc} 0 R /CIDToGIDMap /Identity /DW 1000 /W [{widths}] >>"
-            )
-            .into_bytes(),
+    out.object(
+        id,
+        &format!(
+            "<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{cid} 0 R] /ToUnicode {to_unicode} 0 R >>"
         ),
-        (
-            desc,
-            format!(
-                "<< /Type /FontDescriptor /FontName /{name} /Flags 4 /FontBBox [{x0} {y0} {x1} {y1}] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 {file} 0 R >>",
-                face.ascent, face.descent, face.cap_height
-            )
-            .into_bytes(),
+    )?;
+    out.object(
+        cid,
+        &format!(
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {desc} 0 R /CIDToGIDMap /Identity /DW 1000 /W [{widths}] >>"
         ),
-        (file, font_file),
-        (to_unicode, to_unicode_obj),
-    ]
+    )?;
+    out.object(
+        desc,
+        &format!(
+            "<< /Type /FontDescriptor /FontName /{name} /Flags 4 /FontBBox [{x0} {y0} {x1} {y1}] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 {file} 0 R >>",
+            face.ascent, face.descent, face.cap_height
+        ),
+    )?;
+    out.stream(file, &format!("/Length1 {}", face.bytes.len()), &face.bytes)?;
+    out.stream(to_unicode, "", cmap.as_bytes())
 }

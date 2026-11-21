@@ -13,7 +13,7 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("references.toc", "Table of Contents", "References › Table of Contents", insert_toc).params(
-            r#"{"levels"?: 1-9, "title"?: string, "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
+            r#"{"levels"?: 1-9, "title"?: string (at most 1024 characters), "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
         ),
         CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, _| {
             update_toc(s)?;
@@ -410,7 +410,15 @@ fn toc_field(p: &Paragraph) -> Option<String> {
     })
 }
 
+/// A table-of-contents title is a heading, not document body: longer titles are rejected
+/// instead of laying out megabytes of text (WordCraft #3720, #5824).
+const MAX_TOC_TITLE: usize = 1024;
+
 fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
+    // Checked before an existing table is removed, so a refused title changes nothing.
+    if p::str(v, "title").is_some_and(|t| t.chars().count() > MAX_TOC_TITLE) {
+        return Err(CmdError::Params(format!("`title` is longer than {MAX_TOC_TITLE} characters")));
+    }
     range_toc_to_field(s)?;
     let replace = v.as_object().is_some_and(|m| !m.is_empty());
     // Replacing a table puts the new one where the old one was, in place of an empty paragraph.
@@ -546,6 +554,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     };
     let no_pages = f.has('n').then(|| f.arg('n').and_then(level_range).unwrap_or((1, 9)));
     let sep = f.arg('p').map(str::to_string).unwrap_or_else(|| "\t".into());
+    let formats = page_formats(s);
     for pass in 0..2 {
         // Pass 1 lays out with the entries in place, so headings below the TOC sit `entries.len()`
         // blocks further down and their pages account for the TOC's own length.
@@ -560,8 +569,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
         let shift = if pass == 0 { 0 } else { entries.len() };
         for (k, e) in entries.iter().enumerate() {
             let target = Path::top(e.path.last() + if e.path.last() > start { shift } else { 0 });
-            let page =
-                l.caret(&Pos { story: StoryRef::Body, path: target, off: e.lead }).and_then(|c| l.pages.get(c.page)).map(|pg| pg.number).unwrap_or(1);
+            let page = page_label_or_first(&l, &formats, &Pos { story: StoryRef::Body, path: target, off: e.lead }).1;
             let show_page = no_pages.is_none_or(|(a, b)| !(a..=b).contains(&(e.level + 1)));
             let link = links.get(k).cloned().flatten();
             // With a bookmark to point at, the page number is a `PAGEREF` field, as Word writes
@@ -575,7 +583,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
             let props = CharProps { link, ..Default::default() };
             let mut para = Paragraph::with_text(&text, props.clone()).styled(&format!("TOC{}", e.level + 1));
             if let Some(instr) = pageref {
-                let field = InlineObject::Field { instr, result: page.to_string(), locked: false, dirty: false, code: false, form: String::new() };
+                let field = InlineObject::Field { instr, result: page.clone(), locked: false, dirty: false, code: false, form: String::new() };
                 para.insert_object(para.len(), field, &props)?;
             }
             para.mark = CharProps::default();
@@ -864,13 +872,37 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// Each section's page number format (`w:pgNumType w:fmt`), by section index.
+pub(crate) fn page_formats(s: &Session) -> Vec<NumFormat> {
+    s.doc.sections().into_iter().map(|(_, sec)| sec.page_num_format).collect()
+}
+
+/// The page holding `pos` in `l`: its index in the layout (to order and tell pages apart by) and
+/// its number as its section numbers pages (`ii`, `ก`, `๑`), as the footer's `PAGE` field shows
+/// it. Generated lists (TOC, index, tables of figures and authorities) and page cross-references
+/// write this (WordCraft c99dd5cc, #5971). `None` when no page holds it.
+pub(crate) fn page_label(l: &wordcraft_layout::DocLayout, formats: &[NumFormat], pos: &Pos) -> Option<(usize, String)> {
+    let c = l.caret(pos)?;
+    let page = l.pages.get(c.page)?;
+    let fmt = formats.get(page.section).copied().unwrap_or_default();
+    let text = fmt.format(page.number);
+    // A format that shows no number (bullet, none) still lists the page by its number.
+    Some((c.page, if text.is_empty() { page.number.to_string() } else { text }))
+}
+
+/// [`page_label`], or page "1" (index 0) when no page holds `pos`.
+pub(crate) fn page_label_or_first(l: &wordcraft_layout::DocLayout, formats: &[NumFormat], pos: &Pos) -> (usize, String) {
+    page_label(l, formats, pos).unwrap_or_else(|| (0, "1".into()))
+}
+
 /// Update fields in the body: dates, SEQ numbering, cross-references, TOC.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
     update_seq(s)?;
-    let mut pages: std::collections::HashMap<String, u32> = Default::default();
+    let mut pages: std::collections::HashMap<String, String> = Default::default();
+    let formats = page_formats(s);
     for (name, pos) in s.doc.bookmarks() {
         let l = s.layout();
-        let page = l.caret(&pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1);
+        let page = page_label_or_first(&l, &formats, &pos).1;
         pages.entry(name).or_insert(page);
     }
     for path in s.doc.para_paths(StoryRef::Body) {
@@ -903,7 +935,7 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
                 }
                 "REF" | "PAGEREF" => {
                     let target = instr.split_whitespace().nth(1).unwrap_or("");
-                    let r = if name == "REF" { bookmark_text(&s.doc, target) } else { pages.get(target).map(u32::to_string) };
+                    let r = if name == "REF" { bookmark_text(&s.doc, target) } else { pages.get(target).cloned() };
                     if let Some(r) = r {
                         updates.push((k, r));
                     }
@@ -995,6 +1027,18 @@ pub fn bookmark_text(doc: &wordcraft_doc::Document, name: &str) -> Option<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WordCraft #5824: an overlong TOC title is refused, and the existing table stays.
+    #[test]
+    fn an_overlong_toc_title_is_refused_and_changes_nothing() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Intro"));
+        s.run("references.toc", &json!({"title": "Contents"})).unwrap();
+        let before = s.doc.plain_text(StoryRef::Body);
+        let long = "x".repeat(MAX_TOC_TITLE + 1);
+        assert!(s.run("references.toc", &json!({"title": long})).is_err());
+        assert_eq!(s.doc.plain_text(StoryRef::Body), before);
+        s.run("references.toc", &json!({"title": "y".repeat(MAX_TOC_TITLE)})).unwrap();
+    }
 
     fn fields(s: &Session) -> Vec<(String, String)> {
         let mut out = Vec::new();

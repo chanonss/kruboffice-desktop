@@ -9,6 +9,8 @@ use wordcraft_doc::{Pos, StoryRef};
 
 use crate::{Session, cmd};
 
+mod find_apostrophes;
+
 fn s() -> Session {
     Session::new(wordcraft_doc::Document::new())
 }
@@ -318,6 +320,31 @@ fn custom_dictionary_words_persist_through_their_file() {
     let saved = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(!saved.contains("zxqengignored"), "Ignore All doesn't reach the file: {saved:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn confined_sessions_neither_save_the_dictionary_nor_choose_folders_outside_their_roots() {
+    // #3737 (findings 34 and WC-35): the custom dictionary file and the folder settings are
+    // held to the automation roots like any other path.
+    let base = scratch_dir("dict-roots");
+    for d in ["in", "out", "outside"] {
+        std::fs::create_dir_all(base.join(d)).unwrap();
+    }
+    let roots = crate::file_access::AutomationRoots::new(Some(&base.join("in")), Some(&base.join("out"))).unwrap();
+    let mut s = s();
+    let outside = base.join("outside/custom-dictionary.txt");
+    s.user_dict_path = Some(outside.clone());
+    let confined = |s: &mut Session, cmd: &str, v: serde_json::Value| crate::file_access::confine(roots.as_ref(), || s.run(cmd, &v));
+    assert!(confined(&mut s, "review.addToDictionary", json!({"word": "zxqengconfined"})).is_ok());
+    assert!(wordcraft_proof::user_dictionary().contains(&"zxqengconfined".to_string()), "kept in memory");
+    assert!(!outside.exists(), "nothing written outside the write root");
+    assert!(confined(&mut s, "file.options", json!({"dictionariesFolder": base.join("outside").to_string_lossy()})).is_err());
+    assert_eq!(s.prefs.dictionaries_folder.as_deref(), None);
+    // A folder inside the read root is still taken.
+    let inside = base.join("in");
+    assert!(confined(&mut s, "file.options", json!({"dictionariesFolder": inside.to_string_lossy()})).is_ok());
+    let _ = std::fs::remove_dir_all(&base);
+    assert_eq!(s.prefs.dictionaries_folder.as_deref(), Some(inside.to_string_lossy().as_ref()));
 }
 
 #[test]
@@ -1835,6 +1862,183 @@ fn autofit_contents_sizes_columns_to_their_text() {
     assert!(w.is_some_and(|w| (w - g[0]).abs() < 0.5), "{w:?} vs {g:?}");
 }
 
+/// Owner, 2026-11-17: selected text can be dragged, into another table cell too: it moves there
+/// (or is copied with Option/Ctrl) as one undo step, the clipboard untouched, and the dropped text
+/// is selected. Dropped back onto the selection, nothing moves.
+#[test]
+fn selected_text_drags_into_another_cell_and_along_a_line() {
+    use wordcraft_doc::{Pos, StoryRef};
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "hello world"}));
+    let cell_text = |s: &Session, c: usize| {
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        t.rows[0].cells[c].blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<Vec<_>>().join("\n")
+    };
+    let cell_rect = |s: &mut Session, c: usize| {
+        s.layout().pages[0]
+            .items
+            .iter()
+            .find_map(|it| match it {
+                wordcraft_layout::Placed::Cell { rect, row: 0, cell, .. } if *cell == c => Some(*rect),
+                _ => None,
+            })
+            .unwrap()
+    };
+    // Select "world" in the first cell.
+    let at = s.sel.focus.clone();
+    let start = Pos { off: at.off - 5, ..at.clone() };
+    s.sel = crate::Selection { anchor: start, focus: at };
+    s.clipboard_text = "kept".into();
+    let depth = s.undo_depth();
+    let r1 = cell_rect(&mut s, 1);
+    let drop = json!({"page": 0, "x": r1.x + 10.0, "y": r1.y + r1.h / 2.0});
+    run(&mut s, "edit.dropText", drop.clone());
+    assert_eq!((cell_text(&s, 0).as_str(), cell_text(&s, 1).as_str()), ("hello ", "world"));
+    assert_eq!(s.selected_text(), "world", "the dropped text is selected");
+    assert_eq!(s.undo_depth(), depth + 1);
+    assert_eq!(s.clipboard_text, "kept");
+    // Copy (Option/Ctrl) back into the first cell's start: both keep it.
+    let r0 = cell_rect(&mut s, 0);
+    run(&mut s, "edit.dropText", json!({"page": 0, "x": r0.x + 1.0, "y": r0.y + r0.h / 2.0, "copy": true}));
+    assert_eq!((cell_text(&s, 0).as_str(), cell_text(&s, 1).as_str()), ("worldhello ", "world"));
+    // Dropped onto itself: nothing changes.
+    let before = (cell_text(&s, 0), cell_text(&s, 1));
+    let sel = s.sel.clone();
+    let r0 = cell_rect(&mut s, 0);
+    let d = s.undo_depth();
+    let _ = s.run("edit.dropText", &json!({"page": 0, "x": r0.x + 12.0, "y": r0.y + r0.h / 2.0}));
+    assert_eq!(s.undo_depth(), d, "no undo step");
+    assert_eq!((cell_text(&s, 0), cell_text(&s, 1)), before);
+    assert_eq!(s.sel, sel);
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((cell_text(&s, 0).as_str(), cell_text(&s, 1).as_str()), ("hello world", ""));
+    // Along one line, later in the same paragraph: "one two three" → "two one three".
+    let mut s = Session::new(wordcraft_doc::Document::from_text("one two three"));
+    let p0 = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 0 };
+    s.sel = crate::Selection { anchor: p0.clone(), focus: Pos { off: 4, ..p0.clone() } };
+    let caret = s.layout().caret(&Pos { off: 8, ..p0.clone() }).unwrap();
+    run(&mut s, "edit.dropText", json!({"page": caret.page, "x": caret.x, "y": caret.top + caret.height / 2.0}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "two one three");
+    assert_eq!(s.selected_text(), "one ");
+}
+
+/// Owner, 2026-11-17: a border's style, weight and color can be chosen, for the whole table or
+/// the selected cells' edges, and one line at a time with the painter (`table.paintBorder`):
+/// an edge between two cells sets both cells' facing sides, an outer edge just its cell, and
+/// painting an edge again with the same pen takes the line off.
+#[test]
+fn table_lines_take_a_chosen_style_weight_and_color_one_by_one() {
+    use wordcraft_doc::props::{Border, BorderStyle};
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let red = wordcraft_doc::Rgb::parse("C00000");
+    // The whole table's outside, dashed red 2 pt, though only the caret's cell is selected.
+    run(&mut s, "table.borders", json!({"kind": "outside", "style": "dashed", "width": 2.0, "color": "C00000", "scope": "table"}));
+    let tb = table(&s).props.borders.unwrap();
+    assert_eq!(tb.top, Some(Border { style: BorderStyle::Dashed, width: 2.0, color: red, space: 0.0 }));
+    assert!(s.run("table.borders", &json!({"kind": "top", "style": "zigzag"})).is_err());
+    // The painter on the line between the first row's two cells.
+    let cell = |s: &mut Session, r: usize, c: usize| {
+        s.layout().pages[0]
+            .items
+            .iter()
+            .find_map(|it| match it {
+                wordcraft_layout::Placed::Cell { rect, row, cell, .. } if *row == r && *cell == c => Some(*rect),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let a = cell(&mut s, 0, 0);
+    let pen = json!({"page": 0, "x": a.right() + 1.0, "y": a.y + a.h / 2.0, "style": "double", "width": 1.5, "color": "1F4E79"});
+    let depth = s.undo_depth();
+    run(&mut s, "table.paintBorder", pen.clone());
+    let want = Border { style: BorderStyle::Double, width: 1.5, color: wordcraft_doc::Rgb::parse("1F4E79"), space: 0.0 };
+    let t = table(&s);
+    assert_eq!(t.rows[0].cells[0].props.borders.and_then(|b| b.right), Some(want));
+    assert_eq!(t.rows[0].cells[1].props.borders.and_then(|b| b.left), Some(want));
+    assert!(t.rows[1].cells[0].props.borders.and_then(|b| b.right).is_none(), "only that row's piece");
+    assert_eq!(s.undo_depth(), depth + 1);
+    // The same pen again takes it off.
+    run(&mut s, "table.paintBorder", pen);
+    let t = table(&s);
+    assert_eq!(t.rows[0].cells[0].props.borders.and_then(|b| b.right).map(|b| b.style), Some(BorderStyle::None));
+    // An outer edge: the table's top above the second cell, just that cell.
+    let b = cell(&mut s, 0, 1);
+    run(&mut s, "table.paintBorder", json!({"page": 0, "x": b.x + b.w / 2.0, "y": b.y - 1.0, "width": 3.0}));
+    let t = table(&s);
+    assert_eq!(t.rows[0].cells[1].props.borders.and_then(|b| b.top).map(|b| (b.style, b.width)), Some((BorderStyle::Single, 3.0)));
+    assert!(t.rows[0].cells[0].props.borders.and_then(|b| b.top).is_none());
+    assert!(s.run("table.paintBorder", &json!({"page": 0, "x": a.x + a.w / 2.0, "y": a.y + a.h / 2.0})).is_err(), "not on a line");
+}
+
+/// Owner, 2026-11-17: a table that fits the window still does when a column gets narrower or
+/// wider (Table Properties, the Width box, the ruler): the other columns share the difference,
+/// and the table keeps its 100% width. Dragging the table's own right edge still resizes it.
+#[test]
+fn a_window_fit_table_stays_full_width_when_one_column_changes() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    run(&mut s, "table.autofit", json!({"mode": "window"}));
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let before = table(&s).grid;
+    let total: f32 = before.iter().sum();
+    run(&mut s, "table.properties", json!({"columnWidths": [before[0] - 60.0, before[1], before[2]]}));
+    let t = table(&s);
+    assert_eq!(t.props.width_pct, Some(100.0));
+    assert!((t.grid[0] - (before[0] - 60.0)).abs() < 0.01);
+    assert!((t.grid.iter().sum::<f32>() - total).abs() < 0.01, "{:?}", t.grid);
+    assert!((t.grid[1] - t.grid[2]).abs() < 0.01, "the other two share the 60 pt equally: {:?}", t.grid);
+    // Drawn full width too.
+    let drawn: f32 = s.layout().pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            wordcraft_layout::Placed::Cell { rect, row: 0, .. } => Some(rect.w),
+            _ => None,
+        })
+        .sum();
+    assert!((drawn - total).abs() < 0.5, "{drawn} vs {total}");
+}
+
+/// Owner, 2026-11-17: some columns can have no set width. In a table 100% wide, the first and
+/// last keep 1.5 cm each and the middle one takes the rest; Table Properties sets it with a
+/// `null` width, and a table with no width of its own then fits the window.
+#[test]
+fn an_automatic_column_takes_what_the_fixed_ones_leave() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    let cm = 72.0 / 2.54 * 1.5;
+    run(&mut s, "table.properties", json!({"columnWidths": [cm, null, cm]}));
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    assert_eq!(t.auto_columns(), vec![false, true, false]);
+    assert_eq!(t.props.width_pct, Some(100.0), "a table with an automatic column fits the window");
+    assert!(t.rows.iter().all(|r| r.cells[1].props.width.is_none() && r.cells[0].props.width == Some(cm)));
+    let tw = crate::cmd::page::sect(&s).text_width();
+    let row0: Vec<f32> = s.layout().pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            wordcraft_layout::Placed::Cell { rect, row: 0, .. } => Some(rect.w),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(row0.len(), 3);
+    assert!((row0[0] - cm).abs() < 0.5 && (row0[2] - cm).abs() < 0.5, "{row0:?}");
+    assert!((row0[1] - (tw - 2.0 * cm)).abs() < 0.5, "{row0:?} in {tw}");
+    // Saved and opened again (.docx): still automatic, still 100% wide.
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    let bt = back.body.iter().find_map(|b| b.as_table()).unwrap();
+    assert_eq!((bt.auto_columns(), bt.props.width_pct), (vec![false, true, false], Some(100.0)));
+    // Another width elsewhere keeps the middle one automatic; a number makes it fixed again.
+    run(&mut s, "table.properties", json!({"columnWidths": [cm * 2.0, null, cm]}));
+    assert_eq!(s.doc.body.iter().find_map(|b| b.as_table()).unwrap().auto_columns(), vec![false, true, false]);
+    run(&mut s, "table.properties", json!({"columnWidths": [cm, 100.0, cm]}));
+    assert_eq!(s.doc.body.iter().find_map(|b| b.as_table()).unwrap().auto_columns(), vec![false; 3]);
+}
+
 /// The Height and Width boxes (Table Layout › Cell Size) run `table.rowHeight` and
 /// `table.columnWidth`; each edit is one Undo.
 #[test]
@@ -1849,7 +2053,9 @@ fn cell_size_boxes_set_row_height_and_column_width() {
     let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
     assert_eq!(t.grid[0], 100.0);
     assert_eq!(t.rows[0].cells[0].props.width, Some(100.0));
-    assert!(t.props.width_pct.is_none(), "the column isn't scaled back to the window");
+    // The table still fits the window (owner, 2026-11-17): the other column takes the rest.
+    assert_eq!(t.props.width_pct, Some(100.0));
+    assert!((t.grid.iter().sum::<f32>() - t0.grid.iter().sum::<f32>()).abs() < 0.01);
     assert_eq!((t.rows[0].props.height, t.rows[0].props.height_rule), (Some(30.0), HeightRule::Exact));
     let rect = s.layout().pages[0].items.iter().find_map(|it| match it {
         wordcraft_layout::Placed::Cell { rect, row: 0, cell: 0, .. } => Some(*rect),
@@ -1876,14 +2082,17 @@ fn cell_size_boxes_apply_to_the_whole_selection() {
     // The caret alone changes its own row and column.
     run(&mut s, "table.rowHeight", json!({"height": 20.0}));
     run(&mut s, "table.columnWidth", json!({"width": 80.0}));
+    let total = |w: Vec<f32>| w.iter().sum::<f32>();
     assert_eq!(heights(&s), vec![Some(20.0), None, None]);
     assert_eq!(widths(&s)[0], 80.0);
-    assert_eq!(&widths(&s)[1..], &before[1..]);
-    // A selected column: just that column.
+    // The table fits the window still: the other columns share the rest equally.
+    assert!((total(widths(&s)) - total(before.clone())).abs() < 0.01);
+    assert!((widths(&s)[1] - widths(&s)[2]).abs() < 0.01);
+    // A selected column: just that column, the others sharing the rest.
     run(&mut s, "table.selectColumn", json!({}));
     run(&mut s, "table.columnWidth", json!({"width": 70.0}));
     assert_eq!(widths(&s)[0], 70.0);
-    assert_eq!(&widths(&s)[1..], &before[1..]);
+    assert!((total(widths(&s)) - total(before.clone())).abs() < 0.01);
     // The whole table: every row and every column, one Undo per edit.
     let mid = (heights(&s), widths(&s));
     run(&mut s, "table.selectTable", json!({}));
@@ -3795,6 +4004,29 @@ fn html_pictures_through_a_symlink_out_of_the_folder_are_not_loaded() {
     let doc = doc.unwrap();
     assert!(doc.media.is_empty());
     assert!(doc.plain_text(StoryRef::Body).contains("Link"));
+}
+
+#[cfg(unix)]
+#[test]
+fn html_pictures_load_only_from_inside_the_read_root() {
+    // #3736: the HTML file is checked through its link, but its pictures load from beside the
+    // link. Opened through a link outside the read root, they must not come from there.
+    let root = scratch_dir("html-img-root");
+    for d in ["in", "outside"] {
+        std::fs::create_dir_all(root.join(d)).unwrap();
+    }
+    std::fs::write(root.join("in/page.html"), r#"<p><img src="pic.png" alt="Pic"></p>"#).unwrap();
+    std::fs::write(root.join("in/pic.png"), tiny_png()).unwrap();
+    std::fs::write(root.join("outside/pic.png"), tiny_png()).unwrap();
+    std::os::unix::fs::symlink(root.join("in/page.html"), root.join("outside/page.html")).unwrap();
+    let roots = crate::file_access::AutomationRoots::new(Some(&root.join("in")), None).unwrap();
+    let through_link = crate::file_access::confine(roots.as_ref(), || crate::io::open_path(&root.join("outside/page.html")));
+    let direct = crate::file_access::confine(roots.as_ref(), || crate::io::open_path(&root.join("in/page.html")));
+    let _ = std::fs::remove_dir_all(&root);
+    let through_link = through_link.unwrap();
+    assert!(through_link.media.is_empty(), "no picture from outside the read root");
+    assert!(through_link.plain_text(StoryRef::Body).contains("Pic"));
+    assert_eq!(direct.unwrap().media.len(), 1, "pictures inside the root still load");
 }
 
 /// `file.open` on a path reads only a regular file: a named pipe blocked until a writer came, and
@@ -6567,6 +6799,26 @@ fn select_graphic(s: &mut Session) {
     let at = Pos { story: StoryRef::Body, path, off };
     let end = Pos { off: off + wordcraft_doc::para::OBJ.len_utf8(), ..at.clone() };
     s.sel = crate::Selection { anchor: at, focus: end };
+}
+
+/// DIAG.2: every diagram layout inserts by its id, saves to .docx under its Office layout id and
+/// reopens as the same editable graphic; the command help names every layout.
+#[test]
+fn every_diagram_layout_round_trips_through_docx() {
+    use wordcraft_doc::smart_art::SmartArtLayout;
+    let help: String = cmd::smart_art::specs().iter().map(|c| c.params).collect();
+    let words: std::collections::HashSet<&str> = help.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    for layout in SmartArtLayout::ALL {
+        assert!(words.contains(layout.id()), "{} in the command help", layout.id());
+        let mut s = s();
+        let r = run(&mut s, "insert.smartArt", json!({"layout": layout.id()}));
+        assert_eq!(r["smartArt"]["layout"], layout.id());
+        let spec = cmd::smart_art::selected_smart_art(&s).expect("selected after insert");
+        let bytes = crate::io::save_bytes("sa.docx", &s.doc).unwrap();
+        let mut s2 = Session::new(crate::io::open_bytes("sa.docx", &bytes).unwrap());
+        select_graphic(&mut s2);
+        assert_eq!(cmd::smart_art::selected_smart_art(&s2).as_deref(), Some(&*spec), "{layout:?} reopens editable");
+    }
 }
 
 /// #497: Insert › SmartArt saves as diagram parts (data, layout, style, colours, drawing) and

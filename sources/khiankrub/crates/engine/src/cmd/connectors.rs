@@ -27,8 +27,23 @@ fn has_connector(s: &Session) -> Option<&'static str> {
     }
 }
 
+/// A Line floating in the body: its ends can be dragged (`shape.lineEnds`).
+pub fn movable_line(s: &Session) -> bool {
+    matches!(
+        super::objects::selected(s),
+        Some((pos, InlineObject::Shape { kind: wordcraft_doc::para::ShapeKind::Line, float, .. })) if pos.story == StoryRef::Body && float.wrap != Wrap::Inline
+    )
+}
+
+fn has_line(s: &Session) -> Option<&'static str> {
+    (!movable_line(s)).then_some("select a floating line in the body text first")
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec::new("shape.lineEnds", "Move Line Ends", "Shape Format › Size", line_ends)
+            .params(r#"{"start"?: {"x": pt, "y": pt}, "end"?: {"x": pt, "y": pt}}  points on the line's page: move the selected line's start and/or end there (its other end stays)"#)
+            .when(has_line),
         CommandSpec::new("shape.connect", "Connect Shapes", "Shape Format › Insert Shapes", connect)
             .params(
                 r#"{"start"?: end, "end"?: end}  end: {"path": [..], "off": n, "site"?: n} (glue to that body shape's connection site; nearest one when omitted) | {"x": pt, "y": pt, "page"?: n} (drag the end there: it glues to a shape's site within 12 pt, else stays free there) | null (unglue)"#,
@@ -183,6 +198,36 @@ fn ensure_id(s: &mut Session, pos: &Pos) -> Result<u32, CmdError> {
         para.touch();
     }
     Ok(id)
+}
+
+/// `shape.lineEnds`: move the selected floating line's start and/or end to page points, as
+/// dragging an end handle does; the frame and its flips follow, so an end can go anywhere.
+fn line_ends(s: &mut Session, v: &Value) -> CmdResult {
+    if let Some(why) = has_line(s) {
+        return Err(CmdError::Disabled(why.into()));
+    }
+    let (pos, obj) = super::objects::selected(s).ok_or_else(|| CmdError::Disabled("select a line first".into()))?;
+    let InlineObject::Shape { float, w, h, .. } = &obj else { return Err(CmdError::Disabled("select a line first".into())) };
+    let (fh, fv) = (float.flip_h, float.flip_v);
+    let layout = s.layout();
+    let hit = layout.object(&pos, s.page_hint).ok_or_else(|| CmdError::Failed("the line isn't laid out".into()))?;
+    let r = hit.rect;
+    // Its own size, not the laid-out box (at least 1 pt each way): a flat line stays flat.
+    let (mut p0, mut p1) = ends(r.x, r.y, *w, *h, fh, fv);
+    let pg = layout.pages.get(hit.page).ok_or_else(|| CmdError::Failed("the line isn't laid out".into()))?;
+    // Keep the ends near the page.
+    let (pw, ph) = (pg.w.min(MAX_OFFSET), pg.h.min(MAX_OFFSET));
+    for (key, end) in [("start", &mut p0), ("end", &mut p1)] {
+        let Some(e) = v.get(key) else { continue };
+        let (Some(x), Some(y)) = (p::f32(e, "x"), p::f32(e, "y")) else {
+            return Err(CmdError::Params(format!("`{key}`: {{\"x\": pt, \"y\": pt}}")));
+        };
+        *end = (wordcraft_geom::finite(x).clamp(-pw, 2.0 * pw), wordcraft_geom::finite(y).clamp(-ph, 2.0 * ph));
+    }
+    place(s, &pos, route(p0, p1), (r.x, r.y), (hit.origin.x, hit.origin.y));
+    s.touch();
+    let o = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned();
+    Ok(json!({"object": serde_json::to_value(o).unwrap_or(Value::Null)}))
 }
 
 /// `shape.connect`: glue, move or unglue the selected connector's ends.

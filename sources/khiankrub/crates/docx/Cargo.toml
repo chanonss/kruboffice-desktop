@@ -9,6 +9,7 @@ description = "WordCraft DOCX (OOXML WordprocessingML) reader and writer"
 workspace = true
 
 [dependencies]
+krub-chart-format = { path = "../krub-chart-format" }
 wordcraft-doc = { workspace = true }
 wordcraft-geom = { workspace = true }
 quick-xml = { workspace = true }
@@ -29,6 +30,7 @@ zeroize = { workspace = true }
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
+wordcraft-doc = { workspace = true, features = ["test-support"] }
 proptest = { workspace = true }
 image = { workspace = true }
 zip = { workspace = true }

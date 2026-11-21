@@ -29,6 +29,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("core", Class::Layer(0)),
     ("numfmt", Class::Layer(0)),
     ("pdf", Class::Layer(0)),
+    // The confined launcher for helper processes; the Python worker and the apps use it.
+    ("sandbox", Class::Layer(0)),
     ("formula", Class::Layer(1)),
     ("functions", Class::Layer(1)),
     // Equation layout (LaTeX to glyphs, rules and paths) and OMML, on top of RaTeX.
@@ -39,6 +41,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("chart", Class::Layer(3)),
     ("engine", Class::Layer(5)),
     ("krub-drive", Class::Layer(0)),
+    // Chart part formats (`chart.format`), shared by the three KrubOffice apps; no egui.
+    ("krub-chart-format", Class::Layer(0)),
     ("krub-icons", Class::Layer(6)),
     ("ui-egui", Class::Layer(6)),
     ("mcp", Class::Layer(6)),
@@ -65,7 +69,7 @@ fn intra_layer_allowed(from: &str, to: &str) -> bool {
 /// Format crates may only depend on these workspace crates (on top of the layer rule), so a
 /// file format never pulls in calculation or engine code. `math` converts equations to and from
 /// OMML.
-pub const FORMAT_ALLOWED: &[(&str, &[&str])] = &[("xlsx", &["core", "formula", "math", "model"])];
+pub const FORMAT_ALLOWED: &[(&str, &[&str])] = &[("xlsx", &["core", "formula", "math", "model", "krub-chart-format"])];
 
 /// External crates that constitute a UI toolkit / windowing dependency.
 /// Entries ending in `*` are prefixes.

@@ -524,13 +524,8 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
         });
         // Borders: the pen (style, width, colour) and which edges; then the cell shading.
         ui.horizontal(|ui| {
-            let current = LINE_STYLES.iter().find(|(s, _)| *s == pen.style).map_or("Single", |(_, n)| *n);
             ui.label(tl!("Style:"));
-            egui::ComboBox::from_id_salt("tstyle_pen_style").selected_text(tl!(current)).width(90.0).show_ui(ui, |ui| {
-                for (s, n) in LINE_STYLES {
-                    ui.steady_value(&mut pen.style, s, tl!(n));
-                }
-            });
+            crate::line_looks::borders(ui, egui::Id::new("tstyle_pen_style"), 90.0, &mut pen.style, &LINE_STYLES);
             ui.label(tl!("Width:"));
             egui::ComboBox::from_id_salt("tstyle_pen_width")
                 .selected_text(crate::i18n::fmt(tl!("{n} pt"), &[("n", &pen.width.to_string())]))

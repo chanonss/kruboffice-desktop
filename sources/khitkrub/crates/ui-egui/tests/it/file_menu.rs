@@ -230,7 +230,8 @@ fn file_about_shows_the_version_and_opens_about() {
         h.query_all_by(|n| n.label().is_some_and(|s| s.contains(needle)) || n.value().is_some_and(|s| s.contains(needle))).next().is_some()
     };
     assert!(contains(gridcraft_ui_egui::APP_VERSION));
-    assert!(contains(env!("CARGO_PKG_LICENSE")));
+    // The shared About (owner, 2026-11-18) writes the licence as "MIT or Apache-2.0".
+    assert!(contains("Apache-2.0"));
 }
 
 #[test]
@@ -246,6 +247,34 @@ fn export_as_pdf_is_delivered_as_a_download() {
     assert_eq!(got.len(), 1, "Export as PDF hands a file to the browser");
     assert!(got[0].0.ends_with(".pdf"));
     assert!(got[0].1.starts_with(b"%PDF-"));
+}
+
+/// Regression: Thai exported from the desktop app showed as Chinese characters, because the
+/// release build has no Thai face of its own and the PDF writer fell back to its Chinese CID font.
+/// Export now embeds a Thai face found on the computer (or KrubOffice's Sarabun) and never sends
+/// Thai to the Chinese font; English stays in the standard font.
+#[test]
+fn thai_and_english_export_to_pdf_without_the_chinese_font() {
+    let files = Arc::new(Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+    let capture = files.clone();
+    let mut h = harness(Services {
+        download: Some(Box::new(move |name, bytes| capture.lock().unwrap().push((name.to_string(), bytes.to_vec())))),
+        ..Default::default()
+    });
+    for (cell, text) in [("A1", "สวัสดีครับ"), ("B1", "Hello"), ("A2", "ภาษาไทย English")] {
+        h.state_mut().run("cell.set", serde_json::json!({"cell": cell, "input": text})).unwrap();
+    }
+    h.state_mut().run("file.exportPdf", serde_json::json!({})).unwrap();
+    let got = files.lock().unwrap();
+    let pdf = &got[0].1;
+    let has = |needle: &[u8]| pdf.windows(needle.len()).any(|w| w == needle);
+    assert!(!has(b"STSong-Light"), "Thai was set in the Chinese CID font");
+    assert!(has(b"Hello") && has(b"English"), "English is written as text");
+    if gridcraft_pdf::has_fallback_faces() {
+        // A Thai face was found: it is embedded, and ส (U+0E2A) maps back for copy and search.
+        assert!(has(b"/FontFile2"));
+        assert!(has(b"<0E2A>"));
+    }
 }
 
 #[test]

@@ -5,6 +5,19 @@ Thai-speaking audience. This file lists what differs from the original, newest f
 progress notes are in `ROADMAP.md` and `docs/`; they are not edited here. Each entry matches a commit on the
 `my-changes` branch.
 
+## 2026-11-18 (contributed patches: underline samples, character spacing, object distances)
+
+Three patches from [preeniin/khiankrub-feature-patches](https://github.com/preeniin/khiankrub-feature-patches)
+(author "KhianKrub Plus", MIT OR Apache-2.0 as stated in its README), applied as the author's commits:
+
+- **Underline menu:** each style is drawn as a sample line (its name is the tooltip); adds Dot-dot-dash and
+  More Underlines… (the Font dialog).
+- **Home › Font › Character Spacing:** Very Tight, Tight, Normal, Loose, Very Loose (`format.spacing`) and
+  More Spacing…. Ours: the icon is Tabler's `letter-spacing` instead of the patch's drawn one.
+- **An object's distances from the paper's edges:** while a picture, shape or text box is dragged (Left/Top, or
+  W/H while resizing), for a moment after an arrow-key nudge (with the guides), and in its right-click menu
+  (all four edges), in the options' unit (`drag_readout.rs`).
+
 ## 2026-11-11 (Book fold)
 
 - Page Setup › Pages › **Multiple pages › Book fold**, as in Word: the paper is a landscape sheet folded in half, each page is half of it,

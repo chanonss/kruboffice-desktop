@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod ribbon_layout;
+mod tab_keys_ui;
 
 /// An English UI string in the current interface language ([`i18n::t`]).
 #[macro_export]
@@ -19,7 +20,7 @@ macro_rules! tl {
 /// PhutKrub's own version number, shown in File › About and read by `packaging/web/publish.sh`.
 /// The DeckCraft version this fork is based on is in the crates' own `Cargo.toml` and in
 /// `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.8.0";
+pub const APP_VERSION: &str = "0.9.0";
 
 /// DeckCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
@@ -169,8 +170,9 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
     ("app.preferences", "Preferences…", Some("Cmd+,"), "{pane?: general|proofing|save|language|advanced}"),
     ("app.openDialog", "Open…", None, "{purpose?}"),
     ("app.insertPictureDialog", "Picture from File…", None, "{}"),
-    ("app.smartArtPictureDialog", "Insert Picture in SmartArt…", None, "{id?, index}"),
+    ("app.smartArtPictureDialog", "Insert Picture in Diagram…", None, "{id?, index}"),
     ("app.changePictureDialog", "Change Picture…", None, "{}"),
+    ("app.saveMediaDialog", "Save as Picture…", None, "{} (the selected picture, video or audio in its own format: a download on the web)"),
     ("app.insertAudioDialog", "Audio from File…", None, "{}"),
     ("app.reuseSlidesDialog", "Reuse Slides…", None, "{keepFormatting?: bool}"),
     ("app.insertVideoDialog", "Video from File…", None, "{}"),
@@ -302,7 +304,8 @@ pub struct SlideApp {
     ribbon_scroll: HashMap<String, u32>,
     /// Monotonic identity for a new slide show instance (`start_show`).
     show_instance: u64,
-    /// Monotonic identity for a new background-open attempt.
+    /// Monotonic identity for a new background-open attempt (the web build has no threads).
+    #[cfg(not(target_arch = "wasm32"))]
     opening_generation: u64,
     /// Canvas screen rect and points-per-slide-point scale (for control & tests).
     pub canvas_rect: Option<egui::Rect>,
@@ -313,6 +316,10 @@ pub struct SlideApp {
     /// Where the canvas texture (the slide and the pasteboard drawn around it) is on screen.
     pub canvas_region: Option<egui::Rect>,
     pub palette: Option<(String, usize)>,
+    /// Choosing a ribbon tab by its number (`tab_keys_ui`).
+    pub(crate) tab_keys: tab_keys_ui::TabKeys,
+    /// The ribbon's tabs in order this frame (File not included), for [`tab_keys_ui`].
+    pub(crate) keytip_tabs: Vec<&'static str>,
     /// Integrated title bar (macOS traffic lights over our chrome).
     pub integrated_titlebar: bool,
     /// The File tab's full-window view (Backstage). Over a presentation it replaces the ribbon,

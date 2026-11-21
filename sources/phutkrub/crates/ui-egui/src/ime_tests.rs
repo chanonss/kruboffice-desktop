@@ -1275,9 +1275,10 @@ fn actual_modal_without_discard_suspends_and_queues_no_token() {
     let mut h = harness(Session::with_new());
     let r1 = settled_title_reset(&mut h);
 
-    // A normal About pass, no request_discard: the modal is an explicitly ineligible route even
-    // though the canvas is painted behind it.
-    h.state_mut().dialog = Some(crate::dialogs::Dialog::new("about"));
+    // A normal dialog pass (Zoom), no request_discard: the modal is an explicitly ineligible
+    // route even though the canvas is painted behind it. (About is a true egui modal since
+    // 2026-11-18 and takes the focus the notes field asks for below.)
+    h.state_mut().dialog = Some(crate::dialogs::Dialog::new("zoom"));
     h.run_steps(2);
     assert!(
         matches!(root_phase(&h), crate::ImeResetPhase::Suspended { request: None, .. }),

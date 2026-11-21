@@ -73,11 +73,17 @@ pub(super) fn recommended_charts(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut 
         ui.vertical(|ui| {
             ui.set_width(190.0);
             egui::ScrollArea::vertical().id_salt("chart_choices").max_height(300.0).show(ui, |ui| {
-                for (i, (kind, _, label)) in choices.iter().enumerate() {
+                for (i, (kind, sub, label)) in choices.iter().enumerate() {
                     let resp = ui
                         .horizontal(|ui| {
                             let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-                            icons::paint(ui.painter(), r.shrink(2.0), chart_icon(kind), t.text);
+                            // The chart type's own drawing (`krub_icons::chart_icons`), else the general one.
+                            match krub_icons::chart_icons::id_for(kind, sub) {
+                                Some(id) => {
+                                    krub_icons::chart_icons::paint(ui.painter(), r.shrink(2.0), id, t.text);
+                                }
+                                None => icons::paint(ui.painter(), r.shrink(2.0), chart_icon(kind), t.text),
+                            }
                             ui.selectable_label(i == d.list_index, label.as_str())
                         })
                         .inner;

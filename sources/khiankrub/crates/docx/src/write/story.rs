@@ -1002,6 +1002,7 @@ impl Writer<'_> {
             ShapeKind::Arrow => "rightArrow",
             ShapeKind::Star => "star5",
             ShapeKind::Heart => "heart",
+            ShapeKind::Preset(id) => id.name(),
         };
         match geom {
             Some(f) => cust_geom(w, f, *sw, *sh),

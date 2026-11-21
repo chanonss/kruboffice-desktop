@@ -1,5 +1,5 @@
-use super::controls::{act, control_keytip};
-use super::{Color32, Icon, Sense, SheetApp, Stroke, StrokeKind, Tokens, Ui, icon_button, json, pos2, theme, theme_choices, vec2};
+use super::controls::control_keytip;
+use super::{Icon, Sense, SheetApp, Tokens, Ui, icon_button, json, pos2, theme, theme_choices, vec2};
 
 /// macOS draws the window into the title bar (`with_fullsize_content_view`) and AppKit paints the
 /// traffic lights itself, 16 pt from the top of the window on current macOS. Moving them would take
@@ -31,177 +31,328 @@ pub(super) const TITLE_BAR_H: f32 = if MAC { MAC_TITLE_BAR } else { krub_icons::
 /// The tallest title-bar controls, smaller on macOS to keep a margin in the shorter bar.
 pub(super) const TITLE_CONTROL_H: f32 = if MAC { 22.0 } else { 26.0 };
 
-/// Draws the title bar: drag/maximize, AutoSave toggle, Home/Save/Undo/Redo/More, search, share, comments and theme controls, with a centered truncated title.
-pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
-    // The title bar is the top of the teal band (the tab strip below it is the rest).
+/// The Quick Access Toolbar (`krub_icons::qat`): Save · Undo ▾ · Redo · ⌄. At the one bar's right
+/// end since 2026-11-18.
+fn quick_access(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx()).on_band();
     let ch = TITLE_CONTROL_H;
-    egui::Panel::top("title_bar").exact_size(TITLE_BAR_H).frame(egui::Frame::NONE.fill(t.band)).show_separator_line(false).show(ui, |ui| {
-        theme::band_ui(ui);
-        let rect = ui.max_rect();
-        // Dragging the empty title area moves the window.
-        let bg = ui.interact(rect, ui.scope_id().with("drag_title"), Sense::click_and_drag());
-        if bg.drag_started() {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    if icon_button(ui, Icon::Save, t.text_dim, "Save", vec2(26.0, ch)).clicked()
+        // File operations must include the cell the user is still editing (as the File > Save menu item already does).
+        && app.commit_edit(0, 0, false, false)
+    {
+        app.run_or_alert("file.save", json!({}));
+    }
+    // The commands' own availability: there must be a step, and no undo group may be open on
+    // the document (an action that spans several calls is still running).
+    let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
+    let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
+    // Named and marked enabled or not for assistive technology (and the UI tests).
+    let undo = icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo", vec2(26.0, ch));
+    undo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, "Undo"));
+    if undo.clicked() && can_undo {
+        app.run_or_alert("edit.undo", json!({}));
+    }
+    let lang = app.ui.language;
+    let undo_list = krub_icons::qat::history_arrow(ui, egui::Id::unique("qat_undo_list"), can_undo, t.text_dim, t.text_disabled, t.hover);
+    undo_list.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, lang.tr("Undo list")));
+    egui::Popup::menu(&undo_list.on_hover_text(lang.tr("Undo list"))).show(|ui| {
+        let labels: Vec<String> = if can_undo {
+            app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if labels.is_empty() {
+            ui.label(lang.tr("Can't Undo"));
         }
-        if bg.double_clicked() {
-            let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+        for (i, l) in labels.iter().enumerate() {
+            if ui.button(format!("{} {}", lang.tr("Undo"), lang.tr(l))).clicked() {
+                app.run_or_alert("edit.undo", json!({"steps": i + 1}));
+            }
         }
-        ui.horizontal_centered(|ui| {
-            ui.add_space(TITLE_LEFT_PAD);
-            // AutoSave toggle (saves after each change when the workbook has a file).
-            ui.label(egui::RichText::new(app.ui.language.tr("AutoSave")).font(theme::ui_font(12.5)).color(t.text_dim));
-            let on = app.ui.autosave;
-            let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
-            ui.painter().rect_filled(r, 8.0, if on { t.accent } else { Color32::TRANSPARENT });
-            ui.painter().rect_stroke(r, 8.0, Stroke::new(1.0, if on { t.accent } else { t.text_dim }), StrokeKind::Inside);
-            let knob = if on { pos2(r.right() - 8.0, r.center().y) } else { pos2(r.left() + 8.0, r.center().y) };
-            ui.painter().circle_filled(knob, 5.0, if on { t.on_accent } else { t.text_dim });
-            if resp.on_hover_text(app.ui.language.tr("AutoSave: save after every change (workbooks saved to a file)")).clicked() {
-                app.toggle_autosave();
+    });
+    let redo = icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo", vec2(26.0, ch));
+    redo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_redo, "Redo"));
+    if redo.clicked() && can_redo {
+        app.run_or_alert("edit.redo", json!({}));
+    }
+    let more = krub_icons::qat::customize_button(ui, egui::Id::unique("qat_more"), t.text_dim, t.hover);
+    more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, lang.tr("More commands")));
+    egui::Popup::menu(&more.on_hover_text(lang.tr("More commands"))).show(|ui| {
+        for (label, id) in [
+            ("New Workbook", "file.new"),
+            ("Open…", "file.open"),
+            ("Save As…", "file.saveAs"),
+            ("Sort A to Z", "data.sortAscending"),
+            ("Calculate Now", "formulas.calculateNow"),
+        ] {
+            if ui.button(lang.tr(label)).clicked() {
+                app.run_or_alert(id, json!({}));
             }
-            // The Quick Access Toolbar, laid out as in the other KrubOffice apps (`krub_icons::qat`):
-            // Save · Undo ▾ · Redo · ⌄. File › Home is the first item of the File menu.
-            ui.add_space(krub_icons::qat::AFTER_AUTOSAVE);
-            if icon_button(ui, Icon::Save, t.text_dim, "Save", vec2(26.0, ch)).clicked()
-                // File operations must include the cell the user is still editing (as the File > Save menu item already does).
-                && app.commit_edit(0, 0, false, false)
-            {
-                app.run_or_alert("file.save", json!({}));
-            }
-            // The commands' own availability: there must be a step, and no undo group may be open on
-            // the document (an action that spans several calls is still running).
-            let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
-            let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
-            // Named and marked enabled or not for assistive technology (and the UI tests).
-            let undo = icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo", vec2(26.0, ch));
-            undo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, "Undo"));
-            if undo.clicked() && can_undo {
-                app.run_or_alert("edit.undo", json!({}));
-            }
-            let lang = app.ui.language;
-            let undo_list = krub_icons::qat::history_arrow(ui, egui::Id::unique("qat_undo_list"), can_undo, t.text_dim, t.text_disabled, t.hover);
-            undo_list.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, lang.tr("Undo list")));
-            egui::Popup::menu(&undo_list.on_hover_text(lang.tr("Undo list"))).show(|ui| {
-                let labels: Vec<String> = if can_undo {
-                    app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                if labels.is_empty() {
-                    ui.label(lang.tr("Can't Undo"));
-                }
-                for (i, l) in labels.iter().enumerate() {
-                    if ui.button(format!("{} {}", lang.tr("Undo"), lang.tr(l))).clicked() {
-                        app.run_or_alert("edit.undo", json!({"steps": i + 1}));
-                    }
-                }
-            });
-            let redo = icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo", vec2(26.0, ch));
-            redo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_redo, "Redo"));
-            if redo.clicked() && can_redo {
-                app.run_or_alert("edit.redo", json!({}));
-            }
-            let more = krub_icons::qat::customize_button(ui, egui::Id::unique("qat_more"), t.text_dim, t.hover);
-            more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, lang.tr("More commands")));
-            egui::Popup::menu(&more.on_hover_text(lang.tr("More commands"))).show(|ui| {
-                for (label, id) in [
-                    ("New Workbook", "file.new"),
-                    ("Open…", "file.open"),
-                    ("Save As…", "file.saveAs"),
-                    ("Sort A to Z", "data.sortAscending"),
-                    ("Calculate Now", "formulas.calculateNow"),
-                ] {
-                    if ui.button(lang.tr(label)).clicked() {
-                        app.run_or_alert(id, json!({}));
-                    }
-                }
-                if ui.button(lang.tr("Print…")).clicked() {
-                    app.print_now(json!({}));
-                }
-            });
-            let left_end = ui.min_rect().right();
-            let right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
-                let __k = icon_button(ui, Icon::Search, t.text_dim, "Search commands", vec2(28.0, ch));
-                control_keytip(app, ui, &__k, "commandSearch");
-                if __k.clicked() {
-                    app.open_dialog("commandSearch", json!({}));
-                }
-                // Quick light/dark switch (#194); right-click offers System as well. The same
-                // choice lives in File › Display theme and the View tab.
-                let lang = app.ui.language;
-                let theme = icon_button(ui, Icon::Appearance, t.text_dim, "Dark Mode", vec2(28.0, 26.0));
-                let dark = ui.ctx().theme() == egui::Theme::Dark;
-                theme.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, dark, lang.tr("Dark Mode")));
-                if theme.clicked() {
-                    act(app, "view.darkMode", json!({}));
-                }
-                theme.context_menu(|ui| theme_choices(app, ui));
-                ui.min_rect().left()
-            });
-            // Centred title, cut with "…" so it never runs under the controls on either side.
-            let (title, dirty) = document_title(app);
-            let max_w = title_max_width(rect.center().x, left_end, right.inner);
-            paint_title(ui, rect.center(), &title, dirty, max_w, t.text);
-        });
+        }
+        if ui.button(lang.tr("Print…")).clicked() {
+            app.print_now(json!({}));
+        }
     });
 }
 
-/// The centred title and whether to mark it unsaved. A new workbook on the web lives as its draft in
-/// this browser until it is saved as a file or to Google Drive, and says so instead of the marker.
-pub(crate) fn document_title(app: &SheetApp) -> (String, bool) {
-    let Some(d) = app.session.active() else { return (String::new(), false) };
+/// The Quick Access Toolbar on the bar's left, after File (owner, 2026-11-18).
+pub(super) fn bar_quick_access(app: &mut SheetApp, ui: &mut Ui) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = vec2(krub_icons::qat::GAP, 0.0);
+        quick_access(app, ui);
+    });
+}
+
+/// The Quick Access Toolbar's width: Save, Undo, its list arrow, Redo and ⌄.
+pub(super) const QUICK_ACCESS_W: f32 = 3.0 * 26.0 + 2.0 * krub_icons::qat::ARROW.x + 4.0 * krub_icons::qat::GAP;
+
+/// The user's initials for the user icon: the first letters of the first two words of the name
+/// comments are signed with.
+fn initials(name: &str) -> String {
+    let s: String = name.split_whitespace().take(2).filter_map(|w| w.chars().next()).flat_map(char::to_uppercase).collect();
+    if s.is_empty() { "?".into() } else { s }
+}
+
+/// The right end of the one bar (owner, 2026-11-18), right to left: room for the window buttons
+/// (a frameless window) and the user icon with its menu. Returns its left edge.
+pub(super) fn bar_right(app: &mut SheetApp, ui: &mut Ui) -> f32 {
+    let t = Tokens::get(ui.ctx()).on_band();
     let lang = app.ui.language;
-    match app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()) {
-        Some(saved) => {
-            let state = if saved { lang.tr("Saved on this device") } else { lang.tr("Saving…") };
-            (format!("{} ({}) — {state}", d.display_title(), lang.tr("draft")), false)
+    if app.window_controls {
+        ui.add_space(3.0 * CONTROL_W);
+    }
+    ui.add_space(4.0);
+    let resp = krub_icons::chrome::avatar(ui, &initials(&app.session.prefs.user_name), t.accent, t.on_accent, lang.tr("Account"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, lang.tr("Account")));
+    control_keytip(app, ui, &resp, "commandSearch");
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(240.0);
+        user_menu(app, ui);
+    });
+    ui.min_rect().left()
+}
+
+/// The user icon's menu (owner, 2026-11-18): the name comments are signed with (opens Options),
+/// Search commands, Comments, the light or dark theme and AutoSave. Share left the bar with it.
+fn user_menu(app: &mut SheetApp, ui: &mut Ui) {
+    let lang = app.ui.language;
+    let name = app.session.prefs.user_name.clone();
+    if ui
+        .button(egui::RichText::new(if name.is_empty() { lang.tr("Your name").to_string() } else { name }).strong())
+        .on_hover_text(lang.tr("Set your name in File › Options"))
+        .clicked()
+    {
+        app.open_backstage(crate::backstage::Page::Options);
+        ui.close();
+    }
+    ui.separator();
+    if ui.button(lang.tr("Search commands and help")).clicked() {
+        app.open_dialog("commandSearch", json!({}));
+        ui.close();
+    }
+    if ui.button(lang.tr("Comments")).clicked() {
+        app.open_dialog("comments", json!({}));
+        ui.close();
+    }
+    ui.separator();
+    ui.label(egui::RichText::new(lang.tr("Theme")).small().weak());
+    theme_choices(app, ui);
+    if !cfg!(target_arch = "wasm32") {
+        ui.separator();
+        let mut on = app.ui.autosave;
+        if ui.checkbox(&mut on, lang.tr("AutoSave")).on_hover_text(lang.tr("AutoSave: save after every change (workbooks saved to a file)")).changed()
+        {
+            app.toggle_autosave();
         }
-        None => (d.display_title(), d.is_dirty()),
     }
 }
 
-/// Lay out the title truncated to fit `max_w` together with the unsaved marker (when `dirty`).
-fn title_galleys(
-    painter: &egui::Painter,
-    title: &str,
-    dirty: bool,
-    max_w: f32,
-    color: Color32,
-) -> (std::sync::Arc<egui::Galley>, Option<std::sync::Arc<egui::Galley>>) {
-    let font = theme::ui_bold(13.0);
-    let dot = dirty.then(|| painter.layout_no_wrap(" •".to_string(), font.clone(), color));
-    let dot_w = dot.as_ref().map_or(0.0, |g| g.size().x);
-    let mut job = egui::text::LayoutJob::simple_singleline(title.to_string(), font, color);
-    job.wrap = egui::text::TextWrapping::truncate_at_width((max_w - dot_w).max(0.0));
-    (painter.layout_job(job), dot)
+/// The one bar where the ribbon is hidden (File): the same band and height as the ribbon's bar,
+/// the traffic lights' room on macOS, the file pill and the right end, no tabs.
+pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx()).on_band();
+    egui::Panel::top("title_bar").exact_size(krub_icons::chrome::ONE_BAR_H).frame(egui::Frame::NONE.fill(t.band)).show_separator_line(false).show(
+        ui,
+        |ui| {
+            theme::band_ui(ui);
+            let rect = ui.max_rect();
+            window_drag(ui, rect);
+            let row = egui::Rect::from_min_max(
+                pos2(rect.left() + TITLE_LEFT_PAD, rect.top() + krub_icons::chrome::ONE_BAR_GAP),
+                pos2(rect.right() - 8.0, rect.bottom()),
+            );
+            let right = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| bar_right(app, ui))
+                .inner;
+            let left = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+                    bar_quick_access(app, ui);
+                    ui.min_rect().right()
+                })
+                .inner;
+            file_pill(app, ui, krub_icons::chrome::pill_area(row, left, right));
+        },
+    );
 }
 
-/// Gap kept between the title and the controls beside it.
-const TITLE_GAP: f32 = 12.0;
-
-/// The widest the centred title may be without reaching the controls that end at `left_end` or
-/// start at `right_start`.
-fn title_max_width(center_x: f32, left_end: f32, right_start: f32) -> f32 {
-    let half = (center_x - left_end).min(right_start - center_x) - TITLE_GAP;
-    (2.0 * half).max(0.0)
-}
-
-/// Paint the workbook title centred on `center`, truncated with "…" to `max_w`. The unsaved
-/// marker stays visible however short the title gets.
-fn paint_title(ui: &Ui, center: egui::Pos2, title: &str, dirty: bool, max_w: f32, color: Color32) {
-    let (galley, dot) = title_galleys(ui.painter(), title, dirty, max_w, color);
-    let dot_w = dot.as_ref().map_or(0.0, |g| g.size().x);
-    let w = galley.size().x + dot_w;
-    let left = center.x - w / 2.0;
-    let top = center.y - galley.size().y / 2.0;
-    let galley_w = galley.size().x;
-    ui.painter().galley(pos2(left, top), galley, color);
-    if let Some(dot) = dot {
-        ui.painter().galley(pos2(left + galley_w, top), dot, color);
+/// Dragging the bar's empty parts moves the window; a double-click maximises it. Registered
+/// before the bar's buttons, which take their own clicks.
+pub(super) fn window_drag(ui: &mut Ui, bar: egui::Rect) {
+    let bg = ui.interact(bar, ui.scope_id().with("drag_title"), Sense::click_and_drag());
+    if bg.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
+    if bg.double_clicked() {
+        let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+    }
+}
+
+/// The file pill (`krub_icons::chrome::file_pill`) centred in `area`: the workbook's name. A click
+/// opens its card: the whole name, its state, where it is kept and Save As (owner, 2026-11-18).
+pub(super) fn file_pill(app: &mut SheetApp, ui: &mut Ui, area: egui::Rect) {
+    let t = Tokens::get(ui.ctx()).on_band();
+    let lang = app.ui.language;
+    let Some(d) = app.session.active() else { return };
+    let name = d.display_title();
+    let draft = app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)());
+    let state = match draft {
+        Some(true) => lang.tr("Saved on this device"),
+        Some(false) => lang.tr("Saving…"),
+        None if d.is_dirty() => lang.tr("Edited"),
+        None if d.path.is_some() => lang.tr("Saved"),
+        None => lang.tr("Not saved"),
+    }
+    .to_string();
+    let place = match (&d.path, draft) {
+        (Some(path), _) => Some(std::path::Path::new(path).parent().map_or_else(|| path.clone(), |p| p.display().to_string())),
+        (None, Some(_)) => Some(lang.tr("Draft in this browser").to_string()),
+        (None, None) => None,
+    };
+    let Some(resp) = krub_icons::chrome::file_pill(ui, area, &name, t.accent, t.text, None) else { return };
+    let label = if draft.is_some() { format!("{name} ({}) — {state}", lang.tr("draft")) } else { format!("{name} — {state}") };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+    egui::Popup::menu(&resp).show(|ui| {
+        let card = krub_icons::chrome::FileCard { name: &name, state: &state, place: place.as_deref(), action: Some(lang.tr("Save As…")) };
+        if krub_icons::chrome::file_card(ui, &card) {
+            app.open_backstage(crate::backstage::Page::SaveAs);
+            ui.close();
+        }
+    });
+}
+
+/// Width of one window-control button on the title bar.
+pub const CONTROL_W: f32 = 46.0;
+const CONTROL_TITLE_H: f32 = 38.0;
+const RESIZE_BAND: f32 = 5.0;
+
+/// Draw application controls and edge resizing for frameless windows.
+pub fn window_frame(app: &mut SheetApp, ctx: &egui::Context) {
+    if !app.window_controls {
+        return;
+    }
+    let (maximized, fullscreen) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false)));
+    if fullscreen {
+        return;
+    }
+    let t = Tokens::get(ctx);
+    let screen = ctx.content_rect();
+    let controls = egui::Rect::from_min_size(egui::pos2(screen.max.x - 3.0 * CONTROL_W, screen.min.y), egui::vec2(3.0 * CONTROL_W, CONTROL_TITLE_H));
+    egui::Area::new(egui::Id::unique("gc_window_controls")).order(egui::Order::Foreground).fixed_pos(controls.min).show(ctx, |ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        ui.horizontal(|ui| {
+            for kind in ["minimize", "maximize", "close"] {
+                let (r, resp) = ui.allocate_exact_size(egui::vec2(CONTROL_W, CONTROL_TITLE_H), egui::Sense::click());
+                let label = app.ui.language.tr(match kind {
+                    "minimize" => "Minimize",
+                    "maximize" if maximized => "Restore Down",
+                    "maximize" => "Maximize",
+                    _ => "Close",
+                });
+                let hot = resp.hovered() || resp.is_pointer_button_down_on();
+                if hot {
+                    ui.painter().rect_filled(
+                        r,
+                        0.0,
+                        if kind == "close" {
+                            egui::Color32::from_rgb(0xC4, 0x2B, 0x1C)
+                        } else if resp.is_pointer_button_down_on() {
+                            t.pressed
+                        } else {
+                            t.hover
+                        },
+                    );
+                }
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+                let m = r.center();
+                let stroke = egui::Stroke::new(1.0, if kind == "close" && hot { egui::Color32::WHITE } else { t.text });
+                match kind {
+                    "minimize" => {
+                        ui.painter().line_segment([egui::pos2(m.x - 5.0, m.y), egui::pos2(m.x + 5.0, m.y)], stroke);
+                    }
+                    "maximize" if maximized => {
+                        let front = egui::Rect::from_min_size(egui::pos2(m.x - 5.0, m.y - 3.0), egui::vec2(8.0, 8.0));
+                        ui.painter().rect_stroke(front, 0.0, stroke, egui::StrokeKind::Inside);
+                        ui.painter().line_segment([egui::pos2(m.x - 3.0, m.y - 5.0), egui::pos2(m.x + 5.0, m.y - 5.0)], stroke);
+                        ui.painter().line_segment([egui::pos2(m.x + 5.0, m.y - 5.0), egui::pos2(m.x + 5.0, m.y + 3.0)], stroke);
+                    }
+                    "maximize" => {
+                        ui.painter().rect_stroke(r.shrink(15.0), 0.0, stroke, egui::StrokeKind::Inside);
+                    }
+                    _ => {
+                        ui.painter().line_segment([m - egui::vec2(5.0, 5.0), m + egui::vec2(5.0, 5.0)], stroke);
+                        ui.painter().line_segment([m + egui::vec2(5.0, -5.0), m - egui::vec2(5.0, -5.0)], stroke);
+                    }
+                }
+                if resp.on_hover_text(label).clicked() {
+                    match kind {
+                        "minimize" => app.run_or_alert("ui.window.minimize", json!({})),
+                        "maximize" => app.run_or_alert("ui.window.maximize", json!({"on": !maximized})),
+                        "close" => app.run_or_alert("ui.window.close", json!({})),
+                        _ => {}
+                    }
+                }
+            }
+        });
+    });
+    if maximized {
+        return;
+    }
+    let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) else {
+        return;
+    };
+    let l = pos.x <= screen.min.x + RESIZE_BAND;
+    let r = pos.x >= screen.max.x - RESIZE_BAND;
+    let top = pos.y <= screen.min.y + RESIZE_BAND;
+    let b = pos.y >= screen.max.y - RESIZE_BAND;
+    let dir = match (l, r, top, b) {
+        (true, false, true, false) => Some(egui::viewport::ResizeDirection::NorthWest),
+        (false, true, true, false) => Some(egui::viewport::ResizeDirection::NorthEast),
+        (true, false, false, true) => Some(egui::viewport::ResizeDirection::SouthWest),
+        (false, true, false, true) => Some(egui::viewport::ResizeDirection::SouthEast),
+        (true, false, _, _) => Some(egui::viewport::ResizeDirection::West),
+        (false, true, _, _) => Some(egui::viewport::ResizeDirection::East),
+        (_, _, true, false) => Some(egui::viewport::ResizeDirection::North),
+        (_, _, false, true) => Some(egui::viewport::ResizeDirection::South),
+        _ => None,
+    };
+    if let Some(dir) = dir
+        && ctx.input(|i| i.pointer.primary_pressed())
+        && !controls.contains(pos)
+    {
+        let direction = match dir {
+            egui::ResizeDirection::North => "north",
+            egui::ResizeDirection::South => "south",
+            egui::ResizeDirection::East => "east",
+            egui::ResizeDirection::West => "west",
+            egui::ResizeDirection::NorthEast => "northeast",
+            egui::ResizeDirection::NorthWest => "northwest",
+            egui::ResizeDirection::SouthEast => "southeast",
+            egui::ResizeDirection::SouthWest => "southwest",
+        };
+        app.run_or_alert("ui.window.beginResize", json!({"direction": direction}));
+    }
+    app.flush_viewport_commands(ctx);
 }
 
 #[cfg(test)]
@@ -211,87 +362,10 @@ mod title_bar_tests {
     /// A new web workbook kept only as its browser draft says so in the title bar, instead of the
     /// unsaved marker, and says whether its latest edit is in the draft yet.
     #[test]
-    fn the_title_names_a_browser_draft() {
-        let saved = std::rc::Rc::new(std::cell::Cell::new(Some(false)));
-        let shown = saved.clone();
-        let mut app = SheetApp::new(gridcraft_engine::Session::new(), crate::Services::default());
-        app.ui.language = crate::i18n::Language::En;
-        app.run("file.new", json!({})).unwrap();
-        let d = app.session.active_mut().unwrap();
-        d.title = "Budget".into();
-        d.saved = std::sync::Arc::new((*d.wb).clone());
-        app.services.browser_recovery = Some(crate::BrowserRecoveryServices {
-            drafts: Box::new(|_| Some(Vec::new())),
-            act: Box::new(|_, _| {}),
-            fragile: Box::new(|| false),
-            open_draft: Box::new(move || shown.get()),
-        });
-        assert_eq!(document_title(&app), ("Budget (draft) — Saving…".to_string(), false));
-        saved.set(Some(true));
-        assert_eq!(document_title(&app), ("Budget (draft) — Saved on this device".to_string(), false));
-        saved.set(None);
-        assert_eq!(document_title(&app), ("Budget".to_string(), true), "a workbook saved elsewhere keeps the unsaved marker");
-    }
-
-    #[test]
     fn mac_title_bar_centres_and_clears_the_traffic_lights() {
         // The lights are centred in the bar, and content keeps the same gap after them.
         let margin = (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
         let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
         assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
-    }
-
-    #[test]
-    fn title_fits_between_the_controls() {
-        // Room limited by the nearer side, symmetric about the centre.
-        assert_eq!(title_max_width(500.0, 300.0, 900.0), 2.0 * (200.0 - TITLE_GAP));
-        assert_eq!(title_max_width(500.0, 100.0, 650.0), 2.0 * (150.0 - TITLE_GAP));
-        // Controls overlapping the centre leave no room rather than a negative width.
-        assert_eq!(title_max_width(500.0, 520.0, 900.0), 0.0);
-    }
-
-    /// Lay out a title in a real egui frame, returning (title text, title width, dot width).
-    fn layout_title(title: &str, dirty: bool, max_w: f32) -> (String, f32, f32) {
-        let ctx = egui::Context::default();
-        ctx.set_fonts(theme::font_definitions());
-        let mut out = (String::new(), 0.0, 0.0);
-        let mut frame = ctx.run_ui(egui::RawInput::default(), |ui| {
-            let (galley, dot) = title_galleys(ui.painter(), title, dirty, max_w, Color32::WHITE);
-            // The glyphs actually drawn: `galley.text()` is the untruncated source.
-            let shown = galley.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect();
-            out = (shown, galley.size().x, dot.map_or(0.0, |d| d.size().x));
-        });
-        frame.textures_delta.clear(); // nothing consumes the atlas in a headless test
-        out
-    }
-
-    #[test]
-    fn long_title_is_truncated_with_an_ellipsis() {
-        let long = format!("upload-{}-cleaned (1).xlsx", "3FMyNTYg2gDaANiAAACq20AAAAQMBqug".repeat(4));
-        let (text, w, _) = layout_title(&long, false, 300.0);
-        assert!(text.ends_with('…'), "truncated title ends with an ellipsis: {text:?}");
-        assert!(text.chars().count() < long.chars().count());
-        assert!(w <= 300.0, "title stays within its room: {w}");
-    }
-
-    #[test]
-    fn short_title_is_left_whole() {
-        let (text, _, _) = layout_title("Book1.xlsx", false, 300.0);
-        assert_eq!(text, "Book1.xlsx");
-    }
-
-    #[test]
-    fn unsaved_dot_survives_truncation() {
-        let long = "a very long workbook name ".repeat(20);
-        let (text, w, dot_w) = layout_title(&long, true, 200.0);
-        assert!(dot_w > 0.0, "the unsaved marker is laid out");
-        assert!(text.ends_with('…'));
-        assert!(w + dot_w <= 200.0, "title and marker fit together: {}", w + dot_w);
-    }
-
-    #[test]
-    fn no_room_draws_nothing_but_does_not_crash() {
-        let (_, w, _) = layout_title("Book1.xlsx", true, 0.0);
-        assert!(w <= 20.0, "a zero-width slot leaves at most the ellipsis: {w}");
     }
 }

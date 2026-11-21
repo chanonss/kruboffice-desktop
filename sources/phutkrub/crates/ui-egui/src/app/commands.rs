@@ -264,11 +264,12 @@ impl SlideApp {
             "app.insertPictureDialog" => self.pick_and_insert("picture", "insert.picture"),
             "app.smartArtPictureDialog" => {
                 if self.services.pick_open.is_none() {
-                    return Err("picking a SmartArt picture needs the desktop app".into());
+                    return Err("picking a Diagram picture needs the desktop app".into());
                 }
                 self.pick_and_run("picture", "smartArt.picture", p);
             }
             "app.changePictureDialog" => self.pick_and_insert("picture", "picture.change"),
+            "app.saveMediaDialog" => return self.save_selected_media(),
             "app.insertAudioDialog" => self.pick_and_insert("audio", "insert.audio"),
             "app.reuseSlidesDialog" => self.pick_and_reuse(p.get("keepFormatting").and_then(Value::as_bool).unwrap_or(false)),
             "app.insertVideoDialog" => self.pick_and_insert("video", "insert.video"),

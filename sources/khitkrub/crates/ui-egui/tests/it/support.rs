@@ -39,3 +39,11 @@ pub fn services_harness(services: Services, steps: usize) -> Harness {
 pub fn app_harness(app: SheetApp, steps: usize) -> Harness {
     harness_with(builder().with_size(egui::vec2(1200.0, 800.0)), app, steps)
 }
+
+/// Show the Shape pane's sub-panel `tab` (owner, 2026-11-18), as a click on its slot does.
+pub fn show_shape_tab(h: &mut crate::common::Harness, tab: krub_icons::shape_pane::Tab) {
+    let tabs = krub_icons::shape_pane::Tab::shown(krub_icons::shape_pane::Caps::ALL);
+    let i = tabs.iter().position(|t| *t == tab).unwrap_or(0);
+    h.ctx.data_mut(|d| d.insert_persisted(krub_icons::pane_ui::id(("krub_shape_tab", tabs.len())), i));
+    h.run_steps(3);
+}

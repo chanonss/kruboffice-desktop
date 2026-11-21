@@ -1,6 +1,8 @@
 //! Floating objects on the sheet: charts (rendered by `gridcraft-chart` into primitives that
 //! we paint with egui), pictures, shapes, equations, slicers and form controls (`form_controls.rs`).
 
+use std::sync::Arc;
+
 use egui::epaint::{PathShape, PathStroke};
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, pos2, vec2};
 use gridcraft_chart::{HAlign, Prim, VAlign};
@@ -198,10 +200,11 @@ fn area_mesh(v: &[Pos2], col: Color32) -> egui::Mesh {
 fn paint_shape_text(p: &Painter, wb: &Workbook, sp: &gridcraft_engine::model::Shape, r: Rect, z: f32) {
     use gridcraft_engine::model::{ShapeTextAlign, ShapeTextAnchor};
     let f = &sp.format;
+    let word_art = sp.kind == ShapeKind::WordArt;
     let text_box = sp.kind == ShapeKind::TextBox;
     let align = f.align.unwrap_or(if text_box { ShapeTextAlign::Left } else { ShapeTextAlign::Center });
     let anchor = f.anchor.unwrap_or(if text_box { ShapeTextAnchor::Top } else { ShapeTextAnchor::Middle });
-    let default_color = if text_box { Color32::BLACK } else { Color32::WHITE };
+    let default_color = if text_box || word_art { Color32::BLACK } else { Color32::WHITE };
     let color = f.text_color.and_then(|c| c.resolve(&wb.theme)).map(theme::color32).unwrap_or(default_color);
     // Default 14 px (as before); a set size is in points.
     let size = f.font_size.map_or(14.0, |pt| pt * 96.0 / 72.0).clamp(1.0, 2000.0) * z;
@@ -227,6 +230,11 @@ fn paint_shape_text(p: &Painter, wb: &Workbook, sp: &gridcraft_engine::model::Sh
     };
     let pos = pos2(x, y);
     let clip = p.with_clip_rect(r.intersect(p.clip_rect()));
+    // WordArt's drop shadow: the text again, offset down and right, under everything else.
+    if let Some(sc) = f.text_shadow.and_then(|c| c.resolve(&wb.theme)).map(theme::color32) {
+        let d = (size * 0.05).clamp(1.0, 24.0);
+        clip.galley_with_override_text_color(pos + vec2(d, d), g.clone(), sc);
+    }
     // egui has no stroked text: the outline is the text drawn in the outline colour, offset in
     // eight directions by the outline width, under the filled text.
     if let Some((c, w)) = f.text_outline
@@ -238,6 +246,31 @@ fn paint_shape_text(p: &Painter, wb: &Workbook, sp: &gridcraft_engine::model::Sh
         }
     }
     clip.galley(pos, g, color);
+}
+
+/// Resolves and renders `ch` (chart `ci` of sheet `si`), at zoom `z`.
+fn render_chart(p: &Painter, z: f32, wb: &Workbook, si: usize, ch: &gridcraft_engine::model::Chart) -> Vec<Prim> {
+    #[cfg(test)]
+    tests::RENDERS.with(|c| c.set(c.get() + 1));
+    let data = gridcraft_chart::resolve(wb, si, ch);
+    let m = EguiMeasure { painter: p, z };
+    gridcraft_chart::render(ch, &data, ch.anchor.width, ch.anchor.height, &m)
+}
+
+/// The primitives of chart `ci` of sheet `si`: from the frame cache when the workbook, zoom and
+/// screen scale are those it was rendered for, else rendered now (see [`crate::chartcache`]).
+fn chart_prims(app: &SheetApp, p: &Painter, z: f32, wb: &Arc<Workbook>, si: usize, ci: usize, ch: &gridcraft_engine::model::Chart) -> Arc<[Prim]> {
+    // Only the active document's own workbook is cached: anything else cannot be tied to a uid.
+    let Some(d) = app.session.active().filter(|d| Arc::ptr_eq(&d.wb, wb)) else {
+        return render_chart(p, z, wb, si, ch).into();
+    };
+    // A series that calls NOW or RAND, directly or through a defined name, must be evaluated
+    // again on every paint.
+    if gridcraft_chart::has_volatile_series(wb, si, ch) {
+        return render_chart(p, z, wb, si, ch).into();
+    }
+    let mut cache = app.chart_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    cache.get(d.uid, wb, si, ci, (z, p.ctx().pixels_per_point()), || render_chart(p, z, wb, si, ch))
 }
 
 pub(crate) fn anchor_rect(geo: &Geo, sh: &Sheet, a: &Anchor) -> Rect {
@@ -259,15 +292,15 @@ pub(crate) fn objects_hidden(wb: &Workbook) -> bool {
     wb.show_objects == gridcraft_engine::model::ShowObjects::None
 }
 
-pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workbook, si: usize, sh: &Sheet) -> Vec<PaintedObject> {
-    let mut painted = Vec::new();
-    if objects_hidden(wb) {
-        return painted;
-    }
-    // Source outlines stay in cell space beneath every floating object.
-    if let Some(ch) = sh.charts.iter().find(|ch| app.selected_chart() == Some(ch.id))
+/// The selected chart's source outlines: its data as blocks with corner handles (#4389), or,
+/// when its series are not one block, each series' values on this sheet.
+fn paint_chart_outlines(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Arc<Workbook>, si: usize, sh: &Sheet) {
+    if let Some((_, data)) = selected_chart_data(app, geo, wb, si, sh, p.clip_rect()) {
+        paint_chart_data(p, geo, sh, &data);
+    } else if let Some(ch) = sh.charts.iter().find(|ch| app.selected_chart() == Some(ch.id))
         && anchor_rect(geo, sh, &ch.anchor).intersects(p.clip_rect())
     {
+        // Series that are not one block of cells: each series' values on this sheet.
         for s in &ch.series {
             if let Ok(gridcraft_engine::formula::Expr::Ref(rf)) = gridcraft_engine::formula::parse(&s.values)
                 && rf.sheet_name().is_none_or(|n| n.eq_ignore_ascii_case(&sh.name))
@@ -281,6 +314,15 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
             }
         }
     }
+}
+
+pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Arc<Workbook>, si: usize, sh: &Sheet) -> Vec<PaintedObject> {
+    let mut painted = Vec::new();
+    if objects_hidden(wb) {
+        return painted;
+    }
+    // Source outlines stay in cell space beneath every floating object.
+    paint_chart_outlines(app, p, geo, wb, si, sh);
     let mut done = |start: egui::layers::ShapeIdx, rect: Rect| painted.push(PaintedObject { shapes: start.0..p.add(egui::Shape::Noop).0, rect });
     // The grid paints the active workbook: its pictures are cached under it.
     let doc = app.session.active().map_or(0, |d| d.uid);
@@ -353,6 +395,8 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
             ShapeKind::Rectangle | ShapeKind::TextBox if turned || dashed || f.line_width.is_some() => {
                 polygon(p, vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()]);
             }
+            // WordArt is only its text (no fill or outline of its own).
+            ShapeKind::WordArt => {}
             ShapeKind::Rectangle | ShapeKind::TextBox => {
                 p.rect_filled(r, 0.0, fill);
                 p.rect_stroke(r, 0.0, Stroke::new(1.0, line), StrokeKind::Inside);
@@ -398,6 +442,9 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
                 crate::equation::paint_shape(p, r, sp, wb, geo.z);
                 label = false;
             }
+            // Any other standard shape (owner, 2026-11-19): the shared library's outlines, filled
+            // (concave ones too) and outlined like the others.
+            ShapeKind::Preset(id) => paint_preset(p, id, r, fill, &place, &outline),
             ShapeKind::Line | ShapeKind::Arrow => {
                 let (a, b) = (place(r.left_top()), place(r.right_bottom()));
                 let w = f.line_width.map_or(2.0, |_| lw);
@@ -440,7 +487,7 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
         }
         done(start, r);
     }
-    for ch in &sh.charts {
+    for (ci, ch) in sh.charts.iter().enumerate() {
         let r = anchor_rect(geo, sh, &ch.anchor);
         if !r.intersects(p.clip_rect()) {
             continue;
@@ -449,9 +496,7 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
         // Soft shadow + white card.
         p.rect_filled(r.translate(vec2(0.0, 1.5)), 2.0, Color32::from_black_alpha(18));
         p.rect_filled(r, 0.0, Tokens::get(p.ctx()).grid_bg);
-        let data = gridcraft_chart::resolve(wb, si, ch);
-        let m = EguiMeasure { painter: p, z: geo.z };
-        let prims = gridcraft_chart::render(ch, &data, ch.anchor.width, ch.anchor.height, &m);
+        let prims = chart_prims(app, p, geo.z, wb, si, ci, ch);
         paint_prims(&p.with_clip_rect(r.intersect(p.clip_rect())), r.min, &prims, geo.z);
         done(start, r);
     }
@@ -470,11 +515,7 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Workboo
     }
     // The selected object's frame and handles go over every object, and move with it on a
     // right-to-left sheet.
-    if let Some(r) = app.selected_object.and_then(|o| object_rect(geo, sh, o))
-        && r.intersects(p.clip_rect())
-    {
-        let start = p.add(egui::Shape::Noop);
-        selection_frame(p, r);
+    if let Some((start, r)) = paint_selection_frame(app, p, geo, sh) {
         done(start, r);
     }
     painted
@@ -582,14 +623,109 @@ pub fn slicer_click(geo: &Geo, sh: &Sheet, wb: &Workbook, si: usize, p: Pos2) ->
     None
 }
 
-fn selection_frame(p: &Painter, r: Rect) {
-    let t = Tokens::get(p.ctx());
-    p.rect_stroke(r, 0.0, Stroke::new(1.0, t.sheet_control_border), StrokeKind::Outside);
-    for h in crate::objects::Handle::ALL {
-        let c = h.pos(r);
-        p.circle_filled(c, 4.0, t.sheet_control_bg);
-        p.circle_stroke(c, 4.0, Stroke::new(1.0, t.sheet_control_border));
+/// The selected object's frame, handles and (a shape's) rotation handle, when it shows: where
+/// its painting starts and its rect.
+fn paint_selection_frame(app: &SheetApp, p: &Painter, geo: &Geo, sh: &Sheet) -> Option<(egui::layers::ShapeIdx, Rect)> {
+    let o = app.selected_object?;
+    let r = object_rect(geo, sh, o).filter(|r| r.intersects(p.clip_rect()))?;
+    let start = p.add(egui::Shape::Noop);
+    let (deg, rotates, resizes) = frame_of(sh, o);
+    crate::frame::paint(p, r, deg, rotates, resizes);
+    Some((start, r))
+}
+
+/// The selected object's turn in degrees (a shape's `format.rotation`), and whether its frame
+/// shows a rotation handle and resize handles (an ink stroke shows neither).
+pub fn frame_of(sh: &Sheet, o: ObjRef) -> (f32, bool, bool) {
+    match sh.shapes.iter().find(|s| o.kind == ObjKind::Shape && s.id == o.id) {
+        Some(s) => {
+            let deg = if s.format.rotation.is_finite() { s.format.rotation.rem_euclid(360.0) } else { 0.0 };
+            (deg, s.kind != ShapeKind::Ink, s.kind != ShapeKind::Ink)
+        }
+        None => (0.0, false, true),
     }
+}
+
+/// How far from a corner of a selected chart's values outline a press still grabs it.
+const DATA_HANDLE_REACH: f32 = 6.0;
+/// The corners of a values outline, which drag it (#4389).
+const DATA_HANDLES: [crate::objects::Handle; 4] =
+    [crate::objects::Handle::TopLeft, crate::objects::Handle::TopRight, crate::objects::Handle::BottomLeft, crate::objects::Handle::BottomRight];
+
+/// The selected chart and its data as blocks on sheet `si` (`sh`), while the chart lies on screen
+/// within `clip`: the blocks a drag of its values outline previews, else where they are. `None`
+/// when no chart is selected, its data is on another sheet or its series are not one block.
+pub(crate) fn selected_chart_data(
+    app: &SheetApp,
+    geo: &Geo,
+    wb: &Workbook,
+    si: usize,
+    sh: &Sheet,
+    clip: Rect,
+) -> Option<(u32, gridcraft_engine::chart_data::ChartData)> {
+    if objects_hidden(wb) {
+        return None;
+    }
+    let id = app.selected_chart()?;
+    let ch = sh.charts.iter().find(|ch| ch.id == id)?;
+    let dragged = match app.grid.drag {
+        crate::grid::Drag::ChartData { chart, to, .. } if chart == id => Some(to),
+        _ => None,
+    };
+    // A drag that scrolls the chart away keeps its preview: the block is still being dragged.
+    if dragged.is_none() && !anchor_rect(geo, sh, &ch.anchor).intersects(clip) {
+        return None;
+    }
+    let data = gridcraft_engine::chart_data::chart_data(wb, si, ch).filter(|d| d.sheet == si)?;
+    Some((id, dragged.flatten().map_or(data, |to| data.moved(to))))
+}
+
+/// Where the handle on corner `h` of the values outline `rr` is painted.
+fn data_handle_rect(h: crate::objects::Handle, rr: Rect) -> Rect {
+    Rect::from_center_size(h.pos(rr), vec2(7.0, 7.0))
+}
+
+/// Outlines a chart's data as Excel does: series names in red, category labels in purple and
+/// values in blue (#4390), with a handle on each corner of the values (#4389). Each pane clips
+/// its own part, so frozen panes show the block once.
+fn paint_chart_data(p: &Painter, geo: &Geo, sh: &Sheet, data: &gridcraft_engine::chart_data::ChartData) {
+    let t = Tokens::get(p.ctx());
+    let blocks = [(data.names, 1, false), (data.categories, 2, false), (Some(data.values), 0, true)];
+    for (range, color, handles) in blocks.into_iter().filter_map(|(r, c, h)| r.map(|r| (r, t.ref_color(c, true), h))) {
+        let rr = geo.range_rect(sh, range);
+        for pane in geo.range_panes(range) {
+            let pp = p.with_clip_rect(pane.intersect(p.clip_rect()));
+            pp.rect_stroke(rr, 0.0, Stroke::new(1.5, color), StrokeKind::Inside);
+            if handles {
+                for h in DATA_HANDLES {
+                    pp.rect_filled(data_handle_rect(h, rr), 0.0, Color32::WHITE);
+                    pp.rect_filled(data_handle_rect(h, rr).shrink(1.0), 0.0, color);
+                }
+            }
+        }
+    }
+}
+
+/// The corner of the selected chart's values outline under `p`, with the chart and its values
+/// block. Like [`hit`], only over the cell area and while objects show; the caller asks
+/// [`hit`] first, since objects paint over the outline.
+pub fn chart_data_handle(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option<(u32, gridcraft_engine::core::RangeRef, crate::objects::Handle)> {
+    if !geo.cells.contains(p) {
+        return None;
+    }
+    let wb = &app.session.active()?.wb;
+    let (id, data) = selected_chart_data(app, geo, wb, wb.active_sheet(), sh, geo.cells)?;
+    let rr = geo.range_rect(sh, data.values);
+    // Only a corner some pane paints: with frozen panes, a corner scrolled under the frozen band
+    // is hidden, and the frozen cells it lies under keep the press.
+    let panes = geo.range_panes(data.values);
+    DATA_HANDLES
+        .into_iter()
+        .filter(|h| panes.iter().any(|pane| pane.intersects(data_handle_rect(*h, rr))))
+        .map(|h| (h, h.pos(rr).distance(p)))
+        .filter(|(_, d)| *d <= DATA_HANDLE_REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(h, _)| (id, data.values, h))
 }
 
 /// Where object `o` sits on the sheet (logical coordinates), when it exists on `sh`.
@@ -607,7 +743,22 @@ pub fn selected_handle(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option
     }
     let o = app.selected_object?;
     let r = object_rect(geo, sh, o)?;
-    crate::objects::handle_at(r, p).map(|h| (o, r, h))
+    let (deg, _, resizes) = frame_of(sh, o);
+    if !resizes {
+        return None;
+    }
+    crate::objects::handle_at(r, crate::frame::turn(p, r.center(), -deg)).map(|h| (o, r, h))
+}
+
+/// The selected shape and its rect when `p` is on its rotation handle.
+pub fn selected_rotate(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option<(ObjRef, Rect)> {
+    if !geo.cells.contains(p) || app.session.active().is_some_and(|d| objects_hidden(&d.wb)) {
+        return None;
+    }
+    let o = app.selected_object?;
+    let r = object_rect(geo, sh, o)?;
+    let (deg, rotates, _) = frame_of(sh, o);
+    (rotates && matches!(crate::frame::grab_at(r, deg, true, p), Some(crate::frame::Grab::Rotate))).then_some((o, r))
 }
 
 /// The topmost object under `p` and its rect: form controls paint on top, so they are hit first,
@@ -643,7 +794,8 @@ pub fn hit(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option<(ObjRef, Re
     }
     for s in sh.shapes.iter().rev() {
         let r = anchor_rect(geo, sh, &s.anchor);
-        if r.expand(3.0).contains(p) {
+        let deg = if s.format.rotation.is_finite() { s.format.rotation } else { 0.0 };
+        if r.expand(3.0).contains(crate::frame::turn(p, r.center(), -deg)) {
             let kind = if s.kind == ShapeKind::Equation { ObjKind::Equation } else { ObjKind::Shape };
             return Some((ObjRef::new(kind, s.id), r));
         }
@@ -705,6 +857,31 @@ fn paint_effects(
     }
 }
 
+/// A standard shape (owner, 2026-11-19): the shared library's outlines in `r`, moved by `place`
+/// (flips and rotation), filled with `fill` (concave ones too) and outlined by `outline`.
+fn paint_preset(
+    p: &Painter,
+    id: gridcraft_engine::model::PresetId,
+    r: Rect,
+    fill: Color32,
+    place: &dyn Fn(Pos2) -> Pos2,
+    outline: &dyn Fn(&Painter, &[Pos2], bool),
+) {
+    let Some(g) = id.geometry(f64::from(r.width()), f64::from(r.height())) else { return };
+    for part in &g.paths {
+        for (pts, closed) in krub_icons::shape_gallery::polylines(&part.path) {
+            let pts: Vec<Pos2> = pts.into_iter().map(|q| place(pos2(r.left() + q.x as f32, r.top() + q.y as f32))).collect();
+            let filled = part.fill != craft_drawingml::preset::FillMode::None;
+            if filled && closed && fill != Color32::TRANSPARENT && (3..=4000).contains(&pts.len()) {
+                p.add(egui::Shape::mesh(krub_icons::shape_gallery::fill_mesh(&pts, fill)));
+            }
+            if part.stroke {
+                outline(p, &pts, closed);
+            }
+        }
+    }
+}
+
 /// The outline of a shape the effects follow, before rotation and flips: its points and whether
 /// it is closed (a line is not). `None` for kinds without effects (ink, icons, equations).
 fn effect_path(kind: ShapeKind, r: Rect, z: f32) -> Option<(Vec<Pos2>, bool)> {
@@ -722,6 +899,12 @@ fn effect_path(kind: ShapeKind, r: Rect, z: f32) -> Option<(Vec<Pos2>, bool)> {
         ),
         ShapeKind::Triangle => (vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()], true),
         ShapeKind::Line | ShapeKind::Arrow => (vec![r.left_top(), r.right_bottom()], false),
+        ShapeKind::Preset(id) => {
+            let g = id.geometry(f64::from(r.width()), f64::from(r.height()))?;
+            let first = g.paths.iter().find(|p| p.fill != craft_drawingml::preset::FillMode::None)?;
+            let (pts, closed) = krub_icons::shape_gallery::polylines(&first.path).into_iter().next()?;
+            (pts.into_iter().map(|q| pos2(r.left() + q.x as f32, r.top() + q.y as f32)).collect(), closed)
+        }
         _ => return None,
     })
 }
@@ -805,7 +988,11 @@ fn rounded_rect_points(r: Rect, radius: f32) -> Vec<Pos2> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::cell::Cell;
+
+    use gridcraft_chart::Measure;
+
     use super::*;
 
     /// Soft edges fade an opaque fill too: the edge is transparent, the inside keeps the colour
@@ -822,5 +1009,30 @@ mod tests {
         assert!(mesh.vertices[1..5].iter().all(|v| v.color == blue), "the inside is the fill");
         assert!(mesh.vertices[5..].iter().all(|v| v.color == Color32::TRANSPARENT), "the edge has faded out");
         assert!(soft_fill_mesh(&outer[..2], &inner[..2], r.center(), blue).is_empty());
+    }
+
+    thread_local! {
+        /// Charts resolved and rendered on this thread (a test runs on its own thread).
+        pub(crate) static RENDERS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// The production measure is not monotone for labels with a line break: egui lays the text out
+    /// line by line, so ending a prefix with `\n…` can be narrower than the shorter `iii…`. The
+    /// chart's label fitting must not assume otherwise (#1152).
+    #[test]
+    fn egui_measure_shrinks_when_a_prefix_ends_in_a_line_break() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::pinned_font_definitions());
+        let mut checked = false;
+        // Fonts are ready from the second pass on.
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                let m = EguiMeasure { painter: ui.painter(), z: 1.0 };
+                let (short, long) = (m.text_width("iii…", 11.0, false), m.text_width("iiii\n…", 11.0, false));
+                checked = long < short;
+            });
+            out.textures_delta.clear();
+        }
+        assert!(checked);
     }
 }

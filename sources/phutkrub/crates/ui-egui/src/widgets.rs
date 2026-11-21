@@ -416,18 +416,18 @@ pub fn group_named<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) 
     if !pane_mode() {
         return Some(group(ui, add));
     }
-    let r = egui::CollapsingHeader::new(egui::RichText::new(crate::i18n::t(title)).font(theme::bold(12.5)))
-        .id_salt(("pane_section", title))
-        .default_open(true)
-        .show(ui, |ui| {
+    // The shaded heading every KrubOffice side pane shares (owner, 2026-11-18).
+    let mut out = None;
+    krub_icons::pane_ui::section(ui, krub_icons::pane_ui::id(("pane_section", title)), crate::i18n::t(title), true, |ui| {
+        out = Some(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                 add(ui)
             })
-            .inner
-        });
-    ui.add_space(2.0);
-    r.body_returned
+            .inner,
+        );
+    });
+    out
 }
 
 /// A ribbon group: contents, then a thin vertical separator. In a side pane ([`in_pane`]) the
@@ -485,15 +485,17 @@ pub fn rows<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 }
 
 /// A text dropdown field (font name, size): shows `current`, opens a popup with `add_items`.
-pub fn dropdown(ui: &mut Ui, id: &str, current: &str, width: f32, enabled: bool, add_items: impl FnOnce(&mut Ui)) -> Response {
-    dropdown_closing(ui, id, current, width, enabled, egui::PopupCloseBehavior::CloseOnClick, add_items)
+/// `label` is what assistive technology calls it ("Font", "Start"); `current` is exposed as its
+/// value, so an empty box is still announced by its purpose and never by an internal key (#1956).
+pub fn dropdown(ui: &mut Ui, label: &str, current: &str, width: f32, enabled: bool, add_items: impl FnOnce(&mut Ui)) -> Response {
+    dropdown_closing(ui, label, current, width, enabled, egui::PopupCloseBehavior::CloseOnClick, add_items)
 }
 
 /// [`dropdown`] whose list closes on `close` (a font list stays open while fonts are pinned in
 /// it; its items close it themselves).
 pub fn dropdown_closing(
     ui: &mut Ui,
-    id: &str,
+    label: &str,
     current: &str,
     width: f32,
     enabled: bool,
@@ -519,8 +521,10 @@ pub fn dropdown_closing(
         if enabled { t.text } else { t.text_faint },
     );
     chevron(&painter, pos2(rect.max.x - 9.0, rect.center().y), 3.0, t.text_dim);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, enabled, if current.is_empty() { id } else { current }));
-    let _ = id;
+    resp.widget_info(|| egui::WidgetInfo {
+        current_text_value: (!current.is_empty()).then(|| current.to_string()),
+        ..egui::WidgetInfo::labeled(egui::Role::ComboBox, enabled, label)
+    });
     egui::Popup::menu(&resp).width(width.max(140.0)).close_behavior(close).show(|ui| {
         egui::ScrollArea::vertical().max_height(360.0).show(ui, add_items);
     });
@@ -933,19 +937,26 @@ mod tests {
     }
 
     /// The custom ribbon dropdown is a real combo box in the accessibility tree, named by its
-    /// current value (0.37's strict unnamed-input check would otherwise reject it).
+    /// purpose with the shown text as its value. An empty one (no selection to read a font or
+    /// size from) keeps its name rather than falling back to an internal key (#1956).
     #[test]
-    fn the_dropdown_has_a_combo_box_role_and_a_name() {
+    fn the_dropdown_is_named_by_its_purpose_and_carries_its_value() {
         let mut harness = egui_kittest::Harness::builder().with_size(vec2(400.0, 200.0)).build_ui(|ui| {
             theme::install_fonts(ui.ctx());
-            dropdown(ui, "font-size", "18 pt", 120.0, true, |ui| {
+            dropdown(ui, "Font size", "18 pt", 120.0, true, |ui| {
                 ui.label("12 pt");
                 ui.label("18 pt");
             });
+            dropdown(ui, "Start", "", 112.0, false, |_| {});
         });
         harness.run();
-        let combo = harness.get_by_role_and_label(Role::ComboBox, "18 pt");
+        let combo = harness.get_by_role_and_label(Role::ComboBox, "Font size");
+        assert_eq!(combo.value().as_deref(), Some("18 pt"));
         assert!(combo.rect().width() > 100.0);
+        assert!(harness.query_by_role_and_label(Role::ComboBox, "18 pt").is_none(), "the value is not its name");
+        let empty = harness.get_by_role_and_label(Role::ComboBox, "Start");
+        assert_eq!(empty.value(), None, "nothing shown, no value");
+        assert!(harness.query_by_label("astart").is_none() && harness.query_by_label("start").is_none(), "no internal key is announced");
     }
 
     /// #32: clicking the "More Colors" hex field closed the colour menu before anything could be

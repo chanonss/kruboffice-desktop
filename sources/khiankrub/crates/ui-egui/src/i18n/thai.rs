@@ -277,8 +277,9 @@ fn shape_format_controls_and_effects_are_translated() {
         app,
     );
     h.run_steps(4);
-    // The Shape pane (owner, 2026-11-16): its sections, a row of each, and the WordArt buttons.
-    for label in ["พื้นที่", "เส้น", "เอฟเฟกต์", "ตำแหน่งและขนาด", "ความหนา:", "คงสัดส่วน", "สีเติมข้อความ", "เส้นกรอบข้อความ", "เอฟเฟกต์ข้อความ"]
+    // The Shape pane (owner, 2026-11-16): its sub-panels (2026-11-18), the first one's sections and
+    // rows, and the WordArt buttons.
+    for label in ["สีและเส้น", "เอฟเฟกต์", "ขนาดและที่ตั้ง", "พื้นที่", "เส้น", "ความหนา:", "สีเติมข้อความ", "เส้นกรอบข้อความ", "เอฟเฟกต์ข้อความ"]
     {
         assert!(h.query_by_label(label).is_some(), "missing translated control: {label}");
     }
@@ -321,7 +322,13 @@ fn chart_design_controls_are_translated() {
         assert!(h.query_by_label(label).is_some(), "missing translated control: {label}");
     }
     let th = Lang::from_code("th").unwrap();
-    for label in ["Chart Design", "Edit\nData", "Change\nChart Type", "Above Chart", "Insert SmartArt"] {
+    for label in ["Chart Design", "Edit\nData", "Change\nChart Type", "Above Chart", "Insert Diagram"] {
+        assert_ne!(super::tr(th, label), label, "missing translation: {label}");
+    }
+    // The shared Diagram picker: its own text, the categories KhianKrub uses and every layout.
+    let layouts = crate::dialogs_smart_art::layouts();
+    let picker = krub_icons::diagram_picker::NAMES.into_iter().chain(krub_icons::diagram_picker::categories(&layouts).into_iter().skip(1));
+    for label in picker.chain(layouts.iter().flat_map(|l| [l.name, l.description])) {
         assert_ne!(super::tr(th, label), label, "missing translation: {label}");
     }
 }

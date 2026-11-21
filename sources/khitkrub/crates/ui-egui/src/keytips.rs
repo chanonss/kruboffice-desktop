@@ -1,6 +1,10 @@
 //! Sequential ribbon shortcuts. The host paints hints from `prefix` and runs returned actions.
 //!
-//! The sequence table lives in [`keytip_table`]: the match below only walks the prefix.
+//! The sequence table lives in [`keytip_table`]: the match below only walks the prefix. Owner,
+//! 2026-11-19 (`krub_icons::tab_keys`, the same in the three apps): while choosing a tab (an empty
+//! prefix) the number on a tab picks it ([`Action::TabNumber`], 0 the tenth), ← → step between
+//! tabs and ↓ goes into the current one; an Option tap arms keytips on macOS too (an Option tap
+//! alone types nothing; Option held with a letter stays an accent there).
 
 use egui::{Context, Event, Key, Modifiers, os::OperatingSystem};
 
@@ -23,6 +27,13 @@ pub enum Action {
     /// handler (which carries the right params), instead of firing the engine command with
     /// empty params.
     Control(&'static str),
+    /// The tab with this number (1 the first after File, 10 the tenth): the host switches to it
+    /// and shows its badges ([`KeyTips::enter`]).
+    TabNumber(usize),
+    /// ← (false) or → (true) while choosing a tab: the tab before or after the current one.
+    StepTab(bool),
+    /// ↓ while choosing a tab: show the current tab's badges.
+    IntoTab,
 }
 
 #[derive(Default)]
@@ -47,6 +58,11 @@ impl KeyTips {
         self.held.clear();
     }
 
+    /// Show `sequence`'s badges (a tab picked by number), or end keytips when it has none.
+    pub fn enter(&mut self, sequence: Option<&str>) {
+        self.prefix = sequence.filter(|s| keytip_table::has_deeper(s)).map(str::to_string);
+    }
+
     fn toggle(&mut self) {
         self.prefix = if self.prefix.is_some() { None } else { Some(String::new()) };
         self.alt_armed = false;
@@ -63,6 +79,7 @@ impl KeyTips {
         let pairs = text_pairs(&events);
         let mut consumed = std::collections::HashSet::new();
         let mut actions = Vec::new();
+        let mut mac_tap = false;
         for (index, event) in events.iter().enumerate() {
             let mut handled = false;
             match event {
@@ -72,30 +89,26 @@ impl KeyTips {
                     if !m.alt {
                         self.alt_held = false;
                     }
-                    if command_modifier(*m) || (mac && m.alt) {
+                    if command_modifier(*m) {
                         self.clear();
                     } else if m.shift {
                         self.alt_armed = false;
                     }
                 }
-                Event::Key { key: Key::AltLeft, pressed, repeat, modifiers, .. } if !mac && !command_modifier(*modifiers) && !modifiers.shift => {
-                    self.alt_held = *pressed;
-                    if *pressed {
-                        if !repeat {
-                            self.alt_armed = true;
-                        }
-                        handled = true;
-                    } else if self.alt_armed {
-                        self.toggle();
-                        handled = true;
-                    }
+                // Left Alt everywhere; right Option on macOS too (right Alt is AltGr elsewhere).
+                Event::Key { key: Key::AltLeft, pressed, repeat, modifiers, .. }
+                | Event::Key { key: Key::AltRight, pressed, repeat, modifiers, .. }
+                    if (matches!(event, Event::Key { key: Key::AltLeft, .. }) || mac) && !command_modifier(*modifiers) && !modifiers.shift =>
+                {
+                    handled = self.alt_key(*pressed, *repeat, mac, &mut mac_tap);
                 }
                 Event::Key { key, pressed, repeat, modifiers, .. } => {
                     self.alt_armed = false;
                     // A letter typed with left Alt held continues a sequence (Alt+H, O, A), as
                     // in Excel; any other Alt combination cancels keytips.
+                    // Not on macOS, where Option with a letter types an accent.
                     let alt_letter =
-                        self.alt_held && modifiers.alt && !modifiers.shift && !command_modifier(*modifiers) && key.name().len() == 1 && {
+                        !mac && self.alt_held && modifiers.alt && !modifiers.shift && !command_modifier(*modifiers) && key.name().len() == 1 && {
                             let next = format!("{}{}", self.prefix.as_deref().unwrap_or_default(), key.name());
                             keytip_table::lookup(&next).is_some() || keytip_table::has_deeper(&next)
                         };
@@ -117,6 +130,12 @@ impl KeyTips {
                     } else if *key == Key::F10 && modifiers.is_none() {
                         self.toggle();
                         handled = true;
+                    } else if self.prefix.as_deref() == Some("")
+                        && let Some(action) = choose_tab(*key)
+                    {
+                        // Choosing a tab: its number, ← →, or ↓.
+                        handled = true;
+                        actions.push(action);
                     } else if self.prefix.is_some() && !matches!(key, Key::ShiftLeft | Key::ShiftRight) {
                         handled = true;
                         if *key == Key::Escape {
@@ -168,15 +187,51 @@ impl KeyTips {
                 }
             }
         }
+        if mac_tap && !events.iter().any(|e| matches!(e, Event::Text(_) | Event::Ime(_))) {
+            self.toggle();
+        }
         ctx.input_mut(|i| {
             i.events = events.into_iter().enumerate().filter_map(|(index, event)| (!consumed.contains(&index)).then_some(event)).collect()
         });
         actions
     }
 
+    /// An Alt (Option) press or release; `true` when it was taken. A release after an untouched
+    /// press is a tap: it toggles keytips, on macOS once the frame shows no text came with it
+    /// (an accent being composed), which `mac_tap` defers.
+    fn alt_key(&mut self, pressed: bool, repeat: bool, mac: bool, mac_tap: &mut bool) -> bool {
+        self.alt_held = pressed;
+        if pressed {
+            if !repeat {
+                self.alt_armed = true;
+            }
+            return true;
+        }
+        if !self.alt_armed {
+            return false;
+        }
+        if mac {
+            self.alt_armed = false;
+            *mac_tap = true;
+        } else {
+            self.toggle();
+        }
+        true
+    }
+
     fn finish(&mut self, action: Action, actions: &mut Vec<Action>) {
         self.prefix = None;
         actions.push(action);
+    }
+}
+
+/// What a key does while choosing a tab: a number picks that tab, ← → step, ↓ goes in.
+fn choose_tab(key: Key) -> Option<Action> {
+    match key {
+        Key::ArrowLeft => Some(Action::StepTab(false)),
+        Key::ArrowRight => Some(Action::StepTab(true)),
+        Key::ArrowDown => Some(Action::IntoTab),
+        k => krub_icons::tab_keys::tab_number(k).map(Action::TabNumber),
     }
 }
 

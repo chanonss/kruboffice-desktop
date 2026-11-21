@@ -21,9 +21,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             crate::dialogs_smart_art::text_pane(app, ui);
         });
     }
-    if app.session.view.nav_pane {
-        side_pane(ui, "nav_pane", false, |ui| nav(app, ui));
-    }
     if app.session.view.clipboard_pane {
         side_pane(ui, "clipboard_pane", false, |ui| clipboard(app, ui));
     }
@@ -31,10 +28,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 }
 
 /// The right-hand panes, in the strip's order: id, icon, name.
-const RIGHT: [(&str, &str, &str); 11] = [
+const RIGHT: [(&str, &str, &str); 13] = [
+    ("nav", "navPane", "Navigation"),
+    ("headerFooter", "header", "Header & Footer"),
     ("table", "table", "Table"),
     ("picture", "picture", "Picture"),
-    ("smartArt", "smartArt", "SmartArt"),
+    ("smartArt", "smartArt", "Diagram"),
     ("shape", "shapes", "Shape"),
     ("chart", "chart", "Chart"),
     ("styles", "stylesPane", "Styles"),
@@ -53,6 +52,8 @@ pub const STRIP_W: f32 = 36.0;
 fn right_open(app: &WordApp, ctx: &egui::Context) -> Vec<&'static str> {
     let v = &app.session.view;
     let on = [
+        true,
+        crate::hf_pane::wanted(app, ctx),
         crate::table_pane::wanted(app, ctx),
         crate::object_pane::picture_wanted(app, ctx),
         crate::object_pane::smart_art_wanted(app, ctx),
@@ -73,13 +74,37 @@ pub fn right_active(ctx: &egui::Context) -> Option<&'static str> {
     ctx.data(|d| d.get_temp::<Option<&'static str>>(egui::Id::new("right_dock_active"))).flatten()
 }
 
-/// The right-hand dock (owner, 2026-11-15): one pane at a time at the shared width, with a strip
-/// of buttons on its outer edge for every pane that is open. A pane that opens (a table, picture,
-/// shape, chart or SmartArt selected; Styles, Comments… turned on) comes to the front; a strip
-/// button brings its pane back; closing the front pane shows the one used before it.
+/// Whether the right-hand dock is folded down to its strip (remembered between sessions).
+const COLLAPSED: &str = "krub_side_dock_collapsed";
+
+/// The object panes, which open by themselves while their object is selected.
+const OBJECT_PANES: [&str; 6] = ["headerFooter", "table", "picture", "smartArt", "shape", "chart"];
+
+/// Whether the right-hand dock is folded down to its strip of buttons: as last chosen, or until
+/// then, folded on a narrow window (a phone, a small browser tab). The default follows the
+/// window's width, which a browser reports only after the first frames.
+pub fn right_collapsed(ctx: &egui::Context) -> bool {
+    ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::new(COLLAPSED))).unwrap_or_else(|| ctx.content_rect().width() < 900.0)
+}
+
+/// Fold (`true`) or unfold the right-hand dock.
+pub fn set_right_collapsed(ctx: &egui::Context, collapsed: bool) {
+    ctx.data_mut(|d| d.insert_persisted(egui::Id::new(COLLAPSED), collapsed));
+}
+
+/// The right-hand dock (owner, 2026-11-15; persistent since 2026-11-17): always there, one pane
+/// at a time at the shared width, with a strip of buttons on its outer edge for every pane that
+/// is open, so selecting and deselecting objects never moves the page. Navigation is the home
+/// pane, first in the strip; a pane that opens (a table, picture, shape, chart or SmartArt
+/// selected; Styles, Comments… turned on) comes to the front; a strip button brings its pane
+/// back; closing the front pane shows the one used before it (in the end, Navigation). The
+/// chevron at the top of the strip folds the dock down to the strip; while folded a selected
+/// object's button carries a dot instead of opening its pane, and any strip button unfolds it.
+/// View › Navigation Pane (`view.nav_pane`) reads and sets "the dock is open on Navigation".
 fn right_dock(app: &mut WordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    let (order_id, prev_id) = (egui::Id::new("right_dock_order"), egui::Id::new("right_dock_prev"));
+    let (order_id, prev_id, synced_id) =
+        (egui::Id::new("right_dock_order"), egui::Id::new("right_dock_prev"), egui::Id::new("right_dock_nav_synced"));
     let open = right_open(app, &ctx);
     let prev: Vec<&'static str> = ctx.data(|d| d.get_temp(prev_id)).unwrap_or_default();
     let mut order: Vec<&'static str> = ctx.data(|d| d.get_temp(order_id)).unwrap_or_default();
@@ -91,12 +116,20 @@ fn right_dock(app: &mut WordApp, ui: &mut Ui) {
         front(&mut order, id);
     }
     ctx.data_mut(|d| d.insert_temp(prev_id, open.clone()));
-    if open.is_empty() {
-        ctx.data_mut(|d| {
-            d.insert_temp(order_id, order);
-            d.insert_temp::<Option<&'static str>>(egui::Id::new("right_dock_active"), None);
-        });
-        return;
+    let chosen = ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::new(COLLAPSED))).is_some();
+    let mut collapsed = right_collapsed(&ctx);
+    let was = collapsed;
+    // A command changed View › Navigation Pane (the ribbon, Ctrl+F, a find…) since this frame
+    // last set it: on brings the dock out on Navigation, off folds it.
+    let synced: Option<bool> = ctx.data(|d| d.get_temp(synced_id));
+    let nav_now = app.session.view.nav_pane;
+    if synced != Some(nav_now) {
+        if nav_now {
+            collapsed = false;
+            front(&mut order, "nav");
+        } else if synced.is_some() {
+            collapsed = true;
+        }
     }
     let t = Tokens::get(&ctx);
     let mut active = order.iter().copied().find(|id| open.contains(id)).or_else(|| open.first().copied());
@@ -106,8 +139,33 @@ fn right_dock(app: &mut WordApp, ui: &mut Ui) {
         .frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(3, 8)).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
+            let label = if collapsed { tl!("Expand Side Panel") } else { tl!("Collapse Side Panel") };
+            let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), egui::Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(r, 5.0, t.hover);
+            }
+            paint_dock_toggle(ui.painter(), egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), collapsed, t.icon);
+            let resp = resp.on_hover_text(label);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+            if resp.clicked() {
+                collapsed = !collapsed;
+            }
+            let mut last_group = None;
             for (id, icon, name) in RIGHT.iter().filter(|(id, _, _)| open.contains(id)) {
-                let on = active == Some(*id);
+                // A thin rule between the toggle, Navigation, the object panes and the others.
+                let group = if *id == "nav" {
+                    0
+                } else if OBJECT_PANES.contains(id) {
+                    1
+                } else {
+                    2
+                };
+                if last_group != Some(group) {
+                    let (r, _) = ui.allocate_exact_size(vec2(30.0, 3.0), egui::Sense::hover());
+                    ui.painter().hline(r.x_range().shrink(4.0), r.center().y, Stroke::new(1.0, t.border_strong));
+                    last_group = Some(group);
+                }
+                let on = !collapsed && active == Some(*id);
                 let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), egui::Sense::click());
                 let fill = if on {
                     t.checked
@@ -121,23 +179,40 @@ fn right_dock(app: &mut WordApp, ui: &mut Ui) {
                     ui.painter().rect_stroke(r, 5.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
                 }
                 crate::icons::paint(ui.painter(), egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), icon, t.icon, t.accent);
+                if collapsed && group == 1 {
+                    // Folded: the selected object's pane is ready behind its button.
+                    ui.painter().circle_filled(r.right_top() + vec2(-6.0, 6.0), 3.0, t.accent);
+                }
                 let label = tl!(name);
                 let resp = resp.on_hover_text(label);
                 resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
                 if resp.clicked() {
                     active = Some(*id);
+                    collapsed = false;
                 }
             }
         });
     if let Some(id) = active {
         front(&mut order, id);
     }
+    let nav_shown = !collapsed && active == Some("nav");
+    app.session.view.nav_pane = nav_shown;
     ctx.data_mut(|d| {
         d.insert_temp(order_id, order);
         d.insert_temp(egui::Id::new("right_dock_active"), active);
+        d.insert_temp(synced_id, nav_shown);
+        // Remembered once folded or unfolded by hand (or a command); not the width's default.
+        if chosen || collapsed != was {
+            d.insert_persisted(egui::Id::new(COLLAPSED), collapsed);
+        }
     });
+    if collapsed {
+        return;
+    }
     let Some(id) = active else { return };
     side_pane(ui, "right_dock", true, |ui| match id {
+        "nav" => nav(app, ui),
+        "headerFooter" => crate::hf_pane::show(app, ui),
         "table" => crate::table_pane::show(app, ui),
         "picture" => crate::object_pane::show_picture(app, ui),
         "smartArt" => crate::object_pane::show_smart_art(app, ui),
@@ -156,6 +231,18 @@ fn right_dock(app: &mut WordApp, ui: &mut Ui) {
         }
         _ => comments(app, ui),
     });
+}
+
+/// The dock's fold button, drawn (original artwork): a window with its right-hand panel marked
+/// off, and a chevron pointing the way the panel will move.
+fn paint_dock_toggle(p: &egui::Painter, r: egui::Rect, collapsed: bool, ink: egui::Color32) {
+    let s = r.width() / 24.0;
+    let at = |x: f32, y: f32| r.min + vec2(x * s, y * s);
+    let stroke = Stroke::new(1.6 * s, ink);
+    p.rect_stroke(egui::Rect::from_min_max(at(4.0, 4.0), at(20.0, 20.0)), 2.0 * s, stroke, egui::StrokeKind::Middle);
+    p.line_segment([at(15.0, 4.0), at(15.0, 20.0)], stroke);
+    let chevron = if collapsed { [at(11.0, 10.0), at(9.0, 12.0), at(11.0, 14.0)] } else { [at(9.0, 10.0), at(11.0, 12.0), at(9.0, 14.0)] };
+    p.add(egui::Shape::line(chevron.to_vec(), stroke));
 }
 
 /// Every side pane's width (owner, 2026-11-15): one width for all of them, so switching panes
@@ -207,10 +294,9 @@ pub(crate) fn header(ui: &mut Ui, title: &str) -> bool {
 }
 
 fn nav(app: &mut WordApp, ui: &mut Ui) {
-    if header(ui, "Navigation") {
-        let _ = app.run("view.navigationPane", json!({"value": false}));
-        return;
-    }
+    // No ×: Navigation is the dock's home pane; the strip's chevron folds the dock.
+    ui.label(egui::RichText::new(tl!("Navigation")).font(semibold(15.0)));
+    ui.add_space(4.0);
     let qid = egui::Id::new("nav_query");
     let mut q = ui.data(|d| d.get_temp::<String>(qid)).unwrap_or_default();
     // Ctrl+F with text selected searches for it, as Word does (a selection within one line).

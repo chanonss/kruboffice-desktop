@@ -366,6 +366,7 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(24.0);
     // The browser has no files to reopen: Home lists the drafts kept in it instead.
     if app.services.browser_recovery.is_some() {
+        drive_list(app, ui, false);
         drafts_list(app, ui, false);
     } else {
         open_list(app, ui);
@@ -426,6 +427,7 @@ fn web_home(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                     ui.add_space(28.0);
+                    drive_list(app, ui, true);
                     drafts_list(app, ui, true);
                     ui.add_space(28.0);
                 });
@@ -500,6 +502,130 @@ fn app_switcher_row(ui: &mut Ui, letter: &str, tile: egui::Color32, name: &str, 
     live && resp.clicked()
 }
 
+/// The drafts that hold a Drive file's unsaved changes (Home shows them on that file's row).
+fn drive_drafts(app: &WordApp) -> Vec<String> {
+    app.services.google_drive.as_ref().map_or_else(Vec::new, |d| (d.recent)(&app.ui.language).into_iter().filter_map(|f| f.draft).collect())
+}
+
+/// Web Home (owner, 2026-11-17): the Google Drive files this browser opened or saved, newest
+/// first. A row opens the file as it is on Drive, so it's saved back there; a file with unsaved
+/// changes in this browser says so, and asks whether to open those or the Drive version. On the
+/// start screen (`new_tab`) the file opens in a new tab (`./?drive=<id>`).
+fn drive_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
+    let t = Tokens::get(ui.ctx());
+    let Some(drive) = &app.services.google_drive else { return };
+    let files = (drive.recent)(&app.ui.language);
+    if files.is_empty() {
+        return;
+    }
+    // Only drafts still in the browser count as unsaved changes.
+    let kept: Vec<String> = app
+        .services
+        .browser_recovery
+        .as_ref()
+        .and_then(|r| (r.drafts)(&app.ui.language))
+        .map_or_else(Vec::new, |d| d.into_iter().map(|d| d.id).collect());
+    let width = ui.available_width().min(700.0);
+    ui.label(egui::RichText::new(tl!("Google Drive")).font(semibold(16.0)));
+    ui.label(
+        egui::RichText::new(tl!("Files you opened or saved on Google Drive in this browser. Saving goes back to the file on Drive."))
+            .font(regular(12.0))
+            .color(t.text_dim),
+    );
+    ui.add_space(6.0);
+    enum Do {
+        Drive(String),
+        Draft(String),
+        Forget(String),
+    }
+    let mut todo = None;
+    for f in &files {
+        let unsaved = f.draft.as_ref().filter(|d| kept.contains(d));
+        let (r, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
+        // Screen readers hear the note too.
+        let spoken = match unsaved {
+            Some(_) => format!("{} ({})", f.name, tl!("Unsaved changes in this browser")),
+            None => f.name.clone(),
+        };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &spoken));
+        if ui.rect_contains_pointer(r) {
+            ui.painter().rect_filled(r, 4.0, t.hover);
+        }
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "cloud", t.icon, t.accent);
+        let name = ui.painter().layout_no_wrap(f.name.clone(), medium(13.0), t.text);
+        let clip = Rect::from_min_size(pos2(r.min.x + 40.0, r.min.y), vec2((width - 56.0).max(0.0), r.height()));
+        ui.painter().with_clip_rect(clip).galley(pos2(r.min.x + 40.0, r.min.y + 13.0 - name.size().y / 2.0), name, t.text);
+        let sub = match unsaved {
+            Some(_) => format!("{} · {}", f.when, tl!("Unsaved changes in this browser")),
+            None => f.when.clone(),
+        };
+        ui.painter().text(
+            pos2(r.min.x + 40.0, r.min.y + 29.0),
+            Align2::LEFT_CENTER,
+            sub,
+            regular(11.0),
+            if unsaved.is_some() { t.accent } else { t.text_dim },
+        );
+        let menu = |ui: &mut Ui, todo: &mut Option<Do>| {
+            if let Some(d) = unsaved {
+                if ui.button(tl!("Open with the unsaved changes")).clicked() {
+                    *todo = Some(Do::Draft(d.clone()));
+                    ui.close();
+                }
+                if ui.button(tl!("Open the Google Drive version")).clicked() {
+                    *todo = Some(Do::Drive(f.id.clone()));
+                    ui.close();
+                }
+            } else if ui.button(tl!("Open")).clicked() {
+                *todo = Some(Do::Drive(f.id.clone()));
+                ui.close();
+            }
+            ui.separator();
+            if ui.button(tl!("Remove from this list")).clicked() {
+                *todo = Some(Do::Forget(f.id.clone()));
+                ui.close();
+            }
+        };
+        resp.context_menu(|ui| menu(ui, &mut todo));
+        // With unsaved changes a click asks which to open; without, it opens the file.
+        if unsaved.is_some() {
+            egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_START).show(|ui| menu(ui, &mut todo));
+        } else if resp.clicked() {
+            todo = Some(Do::Drive(f.id.clone()));
+        }
+    }
+    ui.add_space(20.0);
+    let (doc, rev) = (app.session.document_id(), app.session.rev());
+    match todo {
+        Some(Do::Drive(id)) => {
+            // Its unsaved changes here are left behind: the Drive version is the file now.
+            if let Some(d) = files.iter().find(|f| f.id == id).and_then(|f| f.draft.clone())
+                && let Some(recovery) = &app.services.browser_recovery
+            {
+                (recovery.act)(crate::DraftAction::Discard, &d);
+            }
+            if new_tab {
+                app.canvas.open_url = Some(format!("./?drive={}", url_component(&id)));
+            } else if let Some(drive) = &app.services.google_drive {
+                (drive.open_recent)(id, doc, rev);
+            }
+        }
+        Some(Do::Draft(d)) => {
+            if new_tab {
+                app.canvas.open_url = Some(format!("./?draft={}", url_component(&d)));
+            } else if let Some(recovery) = &app.services.browser_recovery {
+                (recovery.act)(crate::DraftAction::Open, &d);
+            }
+        }
+        Some(Do::Forget(id)) => {
+            if let Some(drive) = &app.services.google_drive {
+                (drive.forget_recent)(id);
+            }
+        }
+        None => {}
+    }
+}
+
 /// Web Home: the recovery drafts kept in this browser. Click a row to keep writing; its ⋮ (or a
 /// right-click) downloads a copy or discards it, after asking.
 /// `new_tab`: on the web start screen, keeping writing opens the draft in a new tab
@@ -527,10 +653,13 @@ fn drafts_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
         ui.label(egui::RichText::new(tl!("Recovery is off. Turn it on in File › Options › General.")).color(t.text_dim));
         return;
     }
-    let Some(drafts) = drafts else {
+    let Some(mut drafts) = drafts else {
         ui.label(egui::RichText::new(tl!("Loading drafts…")).color(t.text_dim));
         return;
     };
+    // A Drive file's unsaved changes show on its row in the Google Drive list, not as a draft.
+    let of_drive = drive_drafts(app);
+    drafts.retain(|d| !of_drive.contains(&d.id));
     if drafts.is_empty() {
         ui.label(
             egui::RichText::new(tl!("Documents you write here are kept in this browser, so you can pick up where you left off.")).color(t.text_dim),
@@ -914,7 +1043,7 @@ fn drive_save(app: &mut WordApp, ui: &mut Ui) {
         if let Some(bytes) = docx(app, &name)
             && let Some(drive) = &app.services.google_drive
         {
-            (drive.save_copy)(name, bytes);
+            (drive.save_copy)(app.session.document_id(), app.session.rev(), name, bytes);
         }
     }
 }
@@ -1159,6 +1288,84 @@ mod tests {
         assert_eq!(h.state().ui.backstage_page, "new", "the link opens New");
         assert!(h.query_by_label("Report").is_some(), "New shows every template");
         assert!(h.query_by_label("Recent").is_none(), "New has no Recent list");
+    }
+
+    /// Owner, 2026-11-17: Home lists the Google Drive files this browser opened or saved. A file
+    /// opens from Drive (here in a new tab, `./?drive=<id>`), so it is saved back there; a file
+    /// with unsaved changes in this browser says so, its draft is not listed again as a draft of
+    /// its own, and a click asks whether to open those changes or the Drive version.
+    #[test]
+    fn web_home_lists_google_drive_files_with_their_unsaved_changes() {
+        use crate::{BrowserDraft, BrowserRecoveryServices, DraftAction};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let asked: Rc<RefCell<Vec<(DraftAction, String)>>> = Rc::default();
+        let log = asked.clone();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.ui.language = "en".into();
+        let drafts = vec![
+            BrowserDraft { id: "tab-7".into(), name: "Budget".into(), saved: "17/11/2026, 10:00".into() },
+            BrowserDraft { id: "tab-9".into(), name: "Notes".into(), saved: "16/11/2026, 09:00".into() },
+        ];
+        a.services.browser_recovery = Some(BrowserRecoveryServices {
+            status: Box::new(|| "Recovery ready on this device"),
+            has_drafts: Box::new(|| false),
+            fragile: Box::new(|| false),
+            open_draft: Box::new(|| None),
+            manage: Box::new(|| {}),
+            drafts: Box::new(move |_| Some(drafts.clone())),
+            act: Box::new(move |what, id| log.borrow_mut().push((what, id.to_string()))),
+        });
+        a.services.google_drive = Some(crate::DriveServices {
+            recent: Box::new(|_| {
+                vec![
+                    krub_drive::RecentDriveFile { id: "1report".into(), name: "Report.docx".into(), when: "17/11/2026".into(), draft: None },
+                    krub_drive::RecentDriveFile {
+                        id: "1budget".into(),
+                        name: "Budget.docx".into(),
+                        when: "16/11/2026".into(),
+                        draft: Some("tab-7".into()),
+                    },
+                ]
+            }),
+            ..Default::default()
+        });
+        assert!(a.start_screen());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label_contains("Saving goes back to the file on Drive").is_some());
+        assert!(h.query_by_label("Budget (draft)").is_none(), "the Drive file's changes aren't a draft of their own");
+        assert!(h.query_by_label("Notes (draft)").is_some(), "other drafts stay");
+        let budget = "Budget.docx (Unsaved changes in this browser)";
+        assert!(h.query_by_label(budget).is_some());
+        let mut opened = Vec::new();
+        h.get_by_label("Report.docx").click();
+        for _ in 0..2 {
+            h.step();
+            opened.extend(opened_urls(&h));
+        }
+        assert_eq!(opened, [("./?drive=1report".to_string(), true)]);
+        h.get_by_label(budget).click();
+        h.run_steps(2);
+        h.get_by_label("Open with the unsaved changes").click();
+        let mut opened = Vec::new();
+        for _ in 0..2 {
+            h.step();
+            opened.extend(opened_urls(&h));
+        }
+        assert_eq!(opened, [("./?draft=tab-7".to_string(), true)]);
+        h.get_by_label(budget).click();
+        h.run_steps(2);
+        h.get_by_label("Open the Google Drive version").click();
+        h.run_steps(2);
+        assert_eq!(asked.borrow().last(), Some(&(DraftAction::Discard, "tab-7".to_string())), "the Drive version leaves the changes behind");
     }
 
     /// Web Home lists the drafts kept in the browser in place of Recent: clicking one asks the
@@ -1605,9 +1812,10 @@ mod tests {
                 open: Box::new(move |id, rev| open_calls.borrow_mut().push((id, rev))),
                 files: Box::new(|| None),
                 select_file: Box::new(|_, _, _| {}),
-                save_copy: Box::new(move |name, bytes| save_calls.borrow_mut().push((name, bytes))),
+                save_copy: Box::new(move |_, _, name, bytes| save_calls.borrow_mut().push((name, bytes))),
                 linked_name: Box::new(|_| None),
                 save_over: Box::new(|_, _, _| {}),
+                ..Default::default()
             }),
             ..Services::default()
         };
@@ -1652,9 +1860,10 @@ mod tests {
             open: Box::new(|_, _| {}),
             files: Box::new(|| None),
             select_file: Box::new(|_, _, _| {}),
-            save_copy: Box::new(|_, _| {}),
+            save_copy: Box::new(|_, _, _, _| {}),
             linked_name: Box::new(move |document| (document == linked).then(|| "report.docx".to_string())),
             save_over: Box::new(move |document, revision, bytes| calls.borrow_mut().push((document, revision, bytes))),
+            ..Default::default()
         });
         app.run("ui.backstage", json!({"value": true, "page": "saveAs"})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
@@ -1696,12 +1905,13 @@ mod tests {
             open: Box::new(|_, _| {}),
             files: Box::new(|| None),
             select_file: Box::new(|_, _, _| {}),
-            save_copy: Box::new(|_, _| {}),
+            save_copy: Box::new(|_, _, _, _| {}),
             linked_name: Box::new(move |document| (document == linked).then(|| "report.docx".to_string())),
             save_over: Box::new(move |document, revision, bytes| {
                 assert!(bytes.starts_with(b"PK"));
                 calls.borrow_mut().push((document, revision));
             }),
+            ..Default::default()
         });
         app.session.path = Some("report.docx".into());
         let v = app.run("file.save", json!({})).unwrap();
@@ -1730,9 +1940,10 @@ mod tests {
                 open: Box::new(|_, _| {}),
                 files: Box::new(|| None),
                 select_file: Box::new(|_, _, _| {}),
-                save_copy: Box::new(|_, _| {}),
+                save_copy: Box::new(|_, _, _, _| {}),
                 linked_name: Box::new(|_| None),
                 save_over: Box::new(|_, _, _| {}),
+                ..Default::default()
             }),
             ..Services::default()
         };

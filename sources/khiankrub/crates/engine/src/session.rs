@@ -73,9 +73,17 @@ pub struct CellRange {
     /// selection between the corners holds just them and commands act on that as usual.
     /// Otherwise (part of a column) text edits and formatting go cell by cell.
     pub stream: bool,
+    /// More grid column spans picked over the same rows with Cmd/Ctrl (columns that aren't side
+    /// by side, owner 2026-11-17); empty for an ordinary rectangle.
+    pub more: Vec<(usize, usize)>,
 }
 
 impl CellRange {
+    /// Whether grid columns `g0..g1` (end exclusive) reach into the picked columns.
+    fn takes(&self, g0: usize, g1: usize) -> bool {
+        std::iter::once(&self.cols).chain(&self.more).any(|&(a, b)| g0 <= b && g1 > a)
+    }
+
     /// The selected cells of table `t` (row, cell index), in document order.
     pub fn cells(&self, t: &Table) -> Vec<(usize, usize)> {
         let ((r0, r1), (g0, g1)) = (self.rows, self.cols);
@@ -84,7 +92,7 @@ impl CellRange {
             let mut g = 0usize;
             for (c, cell) in row.cells.iter().enumerate() {
                 let end = g.saturating_add(cell.span());
-                if g <= g1 && end > g0 {
+                if (g <= g1 && end > g0) || (!self.more.is_empty() && self.takes(g, end)) {
                     out.push((r, c));
                 }
                 g = end;
@@ -305,6 +313,7 @@ struct Undo {
 /// the undo and redo stacks (also the oldest undo steps the undo limit pushes out meanwhile), the
 /// open typing group, a pending [`Session::join_next_undo`] and the dirty flag. See
 /// [`Session::edit_snapshot`].
+#[derive(Clone)]
 pub struct EditSnapshot {
     doc: Document,
     sel: Selection,
@@ -600,10 +609,14 @@ impl Session {
 
     /// Save the custom dictionary through [`Session::user_dict_path`], if the host wired one up,
     /// with `removed` (words just taken out) left out of the merge with the file. A failed save
-    /// keeps the words in memory and never fails the command (#40).
+    /// keeps the words in memory and never fails the command (#40), as does a file outside the
+    /// automation roots in force: it is read, then replaced beside itself (#3737).
     pub(crate) fn persist_user_dictionary(&self, removed: &[String]) {
-        if let Some(path) = self.user_dict_path.as_deref()
-            && let Err(e) = wordcraft_proof::save_user_dictionary(path, removed)
+        let Some(path) = self.user_dict_path.as_deref() else { return };
+        let name = path.to_string_lossy();
+        if let Err(e) = crate::file_access::check_read(&name)
+            .and_then(|()| crate::file_access::check_write(&name))
+            .and_then(|()| wordcraft_proof::save_user_dictionary(path, removed).map_err(|e| e.to_string()))
         {
             log::warn!("custom dictionary: save failed: {e}");
         }

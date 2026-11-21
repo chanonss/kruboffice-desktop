@@ -177,6 +177,12 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     ui.checkbox(&mut app.ui.show_ribbon_group_names, tl!("Show ribbon group names"));
     ui.checkbox(&mut app.ui.ribbon_tabs_centered, tl!("Center the ribbon tabs (off: start at the left, as in Word)"));
     ui.checkbox(&mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
+    // The same setting as View › Text Boundaries, kept between runs.
+    let mut boundaries = app.session.view.text_boundaries;
+    if ui.checkbox(&mut boundaries, tl!("Always show text boundaries")).changed() {
+        let _ = app.run("view.textBoundaries", json!({"value": boundaries}));
+    }
+    ui.checkbox(&mut app.ui.font_download_notice, tl!("Tell me where to get a document's missing fonts"));
     let mut dark_page = app.session.view.dark_mode;
     if ui
         .checkbox(&mut dark_page, tl!("Dark page (white text on black)"))

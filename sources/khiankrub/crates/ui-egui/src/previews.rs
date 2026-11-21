@@ -440,6 +440,28 @@ pub fn style_snippet(base: &Document, para: Paragraph, w: f32, h: f32, ppp: f32,
     snippet_blocks(base, vec![Block::Para(para)], w, h, ppp, margin, None, dark)
 }
 
+/// One character formatted by `chr` (at its size, or fitted to `r` without one), centred in `r`
+/// and drawn with `tint`: laid out like document text, so symbol fonts show what the page will
+/// (Define New Bullet, #2786; ported from WordCraft 83f18db1).
+pub fn glyph(app: &mut WordApp, ui: &mut Ui, r: Rect, ch: &str, chr: &CharProps, tint: egui::Color32) {
+    let ppp = ui.ctx().pixels_per_point();
+    let key = format!("glyph:{ch}:{chr:?}:{ppp}:{}x{}", r.width(), r.height());
+    let tex = app.previews.get_or(ui.ctx(), &key, || {
+        let chr = CharProps { size: Some(chr.size.unwrap_or(r.height() * 0.7)), ..chr.clone() };
+        let mut p = Paragraph::with_text(ch, chr);
+        p.props.align = Some(wordcraft_doc::props::Align::Center);
+        p.props.space_before = Some(0.0);
+        p.props.space_after = Some(0.0);
+        snippet_blocks(&Document::new(), vec![Block::Para(p)], r.width(), r.height(), ppp, 0.0, None, false)
+    });
+    if let Some(hd) = tex {
+        let sz = hd.size_vec2() / ppp;
+        let ir = Rect::from_min_size(r.min, sz.min(r.size()));
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
+        ui.painter().with_clip_rect(r).image(hd.id(), ir, uv, tint);
+    }
+}
+
 /// How a gallery draws a page preview: as rendered on a light interface or on Switch Modes' dark
 /// page, and dimmed in the dark theme so a white page isn't the brightest thing on screen (#663).
 pub fn preview_tint(t: &Tokens, dark_page: bool) -> egui::Color32 {
@@ -572,18 +594,23 @@ pub fn style_preview(app: &mut WordApp, ui: &mut Ui, id: &str, ty: &str, size: e
 }
 
 /// The Home tab's Styles gallery.
+/// The styles the Home tab's gallery offers (owner, 2026-11-20): Normal and the first three
+/// headings, those of them the document has. The others stay in the document and in the Styles
+/// pane, which the gallery's More button opens.
+pub const GALLERY_STYLES: [&str; 4] = ["Normal", "Heading1", "Heading2", "Heading3"];
+
 pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     let t = Tokens::get(ui.ctx());
     let current = state.get("style").and_then(Value::as_str).unwrap_or("Normal").to_string();
-    let styles: Vec<(String, String)> = app.session.doc.styles.gallery().iter().map(|s| (s.id.clone(), crate::i18n::style_name(s))).collect();
+    let styles: Vec<(String, String)> =
+        GALLERY_STYLES.iter().filter_map(|id| app.session.doc.styles.get(id)).map(|s| (s.id.clone(), crate::i18n::style_name(s))).collect();
     let rev = app.session.rev();
     let skey = app.previews.styles_key(&app.session.doc, rev);
     let ppp = ui.ctx().pixels_per_point();
-    let start = ui.data(|d| d.get_temp::<usize>(egui::Id::new("gallery_start"))).unwrap_or(0).min(styles.len().saturating_sub(1));
-    let visible = 6usize;
+    let visible = GALLERY_STYLES.len();
     let (area, _) = ui.allocate_exact_size(vec2(visible as f32 * 76.0 + 18.0, crate::widgets::CONTENT_H), Sense::hover());
     ui.painter().rect(area.shrink(1.0), 4.0, t.input, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-    for (k, (id, name)) in styles.iter().skip(start).take(visible).enumerate() {
+    for (k, (id, name)) in styles.iter().enumerate() {
         let r = Rect::from_min_size(pos2(area.min.x + 3.0 + k as f32 * 76.0, area.min.y + 3.0), vec2(74.0, area.height() - 6.0));
         let resp = ui.interact(r, ui.id().with(("style_tile", id)), Sense::click());
         let active = *id == current;
@@ -635,24 +662,17 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
             let _ = app.run("para.style", json!({"style": id}));
         }
     }
-    // Scroll arrows and "more".
-    let ar = Rect::from_min_max(pos2(area.max.x - 16.0, area.min.y + 2.0), pos2(area.max.x - 2.0, area.max.y - 2.0));
-    let thirds = ar.height() / 3.0;
-    for (i, (icon, delta)) in [("chevronUp", -1i32), ("chevronDown", 1), ("more", 0)].iter().enumerate() {
-        let br = Rect::from_min_size(pos2(ar.min.x, ar.min.y + thirds * i as f32), vec2(ar.width(), thirds));
-        let resp = ui.interact(br, ui.id().with(("gal_arrow", i)), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(br, 2.0, t.hover);
-        }
-        crate::icons::paint(ui.painter(), br.shrink(2.0), icon, t.icon, t.accent);
-        if resp.clicked() {
-            if *delta == 0 {
-                let _ = app.run("view.stylesPane", json!({"value": true}));
-            } else {
-                let n = if *delta < 0 { start.saturating_sub(visible) } else { (start + visible).min(styles.len().saturating_sub(1)) };
-                ui.data_mut(|d| d.insert_temp(egui::Id::new("gallery_start"), n));
-            }
-        }
+    // "More": every style, in the Styles pane. Four tiles need no scroll arrows.
+    let br = Rect::from_min_max(pos2(area.max.x - 16.0, area.min.y + 2.0), pos2(area.max.x - 2.0, area.max.y - 2.0));
+    let resp = ui.interact(br, ui.id().with("gal_more"), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(br, 2.0, t.hover);
+    }
+    let icon = Rect::from_center_size(br.center(), vec2(br.width(), br.width()));
+    crate::icons::paint(ui.painter(), icon.shrink(2.0), "more", t.icon, t.accent);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("More Styles")));
+    if resp.on_hover_text(tl!("More Styles")).clicked() {
+        let _ = app.run("view.stylesPane", json!({"value": true}));
     }
 }
 
@@ -1069,5 +1089,35 @@ mod tests {
             }
             assert_eq!(images, 1, "{theme:?}: the entry draws its rendered name");
         }
+    }
+}
+
+#[cfg(test)]
+mod gallery_tests {
+    use egui_kittest::kittest::Queryable;
+
+    /// The Home tab's gallery offers Normal and Heading 1 to 3 only (owner, 2026-11-20); the More
+    /// button opens the Styles pane with every style.
+    #[test]
+    fn the_gallery_offers_four_styles() {
+        let app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 200.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let st = app.session.run("format.state", &serde_json::json!({})).unwrap_or_default();
+                super::style_gallery(app, ui, &st);
+            },
+            app,
+        );
+        h.run_steps(2);
+        let shown = |h: &egui_kittest::Harness<'_, crate::WordApp>, name: &str| h.query_by_label(name).is_some();
+        for name in ["Normal", "Heading 1", "Heading 2", "Heading 3"] {
+            assert!(shown(&h, name), "{name}");
+        }
+        for name in ["Title", "Subtitle", "No Spacing", "Quote"] {
+            assert!(!shown(&h, name), "{name}");
+        }
+        h.get_by_label("More Styles").click();
+        h.run_steps(2);
+        assert!(h.state().session.view.styles_pane, "More opens the Styles pane");
     }
 }

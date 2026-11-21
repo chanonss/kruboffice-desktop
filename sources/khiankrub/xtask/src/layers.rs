@@ -49,6 +49,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("engine", Class::Layer(4)),
     ("mcp", Class::Layer(5)),
     ("zotero", Class::Layer(5)),
+    // Chart part formats, shared by the three KrubOffice apps; no egui.
+    ("krub-chart-format", Class::Layer(0)),
     ("krub-icons", Class::Layer(6)),
     ("ui-egui", Class::Layer(6)),
     ("testkit", Class::Testkit),

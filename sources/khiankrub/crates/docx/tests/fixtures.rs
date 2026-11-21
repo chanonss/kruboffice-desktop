@@ -1976,7 +1976,8 @@ fn theme_styled_connectors_and_callout_boxes_keep_their_paint() {
     assert_eq!(shape(1), (ShapeKind::TextBox, Some(theme[1]), Some(Rgb(0, 0, 0)), 0.5, false, true));
     assert_eq!(shape(2), (ShapeKind::Rectangle, Some(theme[4]), Some(theme[4]), 1.0, false, false));
     assert_eq!(shape(3), (ShapeKind::ElbowConnector, None, Some(theme[5]), 0.5, false, false));
-    assert_eq!(shape(4).0, ShapeKind::RoundedRectangle);
+    // A callout keeps its own shape (owner, 2026-11-19: the shared shape library).
+    assert!(matches!(shape(4).0, ShapeKind::Preset(id) if id.name() == "wedgeRoundRectCallout"), "{:?}", shape(4).0);
     // The themed outline and the arrowhead survive saving.
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert!(matches!(&paras(&again)[0].objects[0], InlineObject::Shape { stroke, extra, .. } if *stroke == Some(theme[7]) && extra.arrow_end));
@@ -2013,8 +2014,10 @@ fn rounded_rectangle_corners_are_read_and_saved() {
             .collect()
     };
     let rounded = ShapeKind::RoundedRectangle;
+    // The last is a rounded callout, which keeps its own shape now.
+    let callout = ShapeKind::from_preset("wedgeRoundRectCallout").unwrap();
     let expected =
-        vec![(rounded, Some(3565)), (rounded, None), (rounded, Some(50_000)), (rounded, Some(0)), (rounded, None), (rounded, None), (rounded, None)];
+        vec![(rounded, Some(3565)), (rounded, None), (rounded, Some(50_000)), (rounded, Some(0)), (rounded, None), (rounded, None), (callout, None)];
     let d = read_body(&format!("<w:p>{body}</w:p>"));
     assert_eq!(corners(&d), expected);
     let bytes = wordcraft_docx::write(&d).unwrap();
@@ -2119,11 +2122,14 @@ fn vml_preset_shapes_are_drawn() {
     let kinds: Vec<_> = ps[14].objects.iter().filter_map(|o| if let InlineObject::Shape { kind, .. } = o { Some(*kind) } else { None }).collect();
     assert_eq!(kinds, [ShapeKind::RoundedRectangle, ShapeKind::Star]);
     assert_eq!(kind(15), Some((ShapeKind::Rectangle, false)));
-    assert_eq!(kind(16), Some((ShapeKind::Diamond, false)));
+    assert!(matches!(kind(16), Some((ShapeKind::Preset(id), false)) if id.name() == "flowChartDecision"), "{:?}", kind(16));
     assert_eq!(kind(17), Some((ShapeKind::Ellipse, false)));
-    assert_eq!(shape(18), Some((ShapeKind::Arrow, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
+    // A left arrow keeps its own shape (owner, 2026-11-19: the shared shape library).
+    let left_arrow = ShapeKind::from_preset("leftArrow").unwrap();
+    assert_eq!(shape(18), Some((left_arrow, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
     assert_eq!(kind(19), Some((ShapeKind::Rectangle, false)));
-    assert_eq!(kind(20), Some((ShapeKind::Star, false)));
+    // A star other than the five-point one keeps its own points.
+    assert!(matches!(kind(20), Some((ShapeKind::Preset(id), false)) if id.name().starts_with("star")), "{:?}", kind(20));
     assert_eq!(shape(21), None);
     assert_eq!(shape(22), None);
 }
@@ -2176,8 +2182,8 @@ fn vml_preset_shape_survives_saving() {
     );
 }
 
-/// #1377: a VML preset drawn as its nearest shape (a left arrow, `o:spt` 66) is kept on save as
-/// that shape's DrawingML preset, as a DrawingML left arrow is.
+/// #1377: a VML preset shape (a left arrow, `o:spt` 66) is kept on save as its DrawingML preset,
+/// as a DrawingML left arrow is (since 2026-11-19 the left arrow itself, not the nearest shape).
 #[test]
 fn vml_nearest_preset_shape_survives_saving() {
     let body = r##"<w:p><w:r><w:pict><v:shape type="#_x0000_t66" style="width:60pt;height:20pt" fillcolor="#ffa500"/></w:pict></w:r></w:p>"##;
@@ -2185,12 +2191,12 @@ fn vml_nearest_preset_shape_survives_saving() {
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(saved.as_slice())).unwrap();
     let mut xml = String::new();
     std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
-    assert!(xml.contains(r#"prst="rightArrow""#), "{xml}");
+    assert!(xml.contains(r#"prst="leftArrow""#), "{xml}");
     let again = wordcraft_docx::read(&saved).unwrap();
     assert!(
         matches!(
             &paras(&again)[0].objects[..],
-            [InlineObject::Shape { kind: ShapeKind::Arrow, w: 60.0, h: 20.0, fill: Some(Rgb(0xFF, 0xA5, 0x00)), .. }]
+            [InlineObject::Shape { kind: ShapeKind::Preset(id), w: 60.0, h: 20.0, fill: Some(Rgb(0xFF, 0xA5, 0x00)), .. }] if id.name() == "leftArrow"
         ),
         "{:?}",
         paras(&again)[0].objects
@@ -3031,4 +3037,25 @@ fn locked_frame_anchor_survives_two_saves() {
             }
         }
     }
+}
+#[test]
+fn bookmark_end_name_and_id_trim() {
+    let body = r#"<w:p>
+        <w:bookmarkStart w:id=" 42 " w:name="section_intro"/>
+        <w:r><w:t>Hello</w:t></w:r>
+        <w:bookmarkEnd w:id="42"/>
+        <w:bookmarkEnd w:id="999" w:name="standalone_target"/>
+    </w:p>"#;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.first().unwrap().as_para().unwrap();
+    let names: Vec<(&'static str, String)> = p
+        .objects
+        .iter()
+        .filter_map(|o| match o {
+            InlineObject::BookmarkStart { name } => Some(("start", name.clone())),
+            InlineObject::BookmarkEnd { name } => Some(("end", name.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, vec![("start", "section_intro".into()), ("end", "section_intro".into()), ("end", "standalone_target".into())]);
 }
