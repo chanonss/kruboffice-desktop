@@ -10,6 +10,9 @@
 //! document unless the first line is `{"empty": true}` (`{"empty": true, "thai": true}`: a blank
 //! document with KhianKrub's Thai defaults); `{"empty": true, "startScreen": true}`
 //! starts the way the desktop app does with nothing to open (File › Home, #766).
+//! `"drafts": true` on the first line gives Home two sample browser drafts (the web's list), and
+//! `"lang": "th"` sets the interface language. A later `{"clearDrafts": "first" | "last"}` line
+//! opens that step of the "Delete all drafts" confirmation.
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{ControlRequest, Services, WordApp};
@@ -38,6 +41,28 @@ fn main() {
         app.session.set_thai_defaults(true);
     }
     app.integrated_titlebar = true;
+    if let Some(lang) = lines.first().and_then(|l| l.get("lang")).and_then(|v| v.as_str()) {
+        app.ui.language = lang.into();
+    }
+    if lines.first().is_some_and(|l| l.get("drafts").is_some()) {
+        let list = vec![
+            wordcraft_ui_egui::BrowserDraft {
+                id: "a-1".into(), name: "รายงานประจำเดือน".into(), saved: "21/11/2569 14:32".into()
+            },
+            wordcraft_ui_egui::BrowserDraft {
+                id: "b-2".into(), name: "จดหมายถึงคุณสมชาย".into(), saved: "20/11/2569 09:10".into()
+            },
+        ];
+        app.services.browser_recovery = Some(wordcraft_ui_egui::BrowserRecoveryServices {
+            status: Box::new(|| "Drafts are kept on this device"),
+            has_drafts: Box::new(|| false),
+            manage: Box::new(|| {}),
+            drafts: Box::new(move |_| Some(list.clone())),
+            act: Box::new(|_, _| {}),
+            fragile: Box::new(|| false),
+            open_draft: Box::new(|| None),
+        });
+    }
     if lines.first().is_some_and(|l| l.get("startScreen").is_some()) {
         app.start_screen();
     }
@@ -68,6 +93,10 @@ fn main() {
                 }
                 Err(e) => eprintln!("render failed: {e}"),
             }
+        } else if let Some(step) = l.get("clearDrafts").and_then(|v| v.as_str()) {
+            let step = if step == "last" { krub_icons::clear_drafts::Step::Last } else { krub_icons::clear_drafts::Step::First };
+            krub_icons::clear_drafts::open(&harness.ctx, step);
+            step_n(&mut harness, 2);
         } else if let Some(n) = l.get("steps").and_then(|v| v.as_u64()) {
             step_n(&mut harness, n as usize);
         } else if let Some(ms) = l.get("wait").and_then(|v| v.as_u64()) {

@@ -34,6 +34,8 @@ kept for a Thai-speaking audience. PhutKrub is not an ArtCraft product, and it i
   <img src="docs/images/phutkrub-drive-save.png" alt="PhutKrub's Save As page in Thai for a presentation opened from Google Drive: the Google Drive card comes first, saying it was opened from Google Drive, with บันทึกทับไฟล์นี้ใน Google Drive and บันทึกสำเนาใหม่ไปยัง Google Drive, beside the เครื่องนี้ card with the file type and Download" width="49%">
 </p>
 
+- **ไฟล์จาก Google Drive เป็นไฟล์เดียว · Drive files stay one file.** The start screen lists the files opened or saved on Drive; a click opens the file from Drive and Save puts it back, with unsaved changes on the file's own row instead of a separate draft.
+- **จาก DeckCraft รุ่นล่าสุด · From the latest DeckCraft.** A slide shown again during a show replays its animations; copying, ungrouping and deleting groups work properly; and opening damaged or hostile files has limits on size and work (video, charts, themes).
 - Everything else is DeckCraft: themes and layouts, shapes, pictures, tables, charts, transitions and animations,
   open and save `.pptx`, present full screen, and every button is also a command for the CLI and MCP.
 

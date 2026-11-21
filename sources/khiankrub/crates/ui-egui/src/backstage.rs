@@ -269,12 +269,35 @@ fn heading(ui: &mut Ui, s: &str) {
 
 /// `new_tab`: the web start screen opens the template in a new tab (`./?new=<template>`), so the
 /// start screen stays where it is; elsewhere the template replaces the current document.
+/// Templates in rows of as many tiles as fit the width. egui can't wrap the tiles itself (each is
+/// a column whose size it only knows once drawn), so eight of them ran off the right edge.
+fn template_grid(ui: &mut Ui, app: &mut WordApp, templates: &[(&str, &str)], new_tab: bool) {
+    const GAP: f32 = 18.0;
+    let per_row = (((ui.available_width() + GAP) / (TILE_WIDTH + GAP)).floor() as usize).max(1);
+    for (i, row) in templates.chunks(per_row).enumerate() {
+        if i > 0 {
+            ui.add_space(GAP);
+        }
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = GAP;
+            for &(label, template) in row {
+                template_tile(ui, app, label, template, new_tab);
+            }
+        });
+    }
+}
+
+/// A template tile's width, points.
+const TILE_WIDTH: f32 = 150.0;
+
 fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str, new_tab: bool) {
     let t = Tokens::get(ui.ctx());
     ui.vertical(|ui| {
+        // A long name wraps under the thumbnail instead of widening the tile.
+        ui.set_max_width(TILE_WIDTH);
         // The label sits right under the thumbnail whatever row gap the gallery uses.
         ui.spacing_mut().item_spacing.y = 0.0;
-        let (r, resp) = ui.allocate_exact_size(vec2(150.0, 194.0), Sense::click());
+        let (r, resp) = ui.allocate_exact_size(vec2(TILE_WIDTH, 194.0), Sense::click());
         ui.painter().rect(
             r,
             2.0,
@@ -303,7 +326,12 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str, ne
             Some(h)
         });
         if let Some(h) = tex {
-            ui.painter().image(h.id(), r.shrink(1.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+            // A landscape page (the temple account forms) keeps its shape, centred in the tile.
+            let inner = r.shrink(1.0);
+            let size = h.size_vec2();
+            let scale = if size.x > 0.0 && size.y > 0.0 { (inner.width() / size.x).min(inner.height() / size.y) } else { 1.0 };
+            let picture = Rect::from_center_size(inner.center(), size * scale);
+            ui.painter().image(h.id(), picture, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
         // The caption opens the template too, as in Word.
         let caption = ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tc("template", label)).font(regular(12.5))).sense(Sense::click()));
@@ -320,8 +348,17 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str, ne
 }
 
 /// The built-in templates in gallery order: display label and the `file.new` template id.
-const TEMPLATES: [(&str, &str); 5] =
-    [("Blank document", "blank"), ("Studio handbook (sample)", "sample"), ("Letter", "letter"), ("Résumé", "resume"), ("Report", "report")];
+const TEMPLATES: [(&str, &str); 8] = [
+    ("Blank document", "blank"),
+    ("Studio handbook (sample)", "sample"),
+    ("Letter", "letter"),
+    ("Résumé", "resume"),
+    ("Report", "report"),
+    // The temple account forms (owner, 2026-11-21).
+    ("Temple accounts, form 1: cash", "temple-cash"),
+    ("Temple accounts, form 2: bank account", "temple-bank"),
+    ("Temple accounts, form 3: balance report", "temple-balance"),
+];
 
 /// How many templates Home shows before "More templates" (the rest are on New).
 const HOME_TEMPLATES: usize = 4;
@@ -381,10 +418,9 @@ fn web_home(app: &mut WordApp, ui: &mut Ui) {
         .frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(20, 10)).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // KhianKrub's mark: a gold ข on navy, as on its icon.
+                // KhianKrub's logo, the same as its app icon.
                 let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                ui.painter().rect_filled(r, 8.0, egui::Color32::from_rgb(0x1e, 0x3a, 0x8a));
-                krub_icons::glass_letter(ui.painter(), r.center() + vec2(0.0, 1.0), "ข", semibold(22.0), egui::Color32::from_rgb(0xf2, 0xb7, 0x05));
+                krub_icons::logo::paint(ui.painter(), r, krub_icons::logo::App::KhianKrub, 1.0);
                 ui.add_space(4.0);
                 // The name gives way to the buttons on narrow screens (an iPad in portrait).
                 if ui.available_width() > 560.0 {
@@ -420,12 +456,7 @@ fn web_home(app: &mut WordApp, ui: &mut Ui) {
                         egui::RichText::new(tl!("Pick a template, or pick up a draft where you left off.")).font(regular(13.5)).color(t.text_dim),
                     );
                     ui.add_space(18.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
-                        for (label, template) in TEMPLATES {
-                            template_tile(ui, app, label, template, true);
-                        }
-                    });
+                    template_grid(ui, app, &TEMPLATES, true);
                     ui.add_space(28.0);
                     drive_list(app, ui, true);
                     drafts_list(app, ui, true);
@@ -452,14 +483,13 @@ fn app_switcher(ui: &mut Ui) {
     egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_END).show(|ui| {
         ui.set_min_width(268.0);
         ui.label(egui::RichText::new("KrubOffice").font(regular(11.5)).color(t.text_dim));
-        let (navy, teal, coral) =
-            (egui::Color32::from_rgb(0x1e, 0x3a, 0x8a), egui::Color32::from_rgb(0x0f, 0x6e, 0x56), egui::Color32::from_rgb(0x9a, 0x3a, 0x1f));
-        app_switcher_row(ui, "ข", navy, tl!("KhianKrub"), tl!("Documents"), Some(tl!("Here")), false);
-        if app_switcher_row(ui, "ค", teal, tl!("KhitKrub"), tl!("Spreadsheets"), None, true) {
+        use krub_icons::logo::App;
+        app_switcher_row(ui, App::KhianKrub, tl!("KhianKrub"), tl!("Documents"), Some(tl!("Here")), false);
+        if app_switcher_row(ui, App::KhitKrub, tl!("KhitKrub"), tl!("Spreadsheets"), None, true) {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://khitkrub.app/"));
             ui.close();
         }
-        if app_switcher_row(ui, "พ", coral, tl!("PhutKrub"), tl!("Presentations"), None, true) {
+        if app_switcher_row(ui, App::PhutKrub, tl!("PhutKrub"), tl!("Presentations"), None, true) {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://phutkrub.app/"));
             ui.close();
         }
@@ -471,10 +501,10 @@ fn app_switcher(ui: &mut Ui) {
     });
 }
 
-/// One app in the switcher: its tile (a gold Thai letter on the app's colour), name and kind. `badge`
+/// One app in the switcher: its logo, name and kind. `badge`
 /// marks the app you are in; an app that is neither this one nor `live` (not out yet) draws faded.
 /// True when a live app other than this one is clicked.
-fn app_switcher_row(ui: &mut Ui, letter: &str, tile: egui::Color32, name: &str, kind: &str, badge: Option<&str>, live: bool) -> bool {
+fn app_switcher_row(ui: &mut Ui, logo: krub_icons::logo::App, name: &str, kind: &str, badge: Option<&str>, live: bool) -> bool {
     let t = Tokens::get(ui.ctx());
     let faded = badge.is_none() && !live;
     let fade = if faded { 0.45 } else { 1.0 };
@@ -486,9 +516,7 @@ fn app_switcher_row(ui: &mut Ui, letter: &str, tile: egui::Color32, name: &str, 
         ui.painter().rect_filled(r, 8.0, t.hover);
     }
     let tile_rect = Rect::from_min_size(pos2(r.min.x + 6.0, r.min.y + 7.0), vec2(30.0, 30.0));
-    ui.painter().rect_filled(tile_rect, 8.0, tile.gamma_multiply(fade));
-    let gold = egui::Color32::from_rgb(0xf2, 0xb7, 0x05).gamma_multiply(fade);
-    ui.painter().text(tile_rect.center() + vec2(0.0, 1.0), Align2::CENTER_CENTER, letter, semibold(17.0), gold);
+    krub_icons::logo::paint(ui.painter(), tile_rect, logo, fade);
     let x = tile_rect.max.x + 10.0;
     let name_color = if faded { t.text_dim } else { t.text };
     ui.painter().text(pos2(x, r.min.y + 15.0), Align2::LEFT_CENTER, name, medium(13.5), name_color);
@@ -659,11 +687,16 @@ fn drafts_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
     };
     // A Drive file's unsaved changes show on its row in the Google Drive list, not as a draft.
     let of_drive = drive_drafts(app);
+    let any = !drafts.is_empty();
     drafts.retain(|d| !of_drive.contains(&d.id));
     if drafts.is_empty() {
         ui.label(
             egui::RichText::new(tl!("Documents you write here are kept in this browser, so you can pick up where you left off.")).color(t.text_dim),
         );
+        // Drive files' unsaved changes are drafts too.
+        if any {
+            delete_all_drafts(app, ui);
+        }
         return;
     }
     let confirm_id = egui::Id::new("backstage_discard_draft");
@@ -735,6 +768,20 @@ fn drafts_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
             (recovery.act)(what, &id);
         }
     }
+    delete_all_drafts(app, ui);
+}
+
+/// The red "Delete all drafts" button under the drafts and its two confirmations (owner,
+/// 2026-11-21): only after both does the host delete every draft kept in this browser.
+fn delete_all_drafts(app: &WordApp, ui: &mut Ui) {
+    let red = Tokens::get(ui.ctx()).red;
+    ui.add_space(12.0);
+    krub_icons::clear_drafts::button(ui, red, true, &|s| tl!(s).to_string());
+    if krub_icons::clear_drafts::dialog(ui.ctx(), red, &|s| tl!(s).to_string())
+        && let Some(recovery) = &app.services.browser_recovery
+    {
+        (recovery.act)(crate::DraftAction::DiscardAll, "");
+    }
 }
 
 /// `text` as a URL query value: letters, digits and `-_.~` stay, every other byte becomes `%XX`.
@@ -766,12 +813,7 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(egui::RichText::new(tl!("No templates match your search.")).color(t.text_dim));
         return;
     }
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
-        for (label, template) in found {
-            template_tile(ui, app, label, template, false);
-        }
-    });
+    template_grid(ui, app, &found, false);
 }
 
 /// Recent documents: click one to open it. Each row has an ✕ (shown while pointed at) and a
@@ -1258,9 +1300,10 @@ mod tests {
     #[test]
     fn template_search_matches_labels_case_insensitively() {
         let ids = |q: &str| matching_templates(q).into_iter().map(|(_, id)| id).collect::<Vec<_>>();
-        assert_eq!(ids(""), ["blank", "sample", "letter", "resume", "report"]);
+        assert_eq!(ids(""), wordcraft_engine::sample::TEMPLATE_IDS);
         assert_eq!(ids("  LETTER "), ["letter"]);
-        assert_eq!(ids("re"), ["resume", "report"]);
+        assert_eq!(ids("re"), ["resume", "report", "temple-balance"]);
+        assert_eq!(ids("temple"), ["temple-cash", "temple-bank", "temple-balance"]);
         assert_eq!(ids("résumé"), ["resume"]);
         assert!(ids("no such template").is_empty());
     }
@@ -1447,6 +1490,72 @@ mod tests {
         assert!(h.query_by_label("Loading drafts…").is_some());
         let (h, _) = drafts(Some(Vec::new()), false);
         assert!(h.query_by_label_contains("pick up where you left off").is_some());
+    }
+
+    /// The red "Delete all drafts" asks twice: cancelling (or Escape) at either step keeps every
+    /// draft, and only the second yes asks the host to delete them all.
+    #[test]
+    fn delete_all_drafts_asks_twice() {
+        use crate::{BrowserDraft, BrowserRecoveryServices, DraftAction};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let asked: Rc<RefCell<Vec<(DraftAction, String)>>> = Rc::default();
+        let log = asked.clone();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.ui.language = "en".into();
+        let list = vec![BrowserDraft { id: "a-1".into(), name: "Monthly report".into(), saved: "29/10/2026, 14:32".into() }];
+        a.services.browser_recovery = Some(BrowserRecoveryServices {
+            status: Box::new(|| "Recovery ready on this device"),
+            has_drafts: Box::new(|| false),
+            fragile: Box::new(|| false),
+            open_draft: Box::new(|| None),
+            manage: Box::new(|| {}),
+            drafts: Box::new(move |_| Some(list.clone())),
+            act: Box::new(move |what, id| log.borrow_mut().push((what, id.to_string()))),
+        });
+        assert!(a.start_screen());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let open = |h: &mut egui_kittest::Harness<WordApp>| {
+            h.get_by_label("Delete all drafts").click();
+            h.run_steps(2);
+            assert!(h.query_by_label("Delete all your drafts?").is_some(), "the first question");
+        };
+        // Cancel at the first question.
+        open(&mut h);
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Delete all your drafts?").is_none());
+        // Escape at the first question.
+        open(&mut h);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.query_by_label("Delete all your drafts?").is_none());
+        // Cancel at the last chance.
+        open(&mut h);
+        h.get_by_label("Yes, keep going").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Last chance!").is_some(), "the second, final question");
+        assert!(asked.borrow().is_empty(), "the first yes deletes nothing");
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Last chance!").is_none());
+        assert!(asked.borrow().is_empty(), "cancelling at either step keeps the drafts");
+        // Both yeses.
+        open(&mut h);
+        h.get_by_label("Yes, keep going").click();
+        h.run_steps(2);
+        h.get_by_label("Delete them all").click();
+        h.run_steps(2);
+        assert_eq!(*asked.borrow(), [(DraftAction::DiscardAll, String::new())]);
+        assert!(h.query_by_label("Last chance!").is_none(), "the dialog closes");
     }
 
     /// The OpenUrl commands (url, new tab) the last frame asked the browser for.

@@ -8770,3 +8770,68 @@ fn thai_digits_skip_a_font_without_thai_digits() {
         assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body), "Room 12");
     }
 }
+
+/// Merging a column down under a cell merged across: each row's cells are found by grid column,
+/// not by cell index (the first row has one cell fewer), so the column to the right stays apart.
+#[test]
+fn merging_down_under_a_cell_merged_across_keeps_the_next_column() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Intro"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 4}));
+    for (i, t) in ["A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2"].iter().enumerate() {
+        if i > 0 {
+            run(&mut s, "text.tab", json!({}));
+        }
+        run(&mut s, "text.insert", json!({"text": t}));
+    }
+    select_table_cells(&mut s, (0, 0), (0, 1));
+    run(&mut s, "table.merge", json!({}));
+    select_table_cells(&mut s, (0, 1), (2, 2));
+    run(&mut s, "table.merge", json!({}));
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
+    let spans: Vec<Vec<usize>> = t.rows.iter().map(|r| r.cells.iter().map(wordcraft_doc::Cell::span).collect()).collect();
+    assert_eq!(spans, [vec![2, 1, 1], vec![1, 1, 1, 1]], "only column C merges");
+    use wordcraft_doc::props::VMerge;
+    assert_eq!(t.rows[0].cells[1].props.vmerge, VMerge::Restart);
+    assert_eq!(t.rows[1].cells[2].props.vmerge, VMerge::Continue);
+    assert_eq!(t.rows[0].cells[2].props.vmerge, VMerge::None, "D1 stays its own cell");
+    assert_eq!(body_table_cells(&s)[0], ["A1B1", "C1C2", "D1", "A2", "B2", "", "D2"]);
+}
+
+/// Copied cells pasted with the caret in a cell fill the existing cells from there (Word's
+/// Overwrite Cells), not a new table nested in the cell; cells past the table are left out.
+#[test]
+fn pasting_copied_cells_into_a_cell_fills_the_cells() {
+    let mut s = table3_doc();
+    select_table_cells(&mut s, (0, 1), (0, 1));
+    run(&mut s, "edit.copy", json!({}));
+    // The caret in B2: A1 B1 go to B2 C2, A2 B2 to B3 C3.
+    s.column = None;
+    s.sel = crate::Selection::caret(Pos { story: StoryRef::Body, path: wordcraft_doc::Path(vec![1, 1, 1, 0]), off: 0 });
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["A1", "B1", "C1", "A2", "A1", "B1", "A3", "A2", "B2"])]);
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
+    assert!(t.rows.iter().flat_map(|r| &r.cells).all(|c| c.blocks.iter().all(|b| b.as_table().is_none())), "no nested table");
+    // Past the last row and column: just what fits.
+    s.sel = crate::Selection::caret(Pos { story: StoryRef::Body, path: wordcraft_doc::Path(vec![1, 2, 2, 0]), off: 0 });
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["A1", "B1", "C1", "A2", "A1", "B1", "A3", "A2", "A1"])]);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_cells(&s)[0][8], "B2", "one undo step");
+}
+
+/// With cells selected, the paste starts at the selection's first cell; outside a table, copied
+/// cells still paste as a table.
+#[test]
+fn pasting_copied_cells_over_selected_cells_and_outside_a_table() {
+    let mut s = table3_doc();
+    select_table_cells(&mut s, (0, 2), (0, 2));
+    run(&mut s, "edit.copy", json!({}));
+    select_table_cells(&mut s, (1, 2), (0, 0));
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["A1", "B1", "C1", "A1", "B1", "C1", "A2", "B2", "C2"])]);
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s).len(), 2, "a new table before the first");
+}

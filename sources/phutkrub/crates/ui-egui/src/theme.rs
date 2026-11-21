@@ -71,6 +71,8 @@ pub struct Tokens {
     pub control_hover: Color32,
     pub control_pressed: Color32,
     pub shadow: Color32,
+    /// Destructive actions ("Delete all drafts").
+    pub red: Color32,
 }
 
 impl Tokens {
@@ -109,6 +111,7 @@ impl Tokens {
             control_hover: Color32::from_rgb(0xC8, 0xC8, 0xC8),
             control_pressed: Color32::from_rgb(0xBC, 0xBC, 0xBC),
             shadow: Color32::from_black_alpha(28),
+            red: Color32::from_rgb(0xD1, 0x3B, 0x3B),
         }
     }
     pub fn dark() -> Self {
@@ -145,6 +148,7 @@ impl Tokens {
             control_hover: Color32::from_rgb(0x40, 0x40, 0x40),
             control_pressed: Color32::from_rgb(0x4C, 0x4C, 0x4C),
             shadow: Color32::from_black_alpha(90),
+            red: Color32::from_rgb(0xEE, 0x6A, 0x6A),
         }
     }
     pub fn for_brightness(b: Brightness) -> Self {

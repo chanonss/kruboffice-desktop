@@ -299,7 +299,9 @@ fn cut(s: &mut Session, _: &Value) -> CmdResult {
 /// else another program's HTML or RTF (#687), else the system clipboard's text.
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
     let frag = super::paste::paste_fragment(s, v)?;
-    super::paste::insert(s, frag)?;
+    if !super::table::paste_cells(s, &frag)? {
+        super::paste::insert(s, frag)?;
+    }
     sel_result(s)
 }
 
@@ -307,7 +309,9 @@ fn paste(s: &mut Session, v: &Value) -> CmdResult {
 fn paste_merge(s: &mut Session, v: &Value) -> CmdResult {
     let mut frag = super::paste::paste_fragment(s, v)?;
     super::paste::merge_formatting(s, &mut frag);
-    super::paste::insert(s, frag)?;
+    if !super::table::paste_cells(s, &frag)? {
+        super::paste::insert(s, frag)?;
+    }
     sel_result(s)
 }
 

@@ -117,7 +117,7 @@ pub struct BrowserRecoveryServices {
     /// The drafts Home lists in place of Recent, newest first, with the time written for the
     /// language given; `None` while the browser's storage is still being read.
     pub drafts: Box<dyn Fn(&str) -> Option<Vec<BrowserDraft>>>,
-    /// Open, download or discard a draft (by id); the host finishes it later.
+    /// Open, download or discard a draft (by id), or discard them all; the host finishes it later.
     pub act: Box<dyn Fn(DraftAction, &str)>,
     /// The browser may remove drafts by itself (it hasn't agreed to keep this site's storage).
     pub fragile: Box<dyn Fn() -> bool>,
@@ -144,6 +144,8 @@ pub enum DraftAction {
     Open,
     Download,
     Discard,
+    /// Every draft this app keeps in the browser (the id is empty), after two confirmations.
+    DiscardAll,
 }
 
 /// Platform services injected by the host (file dialogs, file I/O).
@@ -2593,6 +2595,13 @@ impl WordApp {
             let _ = self.run("view.focus", json!({"value": false}));
         }
         if self.ui.backstage && self.ui.backstage_page == "printPreview" {
+            // Escape leaves the preview for the document (owner, 2026-11-21), unless a menu
+            // such as the zoom box is open: then it closes that first.
+            if self.dialog.is_none() && !egui::Popup::is_any_open(&ctx) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
+                self.ui.print.preview_return_to_print = false;
+                let _ = self.run("ui.printPreview", json!({"value": false}));
+            }
             print_page::show_full_preview(self, ui);
         } else if self.ui.backstage {
             // The title bar stays on screen in File, as in the other KrubOffice apps

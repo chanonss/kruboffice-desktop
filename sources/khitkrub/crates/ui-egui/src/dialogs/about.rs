@@ -27,7 +27,7 @@ pub(super) fn window(ctx: &egui::Context, d: &mut Dialog) -> bool {
     let info = krub_icons::about::Info {
         name: lang.tr("KhitKrub").to_string(),
         english: "KhitKrub",
-        letter: "ค",
+        logo: krub_icons::logo::App::KhitKrub,
         color: t.band,
         version: crate::APP_VERSION,
         build,

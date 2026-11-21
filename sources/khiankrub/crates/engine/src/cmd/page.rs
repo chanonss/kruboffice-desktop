@@ -712,6 +712,14 @@ fn breaks(s: &mut Session, v: &Value) -> CmdResult {
     *s.doc.section_mut(next_block) = props;
     // The selection keeps its text, which now starts the new section.
     let first = Pos { off: 0, ..new };
+    // A caret before text, with a break that starts a page: the new page starts with an empty
+    // paragraph holding the caret, ready to type into, and the text follows it.
+    let new_page = !matches!(start, SectionStart::Continuous);
+    if old.is_collapsed() && new_page && s.doc.para_at(&first).is_some_and(|p| !p.is_empty()) {
+        s.doc.split_paragraph(&first)?;
+        s.sel = Selection::caret(first);
+        return sel_result(s);
+    }
     let last = shifted_by_split(&end, &at, &first);
     s.sel = if old.anchor <= old.focus { Selection { anchor: first, focus: last } } else { Selection { anchor: last, focus: first } };
     let _ = Block::Para;

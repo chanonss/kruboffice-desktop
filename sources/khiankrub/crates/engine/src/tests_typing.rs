@@ -1384,3 +1384,68 @@ fn enter_in_a_drop_cap_paragraph_makes_a_normal_paragraph() {
     let caps: Vec<_> = s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.props.drop_cap).collect();
     assert_eq!(caps, [Some(3), None]);
 }
+
+/// Body paragraph texts and whether each ends a section.
+fn sect_paras(s: &Session) -> Vec<(String, bool)> {
+    s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| (p.text.clone(), p.section.is_some())).collect()
+}
+
+/// Backspace at the start of the paragraph after a section break, or Delete at the end of the
+/// paragraph before it, removes the break (Word): the text before it joins the section after it
+/// and takes that section's page setup. Selecting across the break and deleting removes it too.
+#[test]
+fn backspace_and_delete_remove_a_section_break() {
+    let start = || {
+        let mut s = typed("one");
+        run(&mut s, "layout.orientation", json!({"value": "portrait"}));
+        run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+        run(&mut s, "layout.orientation", json!({"value": "landscape"}));
+        typ(&mut s, "two");
+        assert_eq!(sect_paras(&s), vec![("one".into(), true), ("two".into(), false)]);
+        s
+    };
+    // Backspace at the start of "two".
+    let mut s = start();
+    s.sel = crate::Selection::caret(Pos { off: 0, ..s.sel.focus.clone() });
+    typ(&mut s, "\u{8}");
+    assert_eq!(sect_paras(&s), vec![("onetwo".into(), false)]);
+    assert_eq!(s.doc.sections().len(), 1);
+    assert!(s.doc.last_section.landscape, "the joined text takes the following section's setup");
+    // Undo brings the break back.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(sect_paras(&s), vec![("one".into(), true), ("two".into(), false)]);
+    // Delete at the end of "one".
+    let mut s = start();
+    s.sel = crate::Selection::caret(Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 3 });
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(sect_paras(&s), vec![("onetwo".into(), false)]);
+    // A selection across the break.
+    let mut s = start();
+    s.sel = crate::Selection {
+        anchor: Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 2 },
+        focus: Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(1), off: 1 },
+    };
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(sect_paras(&s), vec![("onwo".into(), false)]);
+    assert_eq!(s.doc.sections().len(), 1);
+}
+
+/// Insert › Section Break (Next Page) with the caret before text: the new page starts with an
+/// empty paragraph holding the caret, and the text follows it. At the end of a paragraph the
+/// split already leaves one; no extra paragraph is added.
+#[test]
+fn next_page_section_break_leaves_an_empty_paragraph_to_type_into() {
+    let mut s = typed("one\ntwo");
+    s.sel = crate::Selection::caret(Pos { off: 0, ..s.sel.focus.clone() });
+    run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+    assert_eq!(sect_paras(&s), vec![("One".into(), false), ("".into(), true), ("".into(), false), ("two".into(), false)]);
+    assert!(s.sel.is_collapsed());
+    assert_eq!((s.sel.focus.path.last(), s.sel.focus.off), (2, 0));
+    typ(&mut s, "x");
+    assert_eq!(sect_paras(&s).get(2), Some(&("x".into(), false)));
+    // At the end of the text: one empty paragraph after the break, as before.
+    let mut s = typed("one");
+    run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+    assert_eq!(sect_paras(&s), vec![("one".into(), true), ("".into(), false)]);
+    assert_eq!(s.sel.focus.path.last(), 1);
+}

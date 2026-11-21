@@ -770,7 +770,9 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_transform(view);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let w = *width as f64;
-            let mut st = kurbo::Stroke::new(w);
+            // Square ends, as the PDF export draws them: a border runs on over half of the edge it
+            // meets, and round caps (kurbo's default) poked out past that corner (owner, 2026-11-21).
+            let mut st = kurbo::Stroke::new(w).with_caps(kurbo::Cap::Butt);
             match stroke {
                 Stroke::Dotted => st = st.with_dashes(0.0, [w, w * 2.0]),
                 Stroke::Dashed => st = st.with_dashes(0.0, [w * 4.0, w * 2.0]),
@@ -791,7 +793,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 return;
             }
             if *stroke == Stroke::Double {
-                ctx.set_stroke(kurbo::Stroke::new(w * 0.6));
+                ctx.set_stroke(kurbo::Stroke::new(w * 0.6).with_caps(kurbo::Cap::Butt));
                 line(ctx, -w * 0.9);
                 line(ctx, w * 0.9);
                 return;
@@ -1356,6 +1358,31 @@ mod tests {
         assert_eq!(at(200.0, 150.0), [0.0; 3], "the centre is the fill");
         assert_eq!(at(103.0, 103.0), [255.0; 3], "the box's corner is outside the ellipse");
         assert_eq!(at(350.0, 150.0), [255.0; 3], "outside the box");
+    }
+
+    /// Owner, 2026-11-21: a thick table border's corners stop at the outer edge of the border
+    /// they meet; the line ends are square, not round caps poking out past the corner.
+    #[test]
+    fn thick_border_corners_do_not_poke_out() {
+        use wordcraft_doc::props::Border;
+        use wordcraft_layout::Placed;
+        let e = Border::single(6.0);
+        // A cell from (100, 100) to (200, 150), the way table layout places its edges: the top and
+        // bottom run on over half of each side.
+        let items = vec![
+            Placed::Rule { x0: 97.0, y0: 100.0, x1: 203.0, y1: 100.0, border: e },
+            Placed::Rule { x0: 97.0, y0: 150.0, x1: 203.0, y1: 150.0, border: e },
+            Placed::Rule { x0: 100.0, y0: 100.0, x1: 100.0, y1: 150.0, border: e },
+            Placed::Rule { x0: 200.0, y0: 100.0, x1: 200.0, y1: 150.0, border: e },
+        ];
+        let page = Page { w: 300.0, h: 200.0, items, ..Default::default() };
+        let img = render_page(&Document::new(), &page, 2.0, &RenderOptions::default());
+        let ink = |x: f32, y: f32| img.pixel((x * 2.0) as u32, (y * 2.0) as u32)[0] < 128;
+        assert!(ink(200.0, 100.0) && ink(201.5, 151.5), "the corners are closed");
+        // Just past the outer edges (203 across, 153 down): white.
+        for (x, y) in [(205.0, 100.0), (95.0, 100.0), (205.0, 150.0), (200.0, 155.0), (100.0, 95.0)] {
+            assert!(!ink(x, y), "ink past the corner at ({x}, {y})");
+        }
     }
 
     #[test]

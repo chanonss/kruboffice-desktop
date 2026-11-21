@@ -7,10 +7,6 @@ use super::files::tile;
 use super::{Align2, Color32, CornerRadius, Icon, Rect, RichText, Sense, SlideApp, Stroke, Tokens, Ui, icons, json, pos2, theme, vec2};
 use crate::DraftAction;
 
-/// The icon's colours: a gold พ on the app's coral, as on the launcher.
-const MARK_BACK: Color32 = Color32::from_rgb(0x9A, 0x3A, 0x1F);
-const MARK_GOLD: Color32 = Color32::from_rgb(0xF2, 0xB7, 0x05);
-
 /// `text` as a URL query value: letters, digits and `-_.~` stay, every other byte becomes `%XX`.
 pub(crate) fn url_component(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -22,15 +18,6 @@ pub(crate) fn url_component(text: &str) -> String {
         }
     }
     out
-}
-
-/// A Thai letter drawn at `centre` when a font has it (the logo's พ, the apps' ข and ค); otherwise
-/// nothing, rather than a missing-glyph box.
-fn letter(painter: &egui::Painter, centre: egui::Pos2, c: &str, font: egui::FontId, color: Color32) {
-    let has = c.chars().next().is_some_and(|ch| painter.fonts_mut(|f| f.has_glyph(&font, ch)));
-    if has {
-        krub_icons::glass_letter(painter, centre, c, font, color);
-    }
 }
 
 /// Open `./?{key}={value}` in a new tab.
@@ -89,8 +76,8 @@ pub(super) fn web_home(app: &mut SlideApp, ui: &mut Ui) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                ui.painter().rect_filled(r, 8.0, MARK_BACK);
-                letter(ui.painter(), r.center() + vec2(0.0, 1.0), "พ", theme::bold(22.0), MARK_GOLD);
+                // The app's logo, the same as its app icon.
+                krub_icons::logo::paint(ui.painter(), r, krub_icons::logo::App::PhutKrub, 1.0);
                 ui.add_space(4.0);
                 // The name gives way to the buttons on narrow screens (an iPad in portrait).
                 if ui.available_width() > 560.0 {
@@ -211,16 +198,16 @@ fn app_switcher(ui: &mut Ui) {
     egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_END).show(|ui| {
         ui.set_min_width(268.0);
         ui.label(RichText::new("KrubOffice").font(theme::font(11.5)).color(t.text_dim));
-        let (navy, teal, coral) = (Color32::from_rgb(0x1E, 0x3A, 0x8A), Color32::from_rgb(0x0F, 0x6E, 0x56), MARK_BACK);
-        if app_switcher_row(ui, "ข", navy, tl!("KhianKrub"), tl!("Documents"), None, true) {
+        use krub_icons::logo::App;
+        if app_switcher_row(ui, App::KhianKrub, tl!("KhianKrub"), tl!("Documents"), None, true) {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://khiankrub.app/"));
             ui.close();
         }
-        if app_switcher_row(ui, "ค", teal, tl!("KhitKrub"), tl!("Spreadsheets"), None, true) {
+        if app_switcher_row(ui, App::KhitKrub, tl!("KhitKrub"), tl!("Spreadsheets"), None, true) {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://khitkrub.app/"));
             ui.close();
         }
-        app_switcher_row(ui, "พ", coral, tl!("PhutKrub"), tl!("Presentations"), Some(tl!("Here")), false);
+        app_switcher_row(ui, App::PhutKrub, tl!("PhutKrub"), tl!("Presentations"), Some(tl!("Here")), false);
         ui.separator();
         if ui.button(tl!("See all apps at kruboffice.app")).clicked() {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://kruboffice.app/"));
@@ -229,10 +216,10 @@ fn app_switcher(ui: &mut Ui) {
     });
 }
 
-/// One app in the switcher: its tile (a gold Thai letter on the app's colour), name and kind.
+/// One app in the switcher: its logo, name and kind.
 /// `badge` marks the app you are in; an app that isn't there yet (not `live`, no badge) draws
 /// faded. True when a live app other than this one is clicked.
-fn app_switcher_row(ui: &mut Ui, thai_letter: &str, tile: Color32, name: &str, kind: &str, badge: Option<&str>, live: bool) -> bool {
+fn app_switcher_row(ui: &mut Ui, logo: krub_icons::logo::App, name: &str, kind: &str, badge: Option<&str>, live: bool) -> bool {
     let t = Tokens::get(ui.ctx());
     let faded = badge.is_none() && !live;
     let fade = if faded { 0.45 } else { 1.0 };
@@ -243,8 +230,7 @@ fn app_switcher_row(ui: &mut Ui, thai_letter: &str, tile: Color32, name: &str, k
         ui.painter().rect_filled(r, 8.0, t.hover);
     }
     let tile_rect = Rect::from_min_size(pos2(r.min.x + 6.0, r.min.y + 7.0), vec2(30.0, 30.0));
-    ui.painter().rect_filled(tile_rect, 8.0, tile.gamma_multiply(fade));
-    self::letter(ui.painter(), tile_rect.center() + vec2(0.0, 1.0), thai_letter, theme::bold(17.0), MARK_GOLD.gamma_multiply(fade));
+    krub_icons::logo::paint(ui.painter(), tile_rect, logo, fade);
     let x = tile_rect.max.x + 10.0;
     let name_color = if faded { t.text_dim } else { t.text };
     ui.painter().text(pos2(x, r.min.y + 15.0), Align2::LEFT_CENTER, name, theme::font(13.5), name_color);
@@ -396,11 +382,16 @@ pub(super) fn drafts_list(app: &mut SlideApp, ui: &mut Ui) {
     // A Drive file's unsaved changes show on its row in the Google Drive list, not as a draft.
     let of_drive: Vec<String> =
         app.services.google_drive.as_ref().map_or_else(Vec::new, |d| (d.recent)(&app.ui.language).into_iter().filter_map(|f| f.draft).collect());
+    let any = !drafts.is_empty();
     drafts.retain(|d| !of_drive.contains(&d.id));
     if drafts.is_empty() {
         ui.label(
             RichText::new(tl!("Presentations you make here are kept in this browser, so you can pick up where you left off.")).color(t.text_dim),
         );
+        // Drive files' unsaved changes are drafts too.
+        if any {
+            delete_all_drafts(app, ui);
+        }
         return;
     }
     let confirm_id = ui.make_persistent_id("web_home_discard_draft");
@@ -470,5 +461,19 @@ pub(super) fn drafts_list(app: &mut SlideApp, ui: &mut Ui) {
         } else if let Some(recovery) = &app.services.browser_recovery {
             (recovery.act)(what, &id);
         }
+    }
+    delete_all_drafts(app, ui);
+}
+
+/// The red "Delete all drafts" button under the drafts and its two confirmations (owner,
+/// 2026-11-21): only after both does the host delete every draft kept in this browser.
+fn delete_all_drafts(app: &SlideApp, ui: &mut Ui) {
+    let red = Tokens::get(ui.ctx()).red;
+    ui.add_space(12.0);
+    krub_icons::clear_drafts::button(ui, red, true, &|s| tl!(s).to_string());
+    if krub_icons::clear_drafts::dialog(ui.ctx(), red, &|s| tl!(s).to_string())
+        && let Some(recovery) = &app.services.browser_recovery
+    {
+        (recovery.act)(DraftAction::DiscardAll, "");
     }
 }

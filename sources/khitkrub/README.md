@@ -24,6 +24,14 @@ kept for a Thai-speaking audience. KhitKrub is not an ArtCraft product, and it i
 - **หน้าเริ่มต้นและฉบับร่างในอุปกรณ์นี้ · Start screen and drafts on this device**: new workbooks and samples open in new tabs, and a workbook not yet saved as a file or to Google Drive is kept as a draft in the browser (not uploaded): the title bar says "(draft) — Saved on this device", the tab closes without asking, and the start screen lists it as "Name (draft)".
 - **ไอคอนชุดใหม่ · New icons**: the shared KrubOffice icon set (also in KhianKrub and PhutKrub) and KhianKrub's larger, centred ribbon on every tab. Icons inserted into a workbook keep their original artwork.
 - **Google Drive (ทดลอง · experimental).** เชื่อมต่อ Google Drive ได้ในคลิกเดียว เปิดไฟล์ `.xlsx` จาก Drive แล้วกด**บันทึก** (Ctrl+S) เพื่อบันทึกกลับไปที่ไฟล์เดิม หรือบันทึกเป็นสำเนาใหม่ จากการ์ด **เครื่องนี้ / Google Drive** ในหน้าเปิดและหน้าบันทึกเป็น · Connect Google Drive in one click, open an `.xlsx` from Drive, and **Save** (Ctrl+S) puts it back over the same file; or save a new copy. The Open and Save As pages show two places, *This device* and *Google Drive*. KhitKrub asks only for the files you pick or it creates (`drive.file`), and stays signed in through `drive.khitkrub.app`. Shared with KhianKrub (the `krub-drive` crate). **Not on khitkrub.app yet**: it appears there once the connection service and Google settings for the site are switched on.
+- **วันที่แบบไทย · Thai dates**: รูปแบบ **วันที่แบบยาว (ไทย)** แสดง "30 ธันวาคม 2569" ชื่อเดือนภาษาไทยและปีพุทธศักราช มีในรายการรูปแบบตัวเลขและหน้าต่างจัดรูปแบบเซลล์ · the **Thai Long Date** format (`[$-th-TH]d mmmm bbbb`, Excel's own code, so it opens the same in Excel) shows Thai month names and the Buddhist-era year.
+- **ภาษาไทยบน Windows และใน PDF · Thai on Windows and in PDF**: Thai, Latin and digits in one cell sit on one baseline on Windows; a font named without spaces (`THSarabunNew`) finds the installed TH Sarabun New; PDFs from the desktop app embed a Thai font.
+- **ไฟล์จาก Google Drive เป็นไฟล์เดียว · Drive files stay one file**: the start screen lists the files opened or saved on Drive; a click opens the file from Drive and Save puts it back, with unsaved changes on the file's own row instead of a separate draft.
+
+<p align="center">
+  <img src="docs/images/khitkrub-thai-date.png" alt="KhitKrub in Thai with a list of events and their dates shown as 30 ธันวาคม 2569, 15 มกราคม 2570 and 13 เมษายน 2570, while the formula bar shows 2026-12-30" width="80%">
+</p>
+
 - Everything else is GridCraft: formulas and functions, charts, pivot tables, open and save `.xlsx`, and every button is also a command for the CLI and MCP.
 
 ## หน้าตาโปรแกรม · A look around

@@ -589,6 +589,9 @@ template	Letter	จดหมาย
 template	Report	รายงาน
 template	Résumé	ประวัติย่อ
 template	Studio handbook (sample)	คู่มือสตูดิโอ (ตัวอย่าง)
+template	Temple accounts, form 1: cash	บัญชีวัด แบบที่ 1 รายรับ-รายจ่าย (เงินสด)
+template	Temple accounts, form 2: bank account	บัญชีวัด แบบที่ 2 รายรับ-รายจ่าย (บัญชีธนาคาร)
+template	Temple accounts, form 3: balance report	บัญชีวัด แบบที่ 3 รายงานคงเหลือ
 	{count} of {total} pages will print	จะพิมพ์ {count} จาก {total} หน้า
 	{group} settings	การตั้งค่า{group}
 	{words} words	{words} คำ
@@ -1936,3 +1939,11 @@ crop side	B	ล
 	Select a picture first.	เลือกรูปภาพก่อน
 	Couldn't download {name}: {error}	ดาวน์โหลด {name} ไม่ได้: {error}
 shapes	Lines	เส้น
+	Delete all drafts	ลบฉบับร่างทั้งหมด
+	Delete all your drafts?	ลบฉบับร่างทั้งหมดเลยไหม?
+	Just checking! This clears out every draft this app has saved in this browser on this device, unsaved changes to Google Drive files included. Your settings and the files on Google Drive itself stay right where they are. Want to keep going?	ขอเช็กอีกทีนะ! ฉบับร่างทุกชิ้นที่แอปนี้เก็บไว้ในเบราว์เซอร์บนอุปกรณ์นี้จะถูกล้างออกหมดเลย รวมถึงการแก้ไขที่ยังไม่ได้บันทึกของไฟล์ใน Google Drive ด้วย ส่วนการตั้งค่าและไฟล์บน Google Drive เองยังอยู่ครบเหมือนเดิม ไปต่อเลยไหม?
+	Yes, keep going	ไปต่อเลย
+	Last chance!	โอกาสสุดท้ายแล้วนะ!
+	Once they're gone, they're gone for good. This can't be undone. If there's anything you'd like to keep, download a copy first. Delete all your drafts now?	ลบแล้วหายไปเลยนะ กู้คืนไม่ได้แล้ว ถ้ามีงานไหนอยากเก็บไว้ ดาวน์โหลดสำเนาไว้ก่อนได้เลย จะลบฉบับร่างทั้งหมดตอนนี้เลยไหม?
+	Delete them all	ลบทั้งหมดเลย
+	All drafts deleted.	ลบฉบับร่างทั้งหมดแล้ว

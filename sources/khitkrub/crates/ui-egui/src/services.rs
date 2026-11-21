@@ -15,7 +15,7 @@ pub struct BrowserRecoveryServices {
     /// The drafts the start screen lists, newest first, with the time written for the language
     /// given (its code, `th`, `en`...); `None` while the browser's storage is still being read.
     pub drafts: DraftList,
-    /// Download or discard a draft (by id); the host finishes it later. Opening one is the start
+    /// Download or discard a draft (by id), or discard them all; the host finishes it later. Opening one is the start
     /// screen's own business: it opens `./?draft=<id>` in a new tab.
     pub act: DraftAct,
     /// The browser may remove drafts by itself (it hasn't agreed to keep this site's storage).
@@ -39,6 +39,8 @@ pub enum DraftAction {
     Open,
     Download,
     Discard,
+    /// Every draft this app keeps in the browser (the id is empty), after two confirmations.
+    DiscardAll,
 }
 
 /// Host services the platform shell provides (file pickers, opening URLs).

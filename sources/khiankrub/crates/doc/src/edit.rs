@@ -410,10 +410,15 @@ impl Document {
                 bl.drain(ia + 1..=ib);
             }
             tail.props = ParaProps::default();
+            // The paragraph marks deleted with the range take their section breaks with them:
+            // the joined paragraph ends where `b`'s did, so it keeps only `b`'s break (Word: the
+            // text before a deleted section break joins the section after it).
+            let sect = tail.section.take();
             let pa = self.para_mut(a.story, &a.path)?;
             let keep_props = pa.props.clone();
             pa.append(tail);
             pa.props = keep_props;
+            pa.section = sect;
             return Ok(a);
         }
         // Different containers (range enters or leaves a table): clear text in every paragraph

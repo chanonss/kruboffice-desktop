@@ -275,7 +275,7 @@ pub(super) fn task(ui: &mut Ui, icon: Icon, button: &str, title: &str, detail: &
 
 // ---------------------------------------------------------------- pages
 
-/// Home: DeckCraft's mark, new presentations (the first themes, with a link to New) and recent
+/// Home: PhutKrub's logo, new presentations (the first themes, with a link to New) and recent
 /// presentations (with a link to Open). The same page is the start screen.
 pub(super) fn home(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out: &mut Outcome) {
     let t = Tokens::get(ui.ctx());

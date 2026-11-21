@@ -209,6 +209,11 @@ fn the_start_screen_has_thai_text() {
         "Drafts: {error}",
         "This draft could not be opened: {error}",
         "This draft could not be downloaded: {error}",
+        "Delete all drafts",
+        "Delete all your drafts?",
+        "Yes, keep going",
+        "Last chance!",
+        "Delete them all",
     ] {
         assert_ne!(Language::Th.tr(label), label, "no Thai for {label:?}");
     }
@@ -303,4 +308,40 @@ fn the_start_screen_lists_google_drive_files_with_their_unsaved_changes() {
     h.run_steps(2);
     assert_eq!(click_and_collect(&mut h, "Open the Google Drive version"), [("./?drive=1marks".to_string(), true)]);
     assert_eq!(asked.borrow().last(), Some(&(DraftAction::Discard, "doc-2".to_string())));
+}
+
+/// The red "Delete all drafts" asks twice: cancelling (or Escape) at either step keeps every
+/// draft, and only the second yes asks the host to delete them all.
+#[test]
+fn delete_all_drafts_asks_twice() {
+    let (mut h, asked) = web_start(Some(two_drafts()), None);
+    let open = |h: &mut Harness| {
+        h.get_by_label("Delete all drafts").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Delete all your drafts?").is_some(), "the first question");
+    };
+    open(&mut h);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Delete all your drafts?").is_none());
+    open(&mut h);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.query_by_label("Delete all your drafts?").is_none());
+    open(&mut h);
+    h.get_by_label("Yes, keep going").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Last chance!").is_some(), "the second, final question");
+    assert!(asked.borrow().is_empty(), "the first yes deletes nothing");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Last chance!").is_none());
+    assert!(asked.borrow().is_empty(), "cancelling at either step keeps the drafts");
+    open(&mut h);
+    h.get_by_label("Yes, keep going").click();
+    h.run_steps(2);
+    h.get_by_label("Delete them all").click();
+    h.run_steps(2);
+    assert_eq!(*asked.borrow(), [(DraftAction::DiscardAll, String::new())]);
+    assert!(h.query_by_label("Last chance!").is_none(), "the dialog closes");
 }

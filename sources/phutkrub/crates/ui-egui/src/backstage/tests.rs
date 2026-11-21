@@ -1119,3 +1119,41 @@ fn web_home_lists_google_drive_files_with_their_unsaved_changes() {
     assert_eq!(click(&mut h, "Open the Google Drive version"), [("./?drive=1class".to_string(), true)]);
     assert_eq!(asked.borrow().last(), Some(&(DraftAction::Discard, "doc-2".to_string())));
 }
+
+/// The red "Delete all drafts" asks twice: cancelling (or Escape) at either step keeps every
+/// draft, and only the second yes asks the host to delete them all.
+#[test]
+fn delete_all_drafts_asks_twice() {
+    use crate::{BrowserDraft, DraftAction};
+    let one = vec![BrowserDraft { id: "doc-1".into(), name: "Monthly report".into(), saved: "29/10/2026, 14:32".into() }];
+    let (mut h, asked) = web_start(Some(one), "en");
+    let open = |h: &mut Harness<'_, SlideApp>| {
+        h.get_by_label("Delete all drafts").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Delete all your drafts?").is_some(), "the first question");
+    };
+    open(&mut h);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Delete all your drafts?").is_none());
+    open(&mut h);
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.query_by_label("Delete all your drafts?").is_none());
+    open(&mut h);
+    h.get_by_label("Yes, keep going").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Last chance!").is_some(), "the second, final question");
+    assert!(asked.borrow().is_empty(), "the first yes deletes nothing");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Last chance!").is_none());
+    assert!(asked.borrow().is_empty(), "cancelling at either step keeps the drafts");
+    open(&mut h);
+    h.get_by_label("Yes, keep going").click();
+    h.run_steps(2);
+    h.get_by_label("Delete them all").click();
+    h.run_steps(2);
+    assert_eq!(*asked.borrow(), [(DraftAction::DiscardAll, String::new())]);
+    assert!(h.query_by_label("Last chance!").is_none(), "the dialog closes");
+}

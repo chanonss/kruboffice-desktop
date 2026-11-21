@@ -13,9 +13,6 @@ use egui::{Color32, FontId, RichText, Sense, Stroke, Ui, vec2};
 /// The dialog's width, wide enough for the apps' contributor tables.
 pub const WIDTH: f32 = 640.0;
 
-/// The gold of the KrubOffice logos' letters.
-const GOLD: Color32 = Color32::from_rgb(0xE8, 0xC1, 0x5A);
-
 /// Where KrubOffice takes problem reports.
 pub const REPORT_URL: &str = "https://github.com/chanonss/kruboffice-desktop/issues";
 /// The KrubOffice front page.
@@ -26,8 +23,8 @@ pub struct Info<'a> {
     /// The app's name in the interface language ("เขียนครับ"), and in English ("KhianKrub").
     pub name: String,
     pub english: &'a str,
-    /// The letter on the logo tile (ข, ค, พ) and the tile's colour (the app's band colour).
-    pub letter: &'a str,
+    /// The app's logo, and its colour (the app's band colour, for the Close button).
+    pub logo: crate::logo::App,
     pub color: Color32,
     pub version: &'a str,
     /// A short build id, when the build has one.
@@ -194,12 +191,11 @@ fn title_row(ui: &mut Ui, title: &str) -> bool {
     .inner
 }
 
-/// The logo tile, the name, the version and the one-line description.
+/// The logo, the name, the version and the one-line description.
 fn header(ui: &mut Ui, info: &Info, tr: &dyn Fn(&str) -> String) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(56.0, 56.0), Sense::hover());
-        ui.painter().rect_filled(r, 12.0, info.color);
-        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, info.letter, FontId::proportional(32.0), GOLD);
+        crate::logo::paint(ui.painter(), r, info.logo, 1.0);
         ui.add_space(8.0);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -317,7 +313,7 @@ mod tests {
         Info {
             name: "เขียนครับ".into(),
             english: "KhianKrub",
-            letter: "ข",
+            logo: crate::logo::App::KhianKrub,
             color: Color32::from_rgb(0x1E, 0x3A, 0x6E),
             version: "0.17.0",
             build: None,

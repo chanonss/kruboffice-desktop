@@ -3062,6 +3062,7 @@ version = "0.1.0"
 dependencies = [
  "craft-drawingml",
  "egui",
+ "image",
  "krub-chart-format",
  "kurbo",
 ]

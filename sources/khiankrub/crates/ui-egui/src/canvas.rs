@@ -187,6 +187,8 @@ pub(crate) struct TextDrag {
     at: (usize, f32, f32),
     /// Set once the pointer moved past a click's reach: the drop point (page, x, y).
     drop: Option<(usize, f32, f32)>,
+    /// The dragged text, shortened, drawn faintly beside the pointer while it moves.
+    ghost: String,
 }
 
 impl CanvasState {
@@ -1583,6 +1585,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         crate::table_resize::paint(app, &painter, &t, &layout, &rects, geo.scale);
         crate::dialogs::paint_column_highlight(app, &painter, &t, &layout, &rects, geo.scale);
         paint_text_drop(app, &painter, &t, &layout, &rects, geo.scale);
+        paint_format_painter_cursor(app, &painter, &t, &rects);
         crate::table_mouse::paint(app, &painter, &t, &layout, &rects, geo.scale);
         (resp, rects)
     });
@@ -2533,7 +2536,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
                 a <= pos && pos <= b
             }
         {
-            app.canvas.text_drag = Some(TextDrag { from: p, at: (page, x, y), drop: None });
+            let ghost = drag_ghost(&app.session.selected_text());
+            app.canvas.text_drag = Some(TextDrag { from: p, at: (page, x, y), drop: None, ghost });
             app.canvas.dragging = true;
             app.session.page_hint = page;
             return;
@@ -2674,9 +2678,64 @@ fn drop_copies(ui: &Ui) -> bool {
     if ui.ctx().os() == egui::os::OperatingSystem::Mac { m.alt } else { m.ctrl }
 }
 
-/// While selected text is dragged, a caret where it would drop.
+/// While the Format Painter holds copied formatting, its brush rides beside the pointer over the
+/// pages (the I-beam stays), so it is clear the next selection will be painted (owner,
+/// 2026-11-21). egui has no custom cursors, so the icon is drawn, as the table pen's is.
+fn paint_format_painter_cursor(app: &WordApp, painter: &egui::Painter, t: &Tokens, rects: &[Rect]) {
+    if app.session.painter.is_none() || app.canvas.text_drag.is_some() {
+        return;
+    }
+    let Some(p) = painter.ctx().input(|i| i.pointer.hover_pos()).filter(|p| painter.clip_rect().contains(*p)) else { return };
+    if !rects.iter().any(|r| r.contains(p)) {
+        return;
+    }
+    let r = Rect::from_min_size(p + vec2(11.0, 9.0), vec2(18.0, 18.0));
+    // A pale backing keeps the brush readable over text and selection.
+    painter.rect_filled(r.expand(2.0), 3.0, Color32::WHITE.gamma_multiply(0.85));
+    crate::icons::paint(painter, r, "painter", t.icon, t.accent);
+}
+
+/// The dragged text as its ghost shows it: at most three lines of at most 40 characters, with
+/// an ellipsis where text was left out; blank lines are skipped.
+fn drag_ghost(text: &str) -> String {
+    const LINES: usize = 3;
+    const CHARS: usize = 40;
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let mut out: Vec<String> = Vec::new();
+    for l in lines.by_ref().take(LINES) {
+        let mut line: String = l.chars().take(CHARS).collect();
+        if l.chars().nth(CHARS).is_some() {
+            line.push('…');
+        }
+        out.push(line);
+    }
+    if lines.next().is_some()
+        && let Some(last) = out.last_mut()
+        && !last.ends_with('…')
+    {
+        last.push('…');
+    }
+    out.join("\n")
+}
+
+/// While selected text is dragged, a caret where it would drop, and a faint copy of the text
+/// following the pointer.
 fn paint_text_drop(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLayout, rects: &[Rect], scale: f32) {
-    let Some((page, x, y)) = app.canvas.text_drag.as_ref().and_then(|d| d.drop) else { return };
+    let Some(d) = app.canvas.text_drag.as_ref() else { return };
+    let Some((page, x, y)) = d.drop else { return };
+    if !d.ghost.is_empty()
+        && let Some(at) = painter.ctx().pointer_latest_pos()
+    {
+        // Below and right of the pointer, clear of the cursor's arrow; translucent so the drop
+        // caret and the page under it stay visible.
+        let ink = Color32::from_gray(30).gamma_multiply(0.5);
+        let g = painter.layout_no_wrap(d.ghost.clone(), egui::FontId::proportional(13.0), ink);
+        let at = at + vec2(14.0, 18.0);
+        let back = Rect::from_min_size(at, g.size()).expand(3.0);
+        painter.rect_filled(back, 2.0, Color32::WHITE.gamma_multiply(0.45));
+        painter.rect_stroke(back, 2.0, Stroke::new(1.0, t.accent.gamma_multiply(0.35)), egui::StrokeKind::Inside);
+        painter.galley(at, g, ink);
+    }
     let story = app.session.sel.focus.story;
     let Some(pos) = layout.hit(page, x, y, story) else { return };
     let Some(c) = layout.caret_on(&pos, page) else { return };
@@ -3595,6 +3654,17 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "took {:?}", start.elapsed());
     }
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
+
+    /// The ghost of dragged text: short text as it is, long lines and extra lines cut with an
+    /// ellipsis, blank lines skipped, Thai kept whole.
+    #[test]
+    fn drag_ghost_shortens_the_dragged_text() {
+        assert_eq!(drag_ghost("Product"), "Product");
+        assert_eq!(drag_ghost("ส่วนราชการ"), "ส่วนราชการ");
+        assert_eq!(drag_ghost(&"a".repeat(50)), format!("{}…", "a".repeat(40)));
+        assert_eq!(drag_ghost("one\n\ntwo\nthree\nfour"), "one\ntwo\nthree…");
+        assert_eq!(drag_ghost(""), "");
+    }
 
     /// A real mouse drag of selected text: pressed on it, moved and released over another cell.
     fn drag_text(h: &mut H, from: Pos2, to: Pos2, modifiers: egui::Modifiers) {

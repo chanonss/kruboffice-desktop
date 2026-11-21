@@ -153,6 +153,23 @@ pub fn sample_document() -> Document {
     d
 }
 
+/// Every template id `file.new` knows, in the gallery's order.
+pub const TEMPLATE_IDS: [&str; 8] = ["blank", "sample", "letter", "resume", "report", "temple-cash", "temple-bank", "temple-balance"];
+
+/// The temple account forms (owner, 2026-11-21), made in KhianKrub by the owner: form 1, the
+/// month's cash receipts and payments; form 2, the same for a bank account; form 3, the month-end
+/// balance report. Thai, with a sample temple's details to replace. None for another id, or if
+/// the file can't be read.
+pub fn temple_form(id: &str) -> Option<Document> {
+    let bytes: &[u8] = match id {
+        "temple-cash" => include_bytes!("../templates/temple-cash.docx"),
+        "temple-bank" => include_bytes!("../templates/temple-bank.docx"),
+        "temple-balance" => include_bytes!("../templates/temple-balance.docx"),
+        _ => return None,
+    };
+    wordcraft_docx::read(bytes).ok()
+}
+
 /// A block-style letter.
 pub fn letter() -> Document {
     let mut d = Document::new();

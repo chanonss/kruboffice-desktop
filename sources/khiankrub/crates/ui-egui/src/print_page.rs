@@ -679,6 +679,26 @@ mod full_preview_tests {
         assert!(!h.state().ui.backstage);
     }
 
+    /// Owner, 2026-11-21: Escape leaves the print preview for the document, also when the
+    /// preview was opened from File › Print.
+    #[test]
+    fn escape_leaves_the_preview_for_the_document() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("ui.printPreview", json!({"value": true, "returnToPrint": true})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(5);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(!h.state().ui.backstage, "back in the document");
+        assert_ne!(h.state().ui.backstage_page, "printPreview");
+    }
+
     /// macOS, no title bar: the preview's toolbar is the window's top band, so its first button
     /// starts after the traffic lights (they covered Close Preview), as the title bar's content does.
     #[test]

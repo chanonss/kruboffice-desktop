@@ -333,10 +333,8 @@ fn app_icon() -> Option<egui::IconData> {
     if std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/")) {
         return Some(egui::IconData::default());
     }
-    #[cfg(target_os = "macos")]
+    // The glass ข, the same logo as the web app's and the Windows program icon (khiankrub.ico).
     let png: &[u8] = include_bytes!("../../../assets/app-icon/khiankrub-512.png");
-    #[cfg(not(target_os = "macos"))]
-    let png: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.wordcraft.png");
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()
 }
 

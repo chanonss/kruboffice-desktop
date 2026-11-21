@@ -1330,7 +1330,7 @@ fn about(ctx: &egui::Context, tab: &mut u8) -> bool {
     let info = krub_icons::about::Info {
         name: tl!("KhianKrub").to_string(),
         english: "KhianKrub",
-        letter: "ข",
+        logo: krub_icons::logo::App::KhianKrub,
         color: t.title_bar,
         version: env!("CARGO_PKG_VERSION"),
         build,

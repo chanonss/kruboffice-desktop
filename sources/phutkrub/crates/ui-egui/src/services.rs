@@ -44,7 +44,7 @@ pub struct BrowserRecoveryServices {
     /// The drafts the start screen lists, newest first, with the time written for the language
     /// given; `None` while the browser's storage is still being read.
     pub drafts: Box<dyn Fn(&str) -> Option<Vec<BrowserDraft>>>,
-    /// Open, download or discard a draft (by id); the host finishes it later.
+    /// Open, download or discard a draft (by id), or discard them all; the host finishes it later.
     pub act: Box<dyn Fn(DraftAction, &str)>,
     /// The browser may remove drafts by itself (it hasn't agreed to keep this site's storage).
     pub fragile: Box<dyn Fn() -> bool>,
@@ -67,6 +67,8 @@ pub enum DraftAction {
     Open,
     Download,
     Discard,
+    /// Every draft this app keeps in the browser (the id is empty), after two confirmations.
+    DiscardAll,
 }
 
 /// Platform services injected by the host (desktop or web).

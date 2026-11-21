@@ -843,6 +843,66 @@ pub(in crate::cmd) fn clear_range_cells(s: &mut Session, range: &crate::CellRang
     Ok(())
 }
 
+/// Paste copied cells into a table: with the caret in a cell (or cells selected), a fragment
+/// that is one table fills the existing cells from there, cell by cell by grid column, as Word
+/// overwrites cells, instead of nesting a new table in the cell. Cells past the table's last
+/// row or column are left out. Returns false (nothing done) when the paste isn't that.
+pub(in crate::cmd) fn paste_cells(s: &mut Session, frag: &wordcraft_doc::edit::Fragment) -> Result<bool, CmdError> {
+    use wordcraft_doc::props::VMerge;
+    let [Block::Table(src)] = frag.blocks.as_slice() else { return Ok(false) };
+    let story = s.sel.focus.story;
+    let start = match s.cell_range() {
+        Some(r) if r.story == story => Some((r.table.clone(), r.rows.0, r.cols.0)),
+        _ => s.sel.focus.path.cell().and_then(|(tp, r, c)| s.doc.table(story, &tp).map(|t| (tp.clone(), r, t.grid_col(r, c)))),
+    };
+    let Some((tp, r0, g0)) = start else { return Ok(false) };
+    // A selection reaching out of the cell's table pastes as usual.
+    if s.sel.anchor.story != story || s.sel.anchor.path.0.get(..tp.0.len()) != Some(tp.0.as_slice()) {
+        return Ok(false);
+    }
+    let Some(t) = s.doc.table(story, &tp) else { return Ok(false) };
+    let mut targets: Vec<(Vec<u32>, Vec<Block>)> = Vec::new();
+    for (i, row) in src.rows.iter().enumerate() {
+        let r = r0.saturating_add(i);
+        if r >= t.rows.len() {
+            break;
+        }
+        let mut g = g0;
+        for cell in &row.cells {
+            let at = g;
+            g = g.saturating_add(cell.span());
+            if cell.props.vmerge == VMerge::Continue {
+                continue;
+            }
+            let Some(c) = t.cell_at_grid(r, at) else { break };
+            let dest = t.rows.get(r).and_then(|x| x.cells.get(c));
+            let pre = cell_prefix(&tp, r, c);
+            // A cell merged down from above, or one already filled (a wider cell here), is skipped.
+            if dest.is_none_or(|d| d.props.vmerge == VMerge::Continue) || targets.iter().any(|(p, _)| *p == pre) {
+                continue;
+            }
+            targets.push((pre, cell.blocks.iter().map(|b| Block::clone(b)).collect()));
+        }
+    }
+    if targets.is_empty() {
+        return Ok(false);
+    }
+    let mut last = None;
+    for (pre, blocks) in targets {
+        // Each cell's paragraphs change only inside it, so the other cells' paths still hold.
+        let Some((a, b)) = text_spans(s, story, &[pre]).into_iter().next() else { continue };
+        s.column = None;
+        s.sel = Selection { anchor: a, focus: b };
+        super::paste::insert(s, wordcraft_doc::edit::Fragment { blocks, parts: frag.parts.clone() })?;
+        last = Some(s.sel.focus.clone());
+    }
+    s.column = None;
+    if let Some(p) = last {
+        s.sel = Selection::caret(p);
+    }
+    Ok(true)
+}
+
 /// The path prefix of cell (`r`, `c`) of the table at `tp`.
 fn cell_prefix(tp: &Path, r: usize, c: usize) -> Vec<u32> {
     tp.0.iter().copied().chain([r as u32, c as u32]).collect()
@@ -915,12 +975,36 @@ fn merge(s: &mut Session, _: &Value) -> CmdResult {
     let story = s.sel.focus.story;
     let (r0, r1) = (cells.iter().map(|x| x.0).min().unwrap_or(0), cells.iter().map(|x| x.0).max().unwrap_or(0));
     let t = s.doc.table_mut(story, &tp)?;
-    let c0 = cells.iter().map(|x| x.1).min().unwrap_or(0);
-    let c1 = cells.iter().map(|x| x.1).max().unwrap_or(0);
-    let g0 = t.grid_col(r0, c0);
-    let g1 = t.grid_col(r0, c1) + t.rows.get(r0).and_then(|r| r.cells.get(c1)).map(|c| c.span()).unwrap_or(1) - 1;
+    let (g0, g1) = merge_cols(t, &cells, r0, r1);
     t.merge(r0, r1, g0, g1);
+    let c0 = t.cell_at_grid(r0, g0).unwrap_or(0);
     fix_caret(s, &tp, r0, c0)
+}
+
+/// The grid columns `g0..=g1` a merge of `cells` covers. Each cell's columns come from its own
+/// row: rows whose cells span differently (a cell merged across above the selection) have other
+/// cell indices for the same columns. The rectangle then widens until no cell of rows
+/// `r0..=r1` crosses its edges, so every row merges over the same columns.
+fn merge_cols(t: &Table, cells: &[(usize, usize)], r0: usize, r1: usize) -> (usize, usize) {
+    let span = |r: usize, c: usize| t.rows.get(r).and_then(|row| row.cells.get(c)).map_or(1, wordcraft_doc::Cell::span);
+    let mut g0 = cells.iter().map(|&(r, c)| t.grid_col(r, c)).min().unwrap_or(0);
+    let mut g1 = cells.iter().map(|&(r, c)| t.grid_col(r, c) + span(r, c) - 1).max().unwrap_or(0);
+    // Each pass only widens, and at most to the grid's width: it ends.
+    loop {
+        let (mut n0, mut n1) = (g0, g1);
+        for r in r0..=r1.min(t.rows.len().saturating_sub(1)) {
+            if let Some(c) = t.cell_at_grid(r, g0) {
+                n0 = n0.min(t.grid_col(r, c));
+            }
+            if let Some(c) = t.cell_at_grid(r, g1) {
+                n1 = n1.max(t.grid_col(r, c) + span(r, c) - 1);
+            }
+        }
+        if (n0, n1) == (g0, g1) {
+            return (g0, g1);
+        }
+        (g0, g1) = (n0, n1);
+    }
 }
 
 fn split_table(s: &mut Session, _: &Value) -> CmdResult {

@@ -1897,6 +1897,20 @@ pub(super) const EXTRA: &[(&str, &str)] = &[
     ("Curve", "เส้นโค้ง"),
     ("Freeform: Shape", "รูปอิสระ: รูปร่าง"),
     ("Freeform: Scribble", "รูปอิสระ: ลายเส้น"),
+    // Delete all drafts (krub_icons::clear_drafts, owner 2026-11-21).
+    ("Delete all drafts", "ลบฉบับร่างทั้งหมด"),
+    ("Delete all your drafts?", "ลบฉบับร่างทั้งหมดเลยไหม?"),
+    (
+        "Just checking! This clears out every draft this app has saved in this browser on this device, unsaved changes to Google Drive files included. Your settings and the files on Google Drive itself stay right where they are. Want to keep going?",
+        "ขอเช็กอีกทีนะ! ฉบับร่างทุกชิ้นที่แอปนี้เก็บไว้ในเบราว์เซอร์บนอุปกรณ์นี้จะถูกล้างออกหมดเลย รวมถึงการแก้ไขที่ยังไม่ได้บันทึกของไฟล์ใน Google Drive ด้วย ส่วนการตั้งค่าและไฟล์บน Google Drive เองยังอยู่ครบเหมือนเดิม ไปต่อเลยไหม?",
+    ),
+    ("Yes, keep going", "ไปต่อเลย"),
+    ("Last chance!", "โอกาสสุดท้ายแล้วนะ!"),
+    (
+        "Once they're gone, they're gone for good. This can't be undone. If there's anything you'd like to keep, download a copy first. Delete all your drafts now?",
+        "ลบแล้วหายไปเลยนะ กู้คืนไม่ได้แล้ว ถ้ามีงานไหนอยากเก็บไว้ ดาวน์โหลดสำเนาไว้ก่อนได้เลย จะลบฉบับร่างทั้งหมดตอนนี้เลยไหม?",
+    ),
+    ("Delete them all", "ลบทั้งหมดเลย"),
 ];
 
 /// Translates an interface label; `None` for a label the catalog does not know, so `i18n.rs` can

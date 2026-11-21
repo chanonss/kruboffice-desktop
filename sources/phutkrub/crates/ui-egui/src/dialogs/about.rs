@@ -1,4 +1,4 @@
-use super::{Color32, CornerRadius, Rect, Stroke, Tokens, Ui, pos2, vec2};
+use super::{Rect, Tokens, Ui};
 
 /// PhutKrub's tables for the shared About dialog: who wrote DeckCraft and which AI models helped.
 struct Host;
@@ -28,7 +28,7 @@ pub(super) fn window(ctx: &egui::Context, d: &mut super::Dialog) -> bool {
     let info = krub_icons::about::Info {
         name: tl!("PhutKrub").to_string(),
         english: "PhutKrub",
-        letter: "พ",
+        logo: krub_icons::logo::App::PhutKrub,
         color: t.band,
         version: crate::APP_VERSION,
         build: sha,
@@ -80,20 +80,10 @@ pub fn version_line() -> String {
     s
 }
 
-/// DeckCraft's mark, drawn in code: a slide card with a play triangle in our orange.
+/// PhutKrub's logo (the glass พ of its app icon), on File › Home. It was DeckCraft's orange
+/// play-button mark (owner, 2026-11-21: "not our logo").
 pub fn paint_logo(p: &egui::Painter, r: Rect) {
-    let orange = Color32::from_rgb(0xF2, 0x6B, 0x1D);
-    let deep = Color32::from_rgb(0xC2, 0x4E, 0x14);
-    let card = r.shrink(r.width() * 0.08);
-    p.rect_filled(card.translate(vec2(r.width() * 0.04, r.width() * 0.05)), CornerRadius::same((r.width() * 0.14) as u8), deep);
-    p.rect_filled(card, CornerRadius::same((r.width() * 0.14) as u8), orange);
-    let c = card.center();
-    let s = card.width() * 0.22;
-    p.add(egui::Shape::convex_polygon(
-        vec![pos2(c.x - s * 0.7, c.y - s), pos2(c.x + s, c.y), pos2(c.x - s * 0.7, c.y + s)],
-        Color32::WHITE,
-        Stroke::NONE,
-    ));
+    krub_icons::logo::paint(p, r, krub_icons::logo::App::PhutKrub, 1.0);
 }
 
 #[cfg(test)]
