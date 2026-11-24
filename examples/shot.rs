@@ -54,19 +54,19 @@ fn main() {
         })
         .collect();
     let mut shots = vec![
-        ("start-light", 820.0, 680.0, false, ""),
-        ("start-dark", 820.0, 680.0, true, ""),
-        ("start-narrow", 560.0, 660.0, false, ""),
-        ("settings", 820.0, 680.0, false, "available"),
-        ("about", 820.0, 680.0, false, ""),
+        ("start-light", 1040.0, 650.0, false, ""),
+        ("start-dark", 1040.0, 650.0, true, ""),
+        ("start-narrow", 640.0, 440.0, false, ""),
+        ("settings", 1040.0, 650.0, false, "available"),
+        ("about", 1040.0, 650.0, false, ""),
     ];
     if std::env::var_os("KRUBOFFICE_SHOT_UPDATES").is_some() {
         shots.extend([
-            ("update-question", 820.0, 760.0, false, "question"),
-            ("update-available", 820.0, 760.0, false, "available"),
-            ("update-available-dark", 820.0, 760.0, true, "available"),
-            ("update-latest-en", 820.0, 760.0, false, "latest-en"),
-            ("update-narrow", 560.0, 760.0, false, "question"),
+            ("update-question", 1040.0, 650.0, false, "question"),
+            ("update-available", 1040.0, 650.0, false, "available"),
+            ("update-available-dark", 1040.0, 650.0, true, "available"),
+            ("update-latest-en", 1040.0, 650.0, false, "latest-en"),
+            ("update-narrow", 640.0, 440.0, false, "question"),
         ]);
     }
     for (name, w, h, dark, state) in shots {

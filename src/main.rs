@@ -107,8 +107,9 @@ fn main() {
             .with_title("KrubOffice")
             .with_app_id("app.kruboffice.desktop")
             .with_icon(app_icon())
-            .with_inner_size([820.0, 680.0])
-            .with_min_inner_size([560.0, 520.0])
+            // 16:10, as most laptop screens (owner, 2026-11-24): two rows of five recent files.
+            .with_inner_size([1040.0, 650.0])
+            .with_min_inner_size([640.0, 440.0])
             .with_drag_and_drop(true)
             // Shown once it's clear the launcher wasn't started just to open a file.
             .with_visible(false),
