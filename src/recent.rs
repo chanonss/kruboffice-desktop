@@ -74,9 +74,103 @@ pub fn collect(root: &Path, limit: usize) -> Vec<Recent> {
     out
 }
 
+/// The most pinned files kept.
+pub const MAX_PINS: usize = 200;
+
+/// The files pinned on the Start Center, from KrubOffice's own `settings.json` (`"pinned":
+/// [paths…]`). Anything unreadable gives none.
+pub fn load_pins(settings: &Path) -> Vec<PathBuf> {
+    let Ok(meta) = std::fs::metadata(settings) else { return Vec::new() };
+    if meta.len() > MAX_SETTINGS_BYTES {
+        return Vec::new();
+    }
+    let Ok(bytes) = std::fs::read(settings) else { return Vec::new() };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Vec::new() };
+    let mut out: Vec<PathBuf> = Vec::new();
+    for p in v.get("pinned").and_then(|r| r.as_array()).into_iter().flatten().filter_map(|p| p.as_str()) {
+        let p = PathBuf::from(p);
+        if !p.as_os_str().is_empty() && !out.contains(&p) && out.len() < MAX_PINS {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Write the pinned files into `settings.json`, keeping its other keys (through a temporary
+/// file, so a crash never leaves half a file).
+pub fn save_pins(settings: &Path, pins: &[PathBuf]) -> Result<(), String> {
+    let old = std::fs::metadata(settings)
+        .ok()
+        .filter(|m| m.len() <= MAX_SETTINGS_BYTES)
+        .and_then(|_| std::fs::read(settings).ok())
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut v = old;
+    let list: Vec<serde_json::Value> = pins.iter().take(MAX_PINS).map(|p| serde_json::Value::String(p.to_string_lossy().into_owned())).collect();
+    if let Some(map) = v.as_object_mut() {
+        map.insert("pinned".into(), serde_json::Value::Array(list));
+    }
+    if let Some(dir) = settings.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let tmp = settings.with_extension("json.tmp");
+    let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, settings).map_err(|e| format!("{}: {e}", settings.display()))
+}
+
+/// `recent` with the pinned files that still exist and that KrubOffice opens added (pinned
+/// files stay on the Start Center however old they get), newest first.
+pub fn with_pins(mut recent: Vec<Recent>, pins: &[PathBuf]) -> Vec<Recent> {
+    for path in pins {
+        if recent.iter().any(|r| &r.path == path) {
+            continue;
+        }
+        let Some(app) = app_for(path) else { continue };
+        let Ok(meta) = std::fs::metadata(path) else { continue };
+        if meta.is_file() {
+            recent.push(Recent { path: path.clone(), app, modified: meta.modified().ok() });
+        }
+    }
+    recent.sort_by_key(|r| std::cmp::Reverse(r.modified));
+    recent
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pins_round_trip_and_keep_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = tmp.path().join("KrubOffice").join("settings.json");
+        assert!(load_pins(&settings).is_empty(), "no file, no pins");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, r#"{"checkUpdates": true, "pinned": ["/a.docx", "/a.docx", 5, ""]}"#).unwrap();
+        assert_eq!(load_pins(&settings), [PathBuf::from("/a.docx")], "duplicates, non-strings and blanks dropped");
+        save_pins(&settings, &[PathBuf::from("/b.xlsx"), PathBuf::from("/c.pptx")]).unwrap();
+        assert_eq!(load_pins(&settings), [PathBuf::from("/b.xlsx"), PathBuf::from("/c.pptx")]);
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
+        assert_eq!(v["checkUpdates"], true, "the update setting is kept");
+        std::fs::write(&settings, b"not json").unwrap();
+        assert!(load_pins(&settings).is_empty());
+        save_pins(&settings, &[]).unwrap();
+        assert!(load_pins(&settings).is_empty());
+    }
+
+    #[test]
+    fn pinned_files_stay_listed_when_they_exist() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().join("old.docx");
+        std::fs::write(&doc, b"x").unwrap();
+        let other = tmp.path().join("notes.zzz");
+        std::fs::write(&other, b"x").unwrap();
+        let pins = [doc.clone(), tmp.path().join("gone.xlsx"), other];
+        let list = with_pins(Vec::new(), &pins);
+        assert_eq!(list.iter().map(|r| r.path.clone()).collect::<Vec<_>>(), std::slice::from_ref(&doc), "missing and unknown files left out");
+        assert_eq!(with_pins(list.clone(), &pins).len(), 1, "a pinned file already listed isn't added twice");
+    }
 
     fn write_list(root: &Path, app: App, paths: &[&Path]) {
         let dir = settings_dir(root, app);
