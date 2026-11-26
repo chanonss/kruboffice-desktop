@@ -1,13 +1,13 @@
 {
  "khiankrub": {
   "repo": "chanonss/khiankrub-web-source",
-  "ref": "188a507d723cb2bb02dc6e5e74a1473eda309c33",
-  "version": "0.18.1"
+  "ref": "877e32dc1f82a33d5768d2296283d1594640913f",
+  "version": "0.20.0"
  },
  "khitkrub": {
   "repo": "chanonss/khitkrub-web-source",
-  "ref": "b535dafc9332e3791cd295ed2ad88b9eba452895",
-  "version": "0.7.1"
+  "ref": "2799cef950b78f11b853a6a3b90cf8cffc9bff91",
+  "version": "0.7.2"
  },
  "phutkrub": {
   "repo": "chanonss/phutkrub-web-source",
