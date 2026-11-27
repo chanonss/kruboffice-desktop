@@ -1,18 +1,18 @@
 {
  "khiankrub": {
   "repo": "chanonss/khiankrub-web-source",
-  "ref": "877e32dc1f82a33d5768d2296283d1594640913f",
+  "ref": "6367b800878dae6d76d6535659e1312c584cd8b6",
   "version": "0.20.0"
  },
  "khitkrub": {
   "repo": "chanonss/khitkrub-web-source",
-  "ref": "2799cef950b78f11b853a6a3b90cf8cffc9bff91",
-  "version": "0.7.2"
+  "ref": "08cf872128e790cf855d9921af1066cd97fcbbf8",
+  "version": "0.8.0"
  },
  "phutkrub": {
   "repo": "chanonss/phutkrub-web-source",
-  "ref": "ace6b33c737df2f692d26a782e28e5e55d26b4a8",
-  "version": "0.9.1"
+  "ref": "eb491b5d65b0cdb15b80c0bb8037cba8e6605573",
+  "version": "0.10.0"
  },
  "craft_fonts": {
   "repo": "storytold/craft-fonts",
