@@ -1,7 +1,8 @@
 //! Headless screenshots of the Start Center (offscreen wgpu, so it works with a locked screen).
 //!
 //! `cargo run --example shot -- OUT_DIR [FILE…]`: writes `start-light.png`, `start-dark.png` and
-//! `start-narrow.png`; the FILEs are shown as recent files. With `KRUBOFFICE_SHOT_UPDATES=1` it
+//! `start-narrow.png`, `settings.png` and `about.png`; the FILEs are shown as recent files (the
+//! first one pinned). With `KRUBOFFICE_SHOT_UPDATES=1` it
 //! also writes the update check's states: `update-question`, `update-available`,
 //! `update-available-dark`, `update-latest-en` and `update-narrow`.
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use std::path::PathBuf;
 use eframe::egui;
 use kruboffice::dispatch::{App, app_for};
 use kruboffice::recent::Recent;
-use kruboffice::start::StartCenter;
+use kruboffice::start::{StartCenter, Window};
 use kruboffice::updates::{Lang, Platform, Settings, Updates};
 
 /// The update check in one of its states, with no network.
@@ -52,14 +53,20 @@ fn main() {
             Some(Recent { path: p, app, modified })
         })
         .collect();
-    let mut shots = vec![("start-light", 820.0, 680.0, false, ""), ("start-dark", 820.0, 680.0, true, ""), ("start-narrow", 560.0, 660.0, false, "")];
+    let mut shots = vec![
+        ("start-light", 1040.0, 650.0, false, ""),
+        ("start-dark", 1040.0, 650.0, true, ""),
+        ("start-narrow", 640.0, 440.0, false, ""),
+        ("settings", 1040.0, 650.0, false, "available"),
+        ("about", 1040.0, 650.0, false, ""),
+    ];
     if std::env::var_os("KRUBOFFICE_SHOT_UPDATES").is_some() {
         shots.extend([
-            ("update-question", 820.0, 760.0, false, "question"),
-            ("update-available", 820.0, 760.0, false, "available"),
-            ("update-available-dark", 820.0, 760.0, true, "available"),
-            ("update-latest-en", 820.0, 760.0, false, "latest-en"),
-            ("update-narrow", 560.0, 760.0, false, "question"),
+            ("update-question", 1040.0, 650.0, false, "question"),
+            ("update-available", 1040.0, 650.0, false, "available"),
+            ("update-available-dark", 1040.0, 650.0, true, "available"),
+            ("update-latest-en", 1040.0, 650.0, false, "latest-en"),
+            ("update-narrow", 640.0, 440.0, false, "question"),
         ]);
     }
     for (name, w, h, dark, state) in shots {
@@ -69,6 +76,12 @@ fn main() {
             app = app.with_updates(u, lang);
         }
         app.show_with(recent.clone());
+        app.pin_for_show(recent.first().map(|r| vec![r.path.clone()]).unwrap_or_default());
+        app.open_window(match name {
+            "settings" => Some(Window::Settings),
+            "about" => Some(Window::About),
+            _ => None,
+        });
         let mut fonts_done = false;
         let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(2.0).wgpu().build_ui_state(
             move |ui, app: &mut StartCenter| {

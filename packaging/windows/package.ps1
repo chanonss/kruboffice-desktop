@@ -6,7 +6,7 @@
 #   dotnet tool install --global wix --version 5.0.2
 #   wix extension add -g WixToolset.UI.wixext/5.0.2
 #   wix extension add -g WixToolset.Util.wixext/5.0.2
-# Writes dist\KrubOffice-<version>-windows-x64.msi (unsigned).
+# Writes dist\KrubOffice-<version>-windows-x64.msi (unsigned) and dist\KrubOffice-<version>-windows-x64-portable.zip.
 param(
     [Parameter(Mandatory = $true)][string]$KhianKrub,
     [Parameter(Mandatory = $true)][string]$KhitKrub,
@@ -92,3 +92,23 @@ wix build $Wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext `
     -d "Version=$Version" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'packaging\windows\kruboffice.ico')" -d "LicenseRtf=$Rtf" -o $Msi
 if ($LASTEXITCODE -ne 0) { throw 'wix build failed' }
 Write-Host "Built $Msi"
+
+# The portable zip: the same files in a KrubOffice folder with a `portable` marker beside kruboffice.exe, so
+# KrubOffice and the three programs keep their settings, recent files and recovery copies in a data folder
+# beside them (data\KrubOffice, data\KhianKrub, data\KhitKrub, data\PhutKrub) instead of %APPDATA%: it runs
+# from a USB stick without installing. No file types or Start menu entry. The MSI ships no marker.
+$PortableName = "KrubOffice-$Version-windows-x64-portable"
+$PortableRoot = Join-Path $Dist 'portable-stage'
+$Portable = Join-Path $PortableRoot 'KrubOffice'
+Remove-Item -Recurse -Force $PortableRoot -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $PortableRoot | Out-Null
+Copy-Item -Recurse $Stage $Portable
+Set-Content -Encoding utf8 -Path (Join-Path $Portable 'portable') -Value @(
+    'This file turns on portable mode: KrubOffice and its programs keep their settings in the data folder next to them.',
+    'Delete it to keep settings in %APPDATA% instead.',
+    'ไฟล์นี้เปิดโหมดพกพา: KrubOffice และทั้งสามโปรแกรมเก็บการตั้งค่าไว้ในโฟลเดอร์ data ข้างโปรแกรม ลบไฟล์นี้ถ้าต้องการเก็บไว้ในเครื่องตามปกติ'
+)
+$Zip = Join-Path $Dist "$PortableName.zip"
+Remove-Item -Force $Zip -ErrorAction SilentlyContinue
+Compress-Archive -Path $Portable -DestinationPath $Zip
+Write-Host "Built $Zip"

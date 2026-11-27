@@ -416,9 +416,7 @@ impl Lang {
     /// The language the programs use, read from their `ui.json` (`"language": "en"`).
     pub fn of_programs(root: &Path) -> Lang {
         for app in crate::dispatch::App::ALL {
-            let folder =
-                if cfg!(any(target_os = "macos", windows)) { app.settings_folder().to_string() } else { app.settings_folder().to_ascii_lowercase() };
-            match read_json(&root.join(folder).join("ui.json")).get("language").and_then(Value::as_str) {
+            match read_json(&crate::recent::settings_dir(root, app).join("ui.json")).get("language").and_then(Value::as_str) {
                 Some("en") => return Lang::English,
                 Some("th") => return Lang::Thai,
                 _ => {}
