@@ -19,7 +19,7 @@ mod designer;
 mod dock_tests;
 mod effect_presets;
 mod format_shape;
-mod shape_pane;
+pub(crate) mod shape_pane;
 mod smartart;
 mod thesaurus;
 

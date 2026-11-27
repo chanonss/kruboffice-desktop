@@ -120,6 +120,11 @@ pub struct Values {
     pub rotation: f32,
     /// Keep ratio, the app's remembered choice.
     pub keep_ratio: bool,
+    /// A rounded rectangle's corner radius, in the display unit; `None` for any other shape (no
+    /// Corner radius row).
+    pub corner: Option<f32>,
+    /// The largest corner radius (half the shorter side, round ends), in the display unit.
+    pub corner_max: f32,
 }
 
 /// A change the person made, for the app to run as its own command.
@@ -143,6 +148,8 @@ pub enum Edit {
     Height(f32),
     KeepRatio(bool),
     Rotation(f32),
+    /// A rounded rectangle's corner radius, in the display unit (0: square corners).
+    CornerRadius(f32),
     FlipVertical,
     FlipHorizontal,
     /// left, center, right, top, middle or bottom.
@@ -192,7 +199,7 @@ pub const ICONS: [&str; 12] = [
 ];
 
 /// The English names the module shows, for the apps' translation tables.
-pub const NAMES: [&str; 50] = [
+pub const NAMES: [&str; 51] = [
     "Fill and Line",
     "Effects",
     "Size and Position",
@@ -224,6 +231,7 @@ pub const NAMES: [&str; 50] = [
     "Height:",
     "Keep ratio",
     "Rotation:",
+    "Corner radius:",
     "Flip:",
     "Vertically",
     "Horizontally",
@@ -244,6 +252,31 @@ pub const NAMES: [&str; 50] = [
     "Bring to Front",
     "Send to Back",
 ];
+
+/// The label shown beside a rounded rectangle's corner handle while it is dragged: the row's
+/// name and `number`, the app's own text for the Corner radius box ("0.85 cm"), so the two read
+/// the same.
+pub fn corner_readout_text(tr: &dyn Fn(&str) -> String, number: &str) -> String {
+    format!("{} {number}", tr("Corner radius"))
+}
+
+/// Draw `text` as a small dark label beside the corner handle at `at` (screen points): above and
+/// to the right of it, below it where there is no room above, kept inside the painter's clip.
+pub fn paint_corner_readout(painter: &egui::Painter, at: egui::Pos2, text: String) {
+    let white = egui::Color32::WHITE;
+    let galley = painter.layout_no_wrap(text, egui::FontId::proportional(12.0), white);
+    let (pad, gap) = (5.0, 10.0);
+    let size = galley.size() + vec2(pad * 2.0, pad);
+    let clip = painter.clip_rect();
+    let mut min = egui::pos2(at.x + gap, at.y - gap - size.y);
+    if min.y < clip.min.y {
+        min.y = at.y + gap;
+    }
+    min.x = min.x.min(clip.max.x - size.x).max(clip.min.x);
+    let rect = egui::Rect::from_min_size(min, size);
+    painter.rect_filled(rect, egui::CornerRadius::same(4), egui::Color32::from_rgba_unmultiplied(28, 28, 32, 232));
+    painter.galley(rect.min + vec2(pad, pad / 2.0), galley, white);
+}
 
 /// A section under a shaded heading that folds it ([`crate::pane_ui::section`]); `key` keeps
 /// its folding apart from the other sections'.
@@ -543,6 +576,27 @@ fn size(ui: &mut Ui, v: &Values, caps: Caps, tr: &dyn Fn(&str) -> String, host: 
                 Number { key: "rotation", label, name: &name, value: v.rotation, range: -360.0..=360.0, speed: 1.0, suffix: "°", enabled: true },
             ) {
                 edits.push(Edit::Rotation(r));
+            }
+            ui.end_row();
+        }
+        if let Some(c) = v.corner {
+            let label = ui.label(tr("Corner radius:")).id;
+            let name = tr("Corner radius");
+            let max = v.corner_max.max(0.0);
+            if let Some(r) = host.number(
+                ui,
+                Number {
+                    key: "corner",
+                    label,
+                    name: &name,
+                    value: c.clamp(0.0, max),
+                    range: 0.0..=max,
+                    speed: 0.01,
+                    suffix: &v.size_suffix,
+                    enabled: true,
+                },
+            ) {
+                edits.push(Edit::CornerRadius(r));
             }
             ui.end_row();
         }

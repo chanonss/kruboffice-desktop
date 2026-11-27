@@ -109,7 +109,7 @@ fn a_load_of_a_damaged_package_gives_the_golden_report() {
     let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for i in 0..z.len() {
         let Ok(f) = z.by_index_raw(i) else { continue };
-        if f.name() != "media/1" && f.name() != "chart-parts/1" {
+        if f.name().unwrap() != "media/1" && f.name().unwrap() != "chart-parts/1" {
             out.raw_copy_file(f).unwrap_or_else(|e| panic!("{e}"));
         }
     }

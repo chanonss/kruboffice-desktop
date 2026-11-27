@@ -159,6 +159,14 @@ pub enum Drag {
         rect: Rect,
         stepped: bool,
     },
+    /// Dragging a rounded rectangle's corner handle along the top edge of `rect` (its screen rect
+    /// as the drag began, turned `deg`): its corner radius follows.
+    Corner {
+        obj: gridcraft_engine::model::ObjRef,
+        rect: Rect,
+        deg: f32,
+        stepped: bool,
+    },
     /// Dragging a reference of the formula being edited (`ref_drag`): `span` is its bytes in the
     /// text, which the drag rewrites as the pointer moves.
     FormulaRef {

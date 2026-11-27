@@ -12,6 +12,10 @@ Generated-in-code art is original and has no file to list: the UI icons not take
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
+| `vendor/krilla/icc/sGrey-v2-magic.icc` | Clinton Ingram | https://github.com/LaurenzV/krilla/blob/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/crates/krilla/icc/sGrey-v2-magic.icc (via storytold/craft-libs `vendor/krilla`) | CC0-1.0 | PDF writer colour profile, unchanged |
+| `vendor/krilla/icc/sGrey-v4.icc` | Clinton Ingram | https://github.com/LaurenzV/krilla/blob/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/crates/krilla/icc/sGrey-v4.icc (via storytold/craft-libs `vendor/krilla`) | CC0-1.0 | PDF writer colour profile, unchanged |
+| `vendor/krilla/icc/sRGB-v2-magic.icc` | Clinton Ingram | https://github.com/LaurenzV/krilla/blob/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/crates/krilla/icc/sRGB-v2-magic.icc (via storytold/craft-libs `vendor/krilla`) | CC0-1.0 | PDF writer colour profile, unchanged |
+| `vendor/krilla/icc/sRGB-v4.icc` | Clinton Ingram | https://github.com/LaurenzV/krilla/blob/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/crates/krilla/icc/sRGB-v4.icc (via storytold/craft-libs `vendor/krilla`) | CC0-1.0 | PDF writer colour profile, unchanged |
 | `docs/images/khiankrub-web-recovery.png` | Chanon Sarasuk with Codex | Actual Thai recovery manager in the web app, captured in headless Chrome with original synthetic document text | MIT OR Apache-2.0 | Browser-local recovery UI; no Microsoft assets |
 | `docs/images/khiankrub-web-drafts.png` | Chanon Sarasuk | Actual KhianKrub web start screen captured in headless Chrome on a fresh profile after writing two synthetic drafts: the ฉบับร่างในอุปกรณ์นี้ section with "(ฉบับร่าง)" rows and the storage note | MIT OR Apache-2.0 | README screenshot of drafts on this device; no Microsoft assets |
 | `docs/images/khiankrub-web-draft-title.png` | Chanon Sarasuk | Actual KhianKrub web title bar and ribbon captured in headless Chrome: a new document named "(ฉบับร่าง) — บันทึกในอุปกรณ์นี้แล้ว" | MIT OR Apache-2.0 | README screenshot of the draft title bar; no Microsoft assets |

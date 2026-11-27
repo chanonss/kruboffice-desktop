@@ -20,7 +20,7 @@ macro_rules! tl {
 /// PhutKrub's own version number, shown in File › About and read by `packaging/web/publish.sh`.
 /// The DeckCraft version this fork is based on is in the crates' own `Cargo.toml` and in
 /// `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.9.1";
+pub const APP_VERSION: &str = "0.10.1";
 
 /// DeckCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.

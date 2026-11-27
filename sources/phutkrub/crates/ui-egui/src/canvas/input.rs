@@ -114,6 +114,14 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
         let _ = app.session.pointer(ev(PointerKind::Move));
     }
     let secondary = resp.hovered() && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+    // A drag that starts on a locked object moves nothing: say so on the object (owner, 2026-11-23).
+    let on_locked = match &app.session.tool.hover {
+        Some(Hit::Shape { id, .. } | Hit::Frame { id }) => app.session.active().and_then(|d| d.shape(*id)).is_some_and(|s| s.locked),
+        _ => false,
+    };
+    if on_locked && resp.drag_started_by(egui::PointerButton::Primary) {
+        krub_icons::object_lock::ask();
+    }
     let r = if secondary && !app.session.tool.dragging() {
         // Select what's under the pointer before the context menu opens (on release).
         app.session.pointer(ev(PointerKind::ContextClick))
@@ -148,6 +156,7 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
             (_, Some(Hit::TableColumn { .. })) => egui::CursorIcon::ResizeColumn,
             (_, Some(Hit::TableRow { .. })) => egui::CursorIcon::ResizeRow,
             (_, Some(Hit::Adjust { .. } | Hit::Warp { .. } | Hit::LineEnd { .. })) => egui::CursorIcon::PointingHand,
+            (_, Some(Hit::Shape { text: true, .. })) if on_locked => egui::CursorIcon::Default,
             (_, Some(Hit::Shape { text: true, .. })) => {
                 if app.session.active().is_some_and(|d| d.selection.text.is_some()) {
                     egui::CursorIcon::Text
@@ -155,6 +164,7 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
                     egui::CursorIcon::Move
                 }
             }
+            (_, Some(Hit::Shape { .. } | Hit::Frame { .. })) if on_locked => egui::CursorIcon::Default,
             (_, Some(Hit::Shape { .. } | Hit::Frame { .. })) => egui::CursorIcon::Move,
             _ => match app.session.tool.guide_drag.map(|g| g.0).or(app.session.tool.guide_hover) {
                 Some(i) if app.session.active().and_then(|d| d.doc.guides.get(i)).is_some_and(|g| g.vertical) => egui::CursorIcon::ResizeHorizontal,
@@ -164,7 +174,8 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
         }
     };
     if resp.hovered() {
-        ui.ctx().set_cursor_icon(cursor);
+        // While a locked object's refusal shows, the pointer says "not allowed" (owner, 2026-11-23).
+        ui.ctx().set_cursor_icon(if krub_icons::object_lock::flashing(ui.ctx()) { egui::CursorIcon::NotAllowed } else { cursor });
     }
     if app.session.tool.dragging() {
         ui.ctx().request_repaint();

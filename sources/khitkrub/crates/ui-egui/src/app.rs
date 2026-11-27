@@ -253,22 +253,26 @@ impl SheetApp {
             widgets::notice_bar(self, ui);
             // Python mode edits only in the formula bar: it shows while a Python edit is open,
             // also when the preference hides it.
+            // Accent colours (style A, owner 2026-11-25), as in KhianKrub: the formula bar, the
+            // status bar, the sheet tabs and the side panes. Disabled icons stay grey.
+            let colour = !t.flat_icons;
             if self.session.prefs.formula_bar || self.editor.as_ref().is_some_and(|e| e.python) {
-                formula_bar::show(self, ui);
+                krub_icons::tabler_colour::with_colour(&ctx, colour, || formula_bar::show(self, ui));
             }
             if self.ui.status_bar {
-                tabs::status_bar(self, ui);
+                krub_icons::tabler_colour::with_colour(&ctx, colour, || tabs::status_bar(self, ui));
             }
-            tabs::sheet_tabs(self, ui);
+            krub_icons::tabler_colour::with_colour(&ctx, colour, || tabs::sheet_tabs(self, ui));
             pivot_pane::show(self, ui);
-            panes::show(self, ui);
+            krub_icons::tabler_colour::with_colour(&ctx, colour, || panes::show(self, ui));
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.grid_bg)).show(ui, |ui| {
                 let g0 = now_ms();
                 grid::show(self, ui);
                 self.perf.grid_ms = now_ms() - g0;
             });
         }
-        dialogs::show(self, &ctx);
+        // The dialogs and the macro editor too (style A, owner 2026-11-25).
+        krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || dialogs::show(self, &ctx));
         macro_ui::forget_closed_editor(self);
         macro_ui::question_box(self, &ctx);
         widgets::message_box(self, &ctx);

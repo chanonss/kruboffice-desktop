@@ -495,3 +495,15 @@ fn custom_props_set_get_remove() {
     assert!(!d.remove_custom_prop("other"));
     assert_eq!(d.custom_props.len(), 1);
 }
+
+#[test]
+fn word_count_splits_thai_into_words() {
+    // Thai has no spaces between words: each dictionary word counts, as in Word.
+    assert_eq!(count_words("ภาษาไทยไม่มีการเว้นวรรค"), 6);
+    // Spaces between Thai phrases and English words still separate words.
+    assert_eq!(count_words("ผมชอบ KhianKrub มาก"), 4);
+    let d = Document::from_text("สวัสดีครับ\nHello world\n");
+    assert_eq!(d.word_count(), 4);
+    // English counting is unchanged.
+    assert_eq!(count_words("don't e-mail 42"), 3);
+}

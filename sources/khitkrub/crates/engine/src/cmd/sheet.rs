@@ -126,7 +126,15 @@ fn shift_anchor(sh: &Sheet, a: Anchor, corner: (u32, u32, f32, f32), axis: Axis,
     let y1 = sh.row_top(nr) + a.dy as f64;
     let xn = sh.col_left(nbc) + tdx as f64;
     let yn = sh.row_top(nbr) + tdy as f64;
-    Anchor { cell: CellRef::new(nr, nc), dx: a.dx, dy: a.dy, width: (xn - x1).max(0.0) as f32, height: (yn - y1).max(0.0) as f32, mode: a.mode }
+    Anchor {
+        locked: a.locked,
+        cell: CellRef::new(nr, nc),
+        dx: a.dx,
+        dy: a.dy,
+        width: (xn - x1).max(0.0) as f32,
+        height: (yn - y1).max(0.0) as f32,
+        mode: a.mode,
+    }
 }
 
 /// Shifts everything that has a position on the sheet for an insert/delete.

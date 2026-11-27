@@ -26,9 +26,11 @@ pub fn settings_dir() -> Option<PathBuf> {
 pub const PORTABLE_MARKER: &str = "portable";
 
 /// Portable mode (Windows, the portable zip): with a file named `portable` next to
-/// `KhianKrub.exe`, every setting, log, dictionary word and recovery copy lives in a `data`
-/// folder beside the program instead of `%APPDATA%`, so the app runs from a USB stick and
-/// leaves nothing on the computer. The installed version has no marker and is unchanged.
+/// `KhianKrub.exe`, every setting, log, dictionary word and recovery copy lives in
+/// `data\KhianKrub` beside the program instead of `%APPDATA%`, so the app runs from a USB stick
+/// and leaves nothing on the computer. Each KrubOffice program has its own folder under `data`,
+/// since the KrubOffice portable zip puts all three in one folder (the Start Center reads them
+/// there). The installed version has no marker and is unchanged.
 pub fn portable_dir() -> Option<PathBuf> {
     if !cfg!(windows) {
         return None;
@@ -38,7 +40,7 @@ pub fn portable_dir() -> Option<PathBuf> {
 }
 
 fn portable_dir_beside(program_dir: &Path) -> Option<PathBuf> {
-    program_dir.join(PORTABLE_MARKER).is_file().then(|| program_dir.join("data"))
+    program_dir.join(PORTABLE_MARKER).is_file().then(|| program_dir.join("data").join("KhianKrub"))
 }
 
 /// WordCraft's settings folder, which KhianKrub shared until 0.19.
@@ -219,7 +221,7 @@ mod tests {
         assert_eq!(portable_dir_beside(&root), None);
         std::fs::remove_dir_all(root.join(PORTABLE_MARKER)).unwrap();
         std::fs::write(root.join(PORTABLE_MARKER), "").unwrap();
-        assert_eq!(portable_dir_beside(&root), Some(root.join("data")));
+        assert_eq!(portable_dir_beside(&root), Some(root.join("data").join("KhianKrub")));
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -175,7 +175,7 @@ mod tests {
                 let mut f = z.by_index(i).unwrap();
                 let mut v = Vec::new();
                 std::io::Read::read_to_end(&mut f, &mut v).unwrap();
-                (f.name().to_string(), v)
+                (f.name().unwrap().to_string(), v)
             })
             .collect()
     }

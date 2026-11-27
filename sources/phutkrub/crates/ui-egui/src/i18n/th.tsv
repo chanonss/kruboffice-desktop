@@ -1256,6 +1256,8 @@
 	No Shadow	ไม่มีเงา
 	Radius:	รัศมี:
 	Rotation:	การหมุน:
+	Corner radius:	รัศมีมุม:
+	Corner radius	รัศมีมุม
 	Flip:	พลิก:
 	Vertically	แนวตั้ง
 	Horizontally	แนวนอน
@@ -1658,3 +1660,7 @@ shapes	Freeform: Scribble	รูปอิสระ: ลายเส้น
 	Last chance!	โอกาสสุดท้ายแล้วนะ!
 	Once they're gone, they're gone for good. This can't be undone. If there's anything you'd like to keep, download a copy first. Delete all your drafts now?	ลบแล้วหายไปเลยนะ กู้คืนไม่ได้แล้ว ถ้ามีงานไหนอยากเก็บไว้ ดาวน์โหลดสำเนาไว้ก่อนได้เลย จะลบฉบับร่างทั้งหมดตอนนี้เลยไหม?
 	Delete them all	ลบทั้งหมดเลย
+	Unlock	ปลดล็อก
+	Locked. Unlock it from the right-click menu.	ล็อกอยู่ ปลดล็อกได้จากเมนูคลิกขวา
+	Locked: it can't be moved, resized or edited.	ล็อกอยู่ ย้าย ปรับขนาด และแก้ไขไม่ได้
+	Lock it so it can't be moved, resized or edited	ล็อกไว้ไม่ให้ย้าย ปรับขนาด หรือแก้ไข

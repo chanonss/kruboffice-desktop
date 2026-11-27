@@ -403,6 +403,19 @@ pub(super) fn object_menu(app: &mut SheetApp, ui: &mut egui::Ui) {
             if kind == "image" {
                 items.extend([("Save as Picture…", "ui:savePicture"), ("-", "")]);
             }
+            // Lock / Unlock (owner, 2026-11-23), before Delete.
+            let locked = app
+                .session
+                .active()
+                .and_then(|d| d.wb.active())
+                .and_then(|sh| {
+                    sh.object_anchor(gridcraft_engine::model::ObjRef::new(
+                        gridcraft_engine::model::ObjKind::parse(kind).unwrap_or(gridcraft_engine::model::ObjKind::Shape),
+                        id,
+                    ))
+                })
+                .is_some_and(|a| a.locked);
+            items.push((if locked { "Unlock" } else { "Lock" }, "ui:lock"));
             items.push(("Delete", "object.delete"));
             if kind == "chart" {
                 items.extend([("-", ""), ("Select Data…", "ui:selectData"), ("Format Chart Area…", "ui:formatChart")]);
@@ -422,6 +435,7 @@ pub(super) fn object_menu(app: &mut SheetApp, ui: &mut egui::Ui) {
                         "ui:assignAction" => app.open_dialog("assignAction", json!({"id": id})),
                         "ui:formatControl" => app.open_dialog("formatControl", json!({"id": id})),
                         "ui:savePicture" => app.save_picture(id),
+                        "ui:lock" => app.run_or_alert("shape.lock", json!({"kind": kind, "id": id})),
                         _ => {
                             app.run_or_alert("object.delete", json!({"kind": kind, "id": id}));
                             app.selected_object = None;

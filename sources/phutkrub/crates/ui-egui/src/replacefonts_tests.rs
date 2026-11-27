@@ -72,7 +72,8 @@ fn ribbon_button_opens_the_dialog_and_replaces() {
         d.fields.insert("from".into(), "Comic Neue".into());
         d.fields.insert("to".into(), "Lato".into());
     }
-    h.run_steps(2);
+    // Three frames: the dialog fits its new height, then centres again a frame later.
+    h.run_steps(3);
     // The ribbon has a Replace button too (Find and Replace); the dialog's is drawn last.
     h.query_all_by_label("Replace").last().expect("the dialog's Replace button").click();
     h.run_steps(3);

@@ -508,6 +508,7 @@ pub fn search_dirs() -> Vec<PathBuf> {
     if let Some(v) = std::env::var_os("DECKCRAFT_DICTIONARIES") {
         out.extend(std::env::split_paths(&v));
     }
+    out.extend(crate::portable::data_dir().map(|d| d.join("Dictionaries")));
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if cfg!(target_os = "macos") {
         out.extend(home.iter().map(|h| h.join("Library/Application Support/PhutKrub/Dictionaries")));
@@ -633,6 +634,9 @@ pub fn user_dictionary_path() -> Option<PathBuf> {
         && let Some(p) = p.clone()
     {
         return Some(p);
+    }
+    if let Some(d) = crate::portable::data_dir() {
+        return Some(d.join("Dictionaries").join("user.dic"));
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let dir = if cfg!(target_os = "macos") {

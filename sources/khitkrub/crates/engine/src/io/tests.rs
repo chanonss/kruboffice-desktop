@@ -139,7 +139,15 @@ fn html_export_embeds_images_as_data_uris() {
     let mut wb = Workbook::new();
     wb.sheet_mut(0).unwrap().images.push(gridcraft_model::Image {
         id: 1,
-        anchor: gridcraft_model::Anchor { cell: CellRef::new(0, 0), dx: 0.0, dy: 0.0, width: 72.0, height: 36.0, mode: Default::default() },
+        anchor: gridcraft_model::Anchor {
+            locked: false,
+            cell: CellRef::new(0, 0),
+            dx: 0.0,
+            dy: 0.0,
+            width: 72.0,
+            height: 36.0,
+            mode: Default::default(),
+        },
         data: vec![1, 2, 3].into(),
         mime: "image/png".into(),
         alt: "a \"logo\"".into(),
@@ -161,7 +169,15 @@ fn html_export_places_images_at_their_anchor_using_sheet_geometry() {
     sh.rows.insert(1, gridcraft_model::LineInfo { size: Some(30.0), ..Default::default() });
     sh.images.push(gridcraft_model::Image {
         id: 1,
-        anchor: gridcraft_model::Anchor { cell: CellRef::new(3, 2), dx: 5.0, dy: 7.0, width: 10.0, height: 20.0, mode: Default::default() },
+        anchor: gridcraft_model::Anchor {
+            locked: false,
+            cell: CellRef::new(3, 2),
+            dx: 5.0,
+            dy: 7.0,
+            width: 10.0,
+            height: 20.0,
+            mode: Default::default(),
+        },
         data: vec![1].into(),
         mime: "image/png".into(),
         alt: String::new(),
@@ -181,6 +197,7 @@ fn book_with_picture(anchor: &str, cell_at: (u32, u32)) -> Workbook {
     sh.images.push(gridcraft_model::Image {
         id: 1,
         anchor: gridcraft_model::Anchor {
+            locked: false,
             cell: CellRef::parse(anchor).unwrap(),
             dx: 0.0,
             dy: 0.0,
@@ -417,8 +434,12 @@ fn full_sync_tolerates_apple_enotsup() {
     use std::io::Error;
     let enotsup = Error::from_raw_os_error(45);
     assert!(flush_unsupported_on(&enotsup, true, true), "ENOTSUP on Apple");
-    assert!(!flush_unsupported_on(&enotsup, true, false), "45 on other Unix");
-    assert!(!flush_unsupported_on(&enotsup, false, false), "45 on Windows");
+    // Rust 1.100 and later map 45 to `Unsupported` on an Apple host, where it is ENOTSUP, so
+    // 45 can only be checked as another platform's error off Apple.
+    if enotsup.kind() != std::io::ErrorKind::Unsupported {
+        assert!(!flush_unsupported_on(&enotsup, true, false), "45 on other Unix");
+        assert!(!flush_unsupported_on(&enotsup, false, false), "45 on Windows");
+    }
     assert!(flush_unsupported_on(&Error::from_raw_os_error(25), true, true), "ENOTTY on Apple");
     assert!(!flush_unsupported_on(&Error::from_raw_os_error(5), true, true), "EIO on Apple");
     assert!(!flush_unsupported_on(&Error::from_raw_os_error(28), true, true), "ENOSPC on Apple");

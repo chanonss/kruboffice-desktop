@@ -128,6 +128,13 @@ foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE'
   $p = Join-Path $Root $f
   if (Test-Path $p) { Copy-Item $p $Portable }
 }
+# Portable mode: this file next to the program keeps settings, logs, dictionary words and
+# recovery copies in a `data` folder beside it instead of %APPDATA%. The MSI ships no marker.
+Set-Content -Encoding utf8 -Path (Join-Path $Portable 'portable') -Value @(
+  'This file turns on portable mode: settings are kept in the data folder next to the program.',
+  'Delete it to keep settings in %APPDATA% instead.',
+  'ไฟล์นี้เปิดโหมดพกพา: การตั้งค่าจะเก็บไว้ในโฟลเดอร์ data ข้างโปรแกรม ลบไฟล์นี้ถ้าต้องการเก็บไว้ในเครื่องตามปกติ'
+)
 # Builds made with craft-fonts (CRAFT_FONTS_DIR) embed its fonts: ship their licences.
 if ($env:CRAFT_FONTS_DIR) {
   foreach ($ofl in Get-ChildItem -Path (Join-Path $env:CRAFT_FONTS_DIR 'fonts\*\OFL.txt') -ErrorAction SilentlyContinue) {

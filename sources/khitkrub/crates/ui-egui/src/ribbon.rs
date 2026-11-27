@@ -27,6 +27,7 @@ mod title_bar;
 mod view;
 
 use automate::automate;
+pub(crate) use contextual::corner_number;
 use contextual::{chart_design, table_design};
 pub(crate) use controls::{ComboResult, editable_combo};
 use controls::{act, keytip};
@@ -278,7 +279,11 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                         let _row = ui.horizontal_top(|ui| {
                             ui.set_min_height(crate::widgets::CONTENT_H);
                             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                            match app.ui.ribbon_tab.as_str() {
+                            // Accent colours on the ribbon's icons (style A, owner 2026-11-25), as in
+                            // KhianKrub; flat icons on the band and disabled buttons stay one colour.
+                            let ctx = ui.ctx().clone();
+                            let colour = !t.flat_icons;
+                            krub_icons::tabler_colour::with_colour(&ctx, colour, || match app.ui.ribbon_tab.as_str() {
                                 "Home" => home(app, ui),
                                 "Insert" => insert(app, ui),
                                 "Draw" => draw(app, ui),
@@ -290,7 +295,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                                 "Automate" => automate(app, ui),
                                 crate::paper_view::TAB => crate::paper_view::ribbon_tab(app, ui),
                                 _ => home(app, ui),
-                            }
+                            });
                         });
                         // A group taller than the two rows makes the whole row taller.
                         #[cfg(test)]
@@ -463,6 +468,29 @@ pub(crate) fn theme_colors_for(app: &SheetApp) -> [u32; 12] {
 /// An object pane's commands: the former contextual tab's controls, wrapped to the pane's width,
 /// with a heading for each group.
 pub fn object_pane(app: &mut SheetApp, ui: &mut Ui, id: &str) {
+    // A selected object's Lock (owner, 2026-11-23): while it is locked, a gold line with Unlock on
+    // top and the rest of the pane greyed; the Lock tile stays live.
+    let lock = matches!(id, "chart" | "picture" | "shape")
+        .then_some(app.selected_object)
+        .flatten()
+        .and_then(|o| Some((o, app.session.active()?.wb.active()?.object_anchor(o)?.locked)));
+    let locked = lock.is_some_and(|(_, l)| l);
+    if let Some((o, locked)) = lock {
+        let lang = crate::i18n::current(ui.ctx());
+        let target = json!({"kind": o.kind.name(), "id": o.id});
+        if locked && krub_icons::object_lock::pane_banner(ui, lang.tr("Locked: it can't be moved, resized or edited."), lang.tr("Unlock")) {
+            app.run_or_alert("shape.lock", json!({"kind": o.kind.name(), "id": o.id, "locked": false}));
+        }
+        let w = ui.available_width().floor();
+        if krub_icons::object_lock::lock_tile(ui, locked, lang.tr("Lock"), lang.tr("Lock it so it can't be moved, resized or edited"), w).clicked() {
+            app.run_or_alert("shape.lock", target);
+        }
+        ui.add_space(6.0);
+    }
+    ui.add_enabled_ui(!locked, |ui| object_pane_body(app, ui, id));
+}
+
+fn object_pane_body(app: &mut SheetApp, ui: &mut Ui, id: &str) {
     // The chart pane shared by the three apps (owner, 2026-11-19).
     if id == "chart" {
         crate::chart_pane::show(app, ui);

@@ -10,11 +10,21 @@ fn poly(p: &egui::Painter, pts: [Pos2; 4], stroke: Stroke) {
 fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf: Xf, t: &Tokens) {
     let sel_stroke = Stroke::new(1.0, t.selection);
     let editing = st.selection.text.clone();
+    let ctx = painter.ctx().clone();
+    let refused = krub_icons::object_lock::take_ask();
     for id in &st.selection.shapes {
         let Some(sh) = st.shape(*id) else { continue };
         let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
         let a = x.affine();
         let corners = [Point::new(0.0, 0.0), Point::new(x.w, 0.0), Point::new(x.w, x.h), Point::new(0.0, x.h)].map(|q| xf.to_screen(a * q));
+        // Locked (owner, 2026-11-23): the shared look, a grey frame and a padlock, no handles.
+        if sh.locked {
+            if refused {
+                krub_icons::object_lock::refuse(&ctx, krub_icons::object_lock::badge_rect(corners).right_top());
+            }
+            krub_icons::object_lock::paint_selected(&ctx, painter, corners);
+            continue;
+        }
         if sh.is_line() {
             let (p0, p1) = (xf.to_screen(a * Point::new(0.0, 0.0)), xf.to_screen(a * Point::new(x.w, x.h)));
             let glued = match sh.kind {
@@ -67,13 +77,6 @@ fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf:
         } else {
             poly(painter, corners, sel_stroke);
         }
-        if sh.locked && !editing_this {
-            // Locked: greyed handles that don't respond, no rotate or adjust handles.
-            for h in box_handles(&x).0 {
-                painter.circle(xf.to_screen(h), 4.0, t.text_faint, Stroke::new(1.0, t.handle_fill));
-            }
-            continue;
-        }
         if st.selection.shapes.len() == 1 || !editing_this {
             let (hs, rot) = box_handles(&x);
             let rot_s = xf.to_screen(rot);
@@ -89,6 +92,14 @@ fn selection_handles(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf:
             for hd in &geo.handles {
                 let q = xf.to_screen(a * hd.pos);
                 painter.circle(q, 4.5, Color32::from_rgb(0xFF, 0xD2, 0x3F), Stroke::new(1.0, Color32::from_rgb(0x8A, 0x6A, 0x00)));
+                // A rounded rectangle's corner handle being dragged: the radius as it changes, as
+                // the Shape pane's box shows it (owner, 2026-11-24).
+                if app.session.tool.adjusting() == Some((*id, hd.index))
+                    && let Some(n) = crate::panels::shape_pane::corner_number(app, sh, &x)
+                {
+                    let tr = |s: &str| tl!(s).to_string();
+                    krub_icons::shape_pane::paint_corner_readout(painter, q, krub_icons::shape_pane::corner_readout_text(&tr, &n));
+                }
             }
             for hd in deckcraft_engine::tools::wordart_handles(&st.doc, &st.selection, sh, x.w, x.h) {
                 let q = xf.to_screen(a * hd.pos);
@@ -157,6 +168,8 @@ pub(super) fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf:
     }
     let Some(st) = app.session.active() else { return };
     selection_handles(app, st, painter, xf, t);
+    locked_hover(app, st, painter, xf);
+    krub_icons::object_lock::show_note(ui.ctx(), tl!("Locked. Unlock it from the right-click menu."));
     text_overlays(st, ui, painter, xf, t);
     // Smart guides, marquee, previews.
     for g in &app.session.tool.guides {
@@ -290,4 +303,20 @@ fn draw_preview(app: &SlideApp, p: &egui::Painter, xf: Xf, x: Xfrm, t: &Tokens) 
         return;
     }
     crate::ribbon::paint_preset(p, r, &preset, t.accent.gamma_multiply(0.25), t.accent);
+}
+
+/// The faint padlock on a locked object under the pointer that isn't selected (owner, 2026-11-23).
+pub(super) fn locked_hover(app: &SlideApp, st: &DocState, painter: &egui::Painter, xf: Xf) {
+    let id = match &app.session.tool.hover {
+        Some(super::Hit::Shape { id, .. } | super::Hit::Frame { id }) => *id,
+        _ => return,
+    };
+    if st.selection.shapes.contains(&id) {
+        return;
+    }
+    let Some(sh) = st.shape(id).filter(|s| s.locked) else { return };
+    let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
+    let a = x.affine();
+    let corners = [Point::new(0.0, 0.0), Point::new(x.w, 0.0), Point::new(x.w, x.h), Point::new(0.0, x.h)].map(|q| xf.to_screen(a * q));
+    krub_icons::object_lock::paint_hover(painter, corners);
 }

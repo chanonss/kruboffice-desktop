@@ -132,7 +132,9 @@ pub(super) fn window<'a>(window: egui::Window<'a>, name: &str, ctx: &egui::Conte
 
 /// The width of the toolbar row of [`sort`] with its labels on one line, plus the window frame.
 fn toolbar_width(ctx: &egui::Context, lang: Language) -> f32 {
-    let style = ctx.global_style();
+    // The dialog's own spacing (`krub_icons::dialog::field_style`), not the app's.
+    let mut style = (*ctx.global_style()).clone();
+    krub_icons::dialog::field_style(&mut style);
     let painter = ctx.layer_painter(egui::LayerId::background());
     let text = |font: egui::FontId, key: &str| painter.layout_no_wrap(lang.tr(key).to_string(), font, egui::Color32::PLACEHOLDER).size().x;
     let button_font = crate::theme::ui_font(12.5);
@@ -141,8 +143,10 @@ fn toolbar_width(ctx: &egui::Context, lang: Language) -> f32 {
     let arrows = 2.0 * 24.0;
     let spacing = &style.spacing;
     let checkbox = spacing.icon_width + spacing.icon_spacing + text(egui::TextStyle::Body.resolve(&style), "My list has headers");
-    // Five buttons and the checkbox, with the gaps between them, and the window's inner margin.
-    (buttons + arrows + checkbox + 6.0 * spacing.item_spacing.x + 2.0 * style.spacing.window_margin.left as f32 + 16.0).ceil()
+    // Five buttons and the checkbox, with the gaps between them, the dialog's rim (which counts
+    // the window's margin) and the card's padding on both sides.
+    let frame = 2.0 * (krub_icons::dialog::RIM + krub_icons::dialog::CARD_PAD);
+    (buttons + arrows + checkbox + 6.0 * spacing.item_spacing.x + frame + 16.0).ceil()
 }
 
 /// The label of a column that has no header text: `Column A`, in the interface language.

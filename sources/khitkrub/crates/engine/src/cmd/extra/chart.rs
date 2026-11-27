@@ -11,7 +11,12 @@ fn find_chart(s: &Session, p: &Json) -> Result<(usize, usize)> {
         Some(id) => sh.charts.iter().position(|c| c.id == id),
         None => sh.charts.len().checked_sub(1),
     };
-    idx.map(|i| (si, i)).ok_or_else(|| bad("chart", "no chart on this sheet"))
+    let i = idx.ok_or_else(|| bad("chart", "no chart on this sheet"))?;
+    // A locked chart stays as it is (owner, 2026-11-23).
+    if sh.charts.get(i).is_some_and(|c| c.anchor.locked) {
+        return Err(bad("chart", crate::cmd::controls::OBJECT_LOCKED));
+    }
+    Ok((si, i))
 }
 
 fn with_chart(s: &mut Session, p: &Json, f: impl FnOnce(&mut Chart) -> Result<()>) -> Result<Json> {

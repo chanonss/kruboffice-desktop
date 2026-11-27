@@ -200,7 +200,11 @@ pub fn question_dialog(app: &mut SheetApp, ui: &mut Ui, d: &mut Dialog, open: &m
         .unwrap_or_default();
     let mut answer = None;
     let lang = crate::i18n::current(ui.ctx());
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
+    // One row high: a right-to-left layout straight in the window takes all the height left.
+    let row = egui::vec2(ui.available_width(), krub_icons::dialog::FIELD_H);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
         if ui.button(format!(" {} ", lang.tr("Cancel"))).clicked() {
             *open = false;
         }
@@ -413,8 +417,11 @@ pub fn assign_dialog(app: &mut SheetApp, ui: &mut Ui, d: &mut Dialog, open: &mut
 /// (OK clicked, Cancel clicked).
 fn ok_cancel(ui: &mut Ui, enabled: bool) -> (bool, bool) {
     let (mut ok, mut cancel) = (false, false);
-    ui.add_space(8.0);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
+    // One row high: a right-to-left layout straight in the window takes all the height left.
+    let row = egui::vec2(ui.available_width(), krub_icons::dialog::FIELD_H);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let t = Tokens::get(ui.ctx());
         let lang = crate::i18n::current(ui.ctx());
         ok = ui

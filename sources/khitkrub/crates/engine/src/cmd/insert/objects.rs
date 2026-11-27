@@ -79,6 +79,7 @@ pub(super) fn insert_picture(s: &mut Session, p: &Json) -> Result<Json> {
     let img = Image {
         id,
         anchor: Anchor {
+            locked: false,
             cell: at,
             dx: 0.0,
             dy: 0.0,
@@ -157,6 +158,7 @@ pub(super) fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
         id,
         kind,
         anchor: Anchor {
+            locked: false,
             cell: at,
             dx: 0.0,
             dy: 0.0,
@@ -191,6 +193,9 @@ pub(super) fn shape_set_text(s: &mut Session, p: &Json) -> Result<Json> {
     let sheet = d.wb.active_sheet();
     let sh = d.wb.active().ok_or_else(|| bad("shape.setText", "no such text box"))?;
     let shape = sh.shapes.iter().find(|shape| shape.id == id).ok_or_else(|| bad("shape.setText", "no such text box"))?;
+    if shape.anchor.locked {
+        return Err(bad("shape.setText", crate::cmd::controls::OBJECT_LOCKED));
+    }
     if !matches!(shape.kind, ShapeKind::TextBox | ShapeKind::WordArt) {
         return Err(bad("shape.setText", "the shape is not a text box"));
     }
@@ -266,6 +271,25 @@ pub(super) fn save_picture(s: &mut Session, p: &Json) -> Result<Json> {
     Ok(json!({"path": path, "format": format, "bytes": bytes.len()}))
 }
 
+/// `shape.lock`: lock or unlock object `{kind, id}` (owner, 2026-11-23); without `locked`, its
+/// state is turned over. A locked object can't be moved, resized, formatted, edited or deleted.
+pub(super) fn lock_object(s: &mut Session, p: &Json) -> Result<Json> {
+    const CMD: &str = "shape.lock";
+    let id = u32_param(p, "id").ok_or_else(|| bad(CMD, "missing `id`"))?;
+    let kind =
+        str_param(p, "kind").and_then(ObjKind::parse).ok_or_else(|| bad(CMD, "kind must be chart, image, shape, slicer, equation or control"))?;
+    let o = ObjRef::new(kind, id);
+    let d = s.doc()?;
+    let sheet = d.wb.active_sheet();
+    let now = d.wb.sheet(sheet).and_then(|sh| sh.object_anchor(o)).ok_or_else(|| bad(CMD, "no such object"))?.locked;
+    let to = p.get("locked").and_then(Json::as_bool).unwrap_or(!now);
+    edit(s, |cx| {
+        let a = cx.sheet_mut(sheet)?.object_anchor_mut(o).ok_or_else(|| bad(CMD, "no such object"))?;
+        a.locked = to;
+        Ok(json!({"locked": to}))
+    })
+}
+
 pub(super) fn delete_object(s: &mut Session, p: &Json) -> Result<Json> {
     let (sheet, o) = object_param(s, p, "object.delete")?;
     edit(s, |cx| {
@@ -319,6 +343,9 @@ fn editable_shape(s: &Session, cmd: &str, p: &Json) -> Result<(usize, u32)> {
     let sh = d.wb.active().ok_or_else(|| bad(cmd, "no such shape"))?;
     if !sh.shapes.iter().any(|shape| shape.id == id) {
         return Err(bad(cmd, "no such shape"));
+    }
+    if sh.shapes.iter().any(|shape| shape.id == id && shape.anchor.locked) {
+        return Err(bad(cmd, crate::cmd::controls::OBJECT_LOCKED));
     }
     // Sheet protection locks drawing objects (there is no "edit objects" allowance yet).
     if sh.is_protected() {
@@ -391,12 +418,20 @@ pub(super) fn shape_format(s: &mut Session, p: &Json) -> Result<Json> {
     let glow_radius = ranged(C, p, "glowRadius", 0.0..=150.0)?;
     let glow_t = ranged(C, p, "glowTransparency", 0.0..=100.0)?;
     let soft_edge = ranged(C, p, "softEdge", 0.0..=100.0)?;
+    let corner = ranged(C, p, "cornerRadius", 0.0..=f64::from(f32::MAX))?;
     let glow_color = match p.get("glowColor") {
         None => None,
         Some(v) => Some(crate::cmd::format::color_param(Some(v)).ok_or_else(|| bad(C, "`glowColor` must be a colour"))?),
     };
     edit(s, |cx| {
         let shape = cx.sheet_mut(sheet)?.shapes.iter_mut().find(|shape| shape.id == id).ok_or_else(|| bad(C, "no such shape"))?;
+        if let Some(r) = corner {
+            if shape.kind != gridcraft_model::ShapeKind::RoundedRectangle {
+                return Err(bad(C, "`cornerRadius` is for rounded rectangles"));
+            }
+            let (w, h) = (f64::from(shape.anchor.width), f64::from(shape.anchor.height));
+            shape.format.corner = Some(gridcraft_model::corner_from_radius(f64::from(r), w, h));
+        }
         let f = &mut shape.format;
         match fill {
             Some(Some(c)) => {

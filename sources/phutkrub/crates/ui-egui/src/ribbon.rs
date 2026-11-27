@@ -362,7 +362,10 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 ui.set_min_height(RIBBON_H);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 1.0;
-                    match tab.as_str() {
+                    // Accent colours on the ribbon's icons (style A, owner 2026-11-25), as in
+                    // KhianKrub; flat icons on the band and disabled buttons stay one colour.
+                    let ctx = ui.ctx().clone();
+                    krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || match tab.as_str() {
                         "Home" => home(app, ui),
                         "Insert" => insert(app, ui),
                         "Draw" => draw(app, ui),
@@ -378,7 +381,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                         "Handout Master" => handout_master(app, ui),
                         "Notes Master" => notes_master(app, ui),
                         _ => {}
-                    }
+                    });
                 });
             });
         let r = scroll.inner_rect;

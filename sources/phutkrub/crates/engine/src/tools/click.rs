@@ -32,6 +32,11 @@ impl Session {
             Some(Hit::Shape { id, .. }) => {
                 let st = self.doc()?;
                 let Some(sh) = st.shape(id).cloned() else { return Ok(Value::Null) };
+                // A locked object opens nothing (owner, 2026-11-23): its text and points stay as
+                // they are, and the refusal shows on it.
+                if sh.locked {
+                    return Err(cmd::bad("text.edit", "the object is locked"));
+                }
                 match &sh.kind {
                     ShapeKind::Table(_) | ShapeKind::Shape | ShapeKind::Connector { .. } if !sh.is_line() => {
                         // Caret at the double-click (in a table, in the clicked cell), then select
@@ -188,6 +193,10 @@ impl Session {
     pub(super) fn edit_text_at(&mut self, id: ShapeId, p: Point) -> Result<bool> {
         let st = self.doc()?;
         let Some(sh) = st.shape(id) else { return Ok(false) };
+        // A click on a locked object selects it; its text isn't opened (owner, 2026-11-23).
+        if sh.locked {
+            return Ok(false);
+        }
         let params = match cmd::table::table_frame(st, sh) {
             Some(f) => {
                 let Some((r, c)) = f.cell_at(f.local(p)) else { return Ok(false) };

@@ -24,6 +24,9 @@ use crate::{DocState, EngineError, Result, Session};
 
 /// The platform's per-user recovery folder.
 pub fn default_dir() -> Option<PathBuf> {
+    if let Some(d) = crate::portable::data_dir() {
+        return Some(d.join("Recovery"));
+    }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if cfg!(target_os = "macos") {
         return home.map(|h| h.join("Library/Application Support/PhutKrub/Recovery"));

@@ -27,7 +27,9 @@ fn dialog_offers_copy_action_and_runs_unique_extract() {
     h.get_by_label("Copy matching rows elsewhere").click();
     h.run_steps(6);
     let rect = h.ctx.memory(|m| m.area_rect(egui::Id::unique("dialog").with("advancedFilter"))).unwrap();
-    assert!(rect.width() < 500.0 && rect.height() < 400.0, "dialog must fit its controls: {rect:?}");
+    // Fits its controls, not the screen's height (the dialog look's 28 pt fields, rim and button
+    // row make it about 420 pt tall).
+    assert!(rect.width() < 500.0 && rect.height() < 450.0, "dialog must fit its controls: {rect:?}");
     assert!(
         h.state()
             .dialog

@@ -681,9 +681,9 @@ mod tests {
         s.run("format.bold", &json!({})).unwrap();
         s.run("table.shading", &json!({"color": "FF0000"})).unwrap();
         let t = first_table(&s);
-        for r in 0..3 {
+        for (r, row) in t.rows.iter().enumerate().take(3) {
             assert!(bold(&s, r, 0) && bold(&s, r, 2) && !bold(&s, r, 1) && !bold(&s, r, 3), "row {r}");
-            assert!(t.rows[r].cells[2].props.shading.is_some() && t.rows[r].cells[1].props.shading.is_none());
+            assert!(row.cells[2].props.shading.is_some() && row.cells[1].props.shading.is_none());
         }
         s.run("table.columnWidth", &json!({"width": 50.0})).unwrap();
         let t = first_table(&s);

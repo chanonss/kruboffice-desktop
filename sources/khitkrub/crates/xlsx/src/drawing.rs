@@ -39,6 +39,27 @@ fn ext_px(e: Option<&El>) -> (f32, f32) {
 }
 
 fn read_anchor(a: &El, sheet: &Sheet) -> Option<Anchor> {
+    let mut anchor = read_place(a, sheet)?;
+    anchor.locked = anchor_locked(a);
+    Some(anchor)
+}
+
+/// Whether the object in anchor `a` is locked (owner, 2026-11-23): its picture's, shape's,
+/// chart frame's, group's or connector's DrawingML locks forbid both moving and resizing. A lone
+/// `noMove` or `noResize` (another program's partial lock) isn't Lock, as in PhutKrub and
+/// KhianKrub.
+fn anchor_locked(a: &El) -> bool {
+    const WHERE: [[&str; 4]; 5] = [
+        ["pic", "nvPicPr", "cNvPicPr", "picLocks"],
+        ["sp", "nvSpPr", "cNvSpPr", "spLocks"],
+        ["graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr", "graphicFrameLocks"],
+        ["grpSp", "nvGrpSpPr", "cNvGrpSpPr", "grpSpLocks"],
+        ["cxnSp", "nvCxnSpPr", "cNvCxnSpPr", "cxnSpLocks"],
+    ];
+    WHERE.iter().filter_map(|p| a.path(p)).any(|l| l.flag("noMove", false) && l.flag("noResize", false))
+}
+
+fn read_place(a: &El, sheet: &Sheet) -> Option<Anchor> {
     match a.name.as_str() {
         "twoCellAnchor" => {
             let (cell, dx, dy) = marker(a.child("from")?);
@@ -54,12 +75,12 @@ fn read_anchor(a: &El, sheet: &Sheet) -> Option<Anchor> {
                 Some("oneCell") => AnchorMode::MoveOnly,
                 _ => AnchorMode::MoveAndSize,
             };
-            Some(Anchor { cell, dx, dy, width: (x2 - x1).max(0.0) as f32, height: (y2 - y1).max(0.0) as f32, mode })
+            Some(Anchor { locked: false, cell, dx, dy, width: (x2 - x1).max(0.0) as f32, height: (y2 - y1).max(0.0) as f32, mode })
         }
         "oneCellAnchor" => {
             let (cell, dx, dy) = marker(a.child("from")?);
             let (width, height) = ext_px(a.child("ext"));
-            Some(Anchor { cell, dx, dy, width, height, mode: AnchorMode::MoveOnly })
+            Some(Anchor { locked: false, cell, dx, dy, width, height, mode: AnchorMode::MoveOnly })
         }
         "absoluteAnchor" => {
             let pos = a.child("pos");
@@ -69,6 +90,7 @@ fn read_anchor(a: &El, sheet: &Sheet) -> Option<Anchor> {
             let row = sheet.row_at(y);
             let (width, height) = ext_px(a.child("ext"));
             Some(Anchor {
+                locked: false,
                 cell: CellRef::new(row, col),
                 dx: (x - sheet.col_left(col)).max(0.0) as f32,
                 dy: (y - sheet.row_top(row)).max(0.0) as f32,
@@ -294,6 +316,14 @@ fn read_shape(obj: &El, anchor: Anchor) -> Option<Shape> {
         format.flip_v = x.attr_bool("flipV").unwrap_or(false);
     }
     read_effects(sp, &mut format);
+    // A rounded rectangle's own corner (`adj`); other presets keep their adjust values only as drawn.
+    if kind == ShapeKind::RoundedRectangle {
+        format.corner = sp
+            .path(&["prstGeom", "avLst"])
+            .and_then(|l| l.kids("gd").find(|g| g.attr("name") == Some("adj")))
+            .and_then(|g| g.attr("fmla")?.trim().strip_prefix("val")?.trim().parse::<i64>().ok())
+            .map(|v| v.clamp(0, i64::from(gridcraft_model::MAX_CORNER)) as u32);
+    }
     Some(Shape { id: 0, kind, anchor, fill, line, text, format, math: Default::default() })
 }
 
@@ -393,9 +423,10 @@ fn write_equation(s: &mut String, sh: &Shape, id: usize, theme: &Theme) {
     let marker = |tx: &str| crate::xml::parse(tx.as_bytes()).map(|e| crate::omml::body_marker(&e)).unwrap_or_else(|_| "0".repeat(16));
     let sp = |tx: &str, marker: &str| {
         format!(
-            "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{id}\" name=\"Equation {}\" descr=\"{}\"/><xdr:cNvSpPr txBox=\"1\"/></xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr>{tx}</xdr:sp>",
+            "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{id}\" name=\"Equation {}\" descr=\"{}\"/><xdr:cNvSpPr txBox=\"1\"{}</xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr>{tx}</xdr:sp>",
             id - 1,
             esc_attr(&format!("{LATEX_DESCR}{marker}:{}", sh.text)),
+            sp_locks_close(sh.anchor.locked),
             xfrm(&sh.anchor, "a:xfrm")
         )
     };
@@ -620,9 +651,10 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 s.push_str(&open);
                 let _ = write!(
                     s,
-                    "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"{id}\" name=\"Picture {}\" descr=\"{}\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed=\"{rid}\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>",
+                    "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"{id}\" name=\"Picture {}\" descr=\"{}\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"{}/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed=\"{rid}\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>",
                     id - 1,
                     esc_attr(&img.alt),
+                    if img.anchor.locked { PIC_LOCKS } else { "" },
                     xfrm(&img.anchor, "a:xfrm")
                 );
             }
@@ -634,8 +666,9 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 let (prefix, ns) = crate::chartex::requires(ch.kind);
                 let _ = write!(
                     s,
-                    "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"><mc:Choice xmlns:{prefix}=\"{ns}\" Requires=\"{prefix}\"><xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{id}\" name=\"Chart {}\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>{}<a:graphic><a:graphicData uri=\"http://schemas.microsoft.com/office/drawing/2014/chartex\"><cx:chart xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" r:id=\"{rid}\"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice><mc:Fallback><xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"0\" name=\"\"/><xdr:cNvSpPr><a:spLocks noTextEdit=\"1\"/></xdr:cNvSpPr></xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>This chart type can't be shown by this application.</a:t></a:r></a:p></xdr:txBody></xdr:sp></mc:Fallback></mc:AlternateContent>",
+                    "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"><mc:Choice xmlns:{prefix}=\"{ns}\" Requires=\"{prefix}\"><xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{id}\" name=\"Chart {}\"/>{}</xdr:nvGraphicFramePr>{}<a:graphic><a:graphicData uri=\"http://schemas.microsoft.com/office/drawing/2014/chartex\"><cx:chart xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" r:id=\"{rid}\"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice><mc:Fallback><xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"0\" name=\"\"/><xdr:cNvSpPr><a:spLocks noTextEdit=\"1\"/></xdr:cNvSpPr></xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\"/><a:t>This chart type can't be shown by this application.</a:t></a:r></a:p></xdr:txBody></xdr:sp></mc:Fallback></mc:AlternateContent>",
                     id - 1,
+                    frame_locks(ch.anchor.locked),
                     xfrm(&ch.anchor, "xdr:xfrm"),
                     xfrm(&ch.anchor, "a:xfrm")
                 );
@@ -646,8 +679,9 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 s.push_str(&open);
                 let _ = write!(
                     s,
-                    "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{id}\" name=\"Chart {}\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>{}<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><c:chart r:id=\"{rid}\"/></a:graphicData></a:graphic></xdr:graphicFrame>",
+                    "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{id}\" name=\"Chart {}\"/>{}</xdr:nvGraphicFramePr>{}<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><c:chart r:id=\"{rid}\"/></a:graphicData></a:graphic></xdr:graphicFrame>",
                     id - 1,
+                    frame_locks(ch.anchor.locked),
                     xfrm(&ch.anchor, "xdr:xfrm")
                 );
             }
@@ -680,10 +714,15 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 };
                 let _ = write!(
                     s,
-                    "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{id}\" name=\"Shape {}\"/><xdr:cNvSpPr{}/></xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom>",
+                    "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{id}\" name=\"Shape {}\"/><xdr:cNvSpPr{}{}</xdr:nvSpPr><xdr:spPr>{}<a:prstGeom prst=\"{prst}\">{}</a:prstGeom>",
                     id - 1,
                     if tx { " txBox=\"1\"" } else { "" },
-                    shape_xfrm(sh)
+                    sp_locks_close(sh.anchor.locked),
+                    shape_xfrm(sh),
+                    match sh.format.corner.filter(|_| sh.kind == ShapeKind::RoundedRectangle) {
+                        Some(c) => format!("<a:avLst><a:gd name=\"adj\" fmla=\"val {}\"/></a:avLst>", c.min(gridcraft_model::MAX_CORNER)),
+                        None => "<a:avLst/>".to_string(),
+                    }
                 );
                 let f = &sh.format;
                 if f.no_fill {
@@ -840,5 +879,27 @@ pub fn image_content_type(ext: &str) -> &'static str {
         "wmf" => "image/x-wmf",
         "webp" => "image/webp",
         _ => "image/png",
+    }
+}
+
+/// The extra `a:picLocks` attributes of a locked picture (owner, 2026-11-23).
+const PIC_LOCKS: &str = " noRot=\"1\" noMove=\"1\" noResize=\"1\" noCrop=\"1\"";
+
+/// The end of a shape's `<xdr:cNvSpPr …`: `/>`, or with `a:spLocks` when it is locked (the set
+/// PowerPoint writes for Lock, and its text with it).
+fn sp_locks_close(locked: bool) -> &'static str {
+    if locked {
+        "><a:spLocks noRot=\"1\" noMove=\"1\" noResize=\"1\" noEditPoints=\"1\" noAdjustHandles=\"1\" noChangeArrowheads=\"1\" noChangeShapeType=\"1\" noTextEdit=\"1\"/></xdr:cNvSpPr>"
+    } else {
+        "/>"
+    }
+}
+
+/// A chart's `xdr:cNvGraphicFramePr`, with `a:graphicFrameLocks` when it is locked.
+fn frame_locks(locked: bool) -> &'static str {
+    if locked {
+        "<xdr:cNvGraphicFramePr><a:graphicFrameLocks noMove=\"1\" noResize=\"1\" noDrilldown=\"1\"/></xdr:cNvGraphicFramePr>"
+    } else {
+        "<xdr:cNvGraphicFramePr/>"
     }
 }

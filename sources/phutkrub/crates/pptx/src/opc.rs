@@ -70,7 +70,10 @@ impl Package {
             if f.is_dir() {
                 continue;
             }
-            let name = f.name().trim_start_matches('/').to_string();
+            // zip 9 decodes a name not flagged UTF-8 as CP437 and reports one that still doesn't
+            // decode; such a part is kept under its raw bytes made lossy, as zip 3 read it.
+            let name = f.name().map(|n| n.into_owned()).unwrap_or_else(|_| String::from_utf8_lossy(f.name_raw()).into_owned());
+            let name = name.trim_start_matches('/').to_string();
             let declared = f.size();
             if declared > max_part {
                 log::warn!("pptx: skipping oversized part {name} ({declared} bytes)");

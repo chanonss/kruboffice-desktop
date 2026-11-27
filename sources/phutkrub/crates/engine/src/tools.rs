@@ -304,6 +304,14 @@ impl ToolState {
         self.drag.is_some()
     }
 
+    /// The shape and adjust value whose yellow handle is being dragged.
+    pub fn adjusting(&self) -> Option<(ShapeId, usize)> {
+        match &self.drag {
+            Some(Drag::Adjust { id, index, .. }) => Some((*id, *index)),
+            _ => None,
+        }
+    }
+
     /// The shape in Edit Points, while it is still the one selected shape.
     pub fn editing_points(&self, st: &crate::DocState) -> Option<ShapeId> {
         // Only a freeform has points: after Undo takes the conversion back, Edit Points is over.

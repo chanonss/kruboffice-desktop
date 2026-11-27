@@ -168,10 +168,18 @@ impl SheetApp {
     /// Deletes the selected object (Delete and Backspace). False when nothing on the active
     /// sheet is selected, so the key clears cells instead.
     pub fn delete_selected_object(&mut self) -> bool {
-        let Some(o) = self.selected_object.take() else { return false };
-        if !self.session.active().and_then(|d| d.wb.active()).is_some_and(|sh| sh.has_object(o)) {
+        let Some(o) = self.selected_object else { return false };
+        let anchor = self.session.active().and_then(|d| d.wb.active()).and_then(|sh| sh.object_anchor(o));
+        let Some(anchor) = anchor else {
+            self.selected_object = None;
             return false;
+        };
+        // A locked object stays, selected, and shows the refusal (owner, 2026-11-23).
+        if anchor.locked {
+            krub_icons::object_lock::ask();
+            return true;
         }
+        self.selected_object = None;
         self.run_or_alert("object.delete", json!({"kind": o.kind.name(), "id": o.id}));
         true
     }

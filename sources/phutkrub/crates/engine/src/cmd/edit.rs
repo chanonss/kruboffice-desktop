@@ -705,9 +705,15 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     if ids_param(p, "ids").is_none() && p.get("id").is_none() && sel.cells.is_some_and(|c| sel.shapes == [c.0]) {
         return super::table::clear_selected_cells(s);
     }
-    let ids = targets(s, p)?;
+    let mut ids = targets(s, p)?;
     if ids.is_empty() {
         return ok();
+    }
+    // A locked object isn't deleted (owner, 2026-11-23): unlock it first.
+    let st = s.doc()?;
+    ids.retain(|id| !st.shape(*id).is_some_and(|x| x.locked));
+    if ids.is_empty() {
+        return Err(bad("edit.delete", "the object is locked"));
     }
     s.edit(|doc, sel| {
         let shapes = crate::shapes_mut(doc, sel).ok_or_else(|| bad("edit.delete", "no slide"))?;

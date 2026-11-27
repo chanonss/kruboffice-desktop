@@ -188,7 +188,7 @@ fn insert_word_art(s: &mut Session, p: &Json) -> Result<Json> {
     let mut shape = Shape {
         id,
         kind: ShapeKind::WordArt,
-        anchor: Anchor { cell: at, dx: 0.0, dy: 0.0, width: 0.0, height: 0.0, mode: anchor_mode_param(p).unwrap_or_default() },
+        anchor: Anchor { locked: false, cell: at, dx: 0.0, dy: 0.0, width: 0.0, height: 0.0, mode: anchor_mode_param(p).unwrap_or_default() },
         fill: Color::Auto,
         line: Color::Auto,
         text: text.clone(),
@@ -219,6 +219,9 @@ fn set_word_art(s: &mut Session, p: &Json) -> Result<Json> {
     let sheet = d.wb.active_sheet();
     let sh = d.wb.active().ok_or_else(|| bad("wordArt.set", "no such WordArt"))?;
     let current = sh.shapes.iter().find(|x| x.id == id).ok_or_else(|| bad("wordArt.set", "no such WordArt"))?;
+    if current.anchor.locked {
+        return Err(bad("wordArt.set", crate::cmd::controls::OBJECT_LOCKED));
+    }
     if current.kind != ShapeKind::WordArt {
         return Err(bad("wordArt.set", "the shape is not WordArt"));
     }

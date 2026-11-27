@@ -132,24 +132,43 @@ pub fn segmented_at(ui: &mut Ui, id: egui::Id, segments: &[Segment], selected: &
     }
 }
 
-/// A section: `title` on a shaded bar across the pane with a chevron; a click folds or opens the
-/// rows `add` draws below it. Open at first when `default_open`; the choice is kept under `id`.
+/// A section: `title` with a chevron under a hairline across the pane (owner, 2026-11-22: every
+/// pane's headings, a shaded bar before); a click folds or opens the rows `add` draws below it.
+/// Open at first when `default_open`; the choice is kept under `id`.
 pub fn section(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool, add: impl FnOnce(&mut Ui)) {
+    section_styled(ui, id, title, default_open, true, add);
+}
+
+/// A [`section`] under a hairline across the pane instead of a shaded bar (owner, 2026-11-22: the
+/// calmer look of panes whose buttons sit in even grids); hovering shades the heading lightly.
+pub fn section_ruled(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool, add: impl FnOnce(&mut Ui)) {
+    section_styled(ui, id, title, default_open, true, add);
+}
+
+fn section_styled(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool, ruled: bool, add: impl FnOnce(&mut Ui)) {
+    // UI experiment (KhianKrub branch `ui-pages-layout`, owner 2026-11-23): a short gold bar before
+    // a bold title in the band's navy, the fold chevron at the right end, more room above; no
+    // hairline or shaded bar, so the title stands apart from the buttons under it.
+    let _ = ruled;
     let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, default_open));
     let width = ui.available_width().max(1.0);
+    ui.add_space(8.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, HEADING_H), Sense::click());
     let visuals = ui.visuals().clone();
-    let text = visuals.text_color();
     let shade = if visuals.dark_mode { faded(Color32::WHITE, 16) } else { faded(Color32::BLACK, 12) };
-    let shade = if resp.hovered() { faded(shade, shade.a().saturating_mul(2)) } else { shade };
-    ui.painter().rect_filled(rect, 3.0, shade);
-    let chevron = Rect::from_center_size(pos2(rect.left() + 11.0, rect.center().y), vec2(14.0, 14.0));
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 3.0, faded(shade, shade.a() / 2));
+    }
+    let bar = Rect::from_min_size(pos2(rect.left(), rect.center().y - 8.0), vec2(3.0, 16.0));
+    ui.painter().rect_filled(bar, 1.0, SECTION_GOLD);
+    let ink = if visuals.dark_mode { visuals.strong_text_color() } else { SECTION_NAVY };
+    let chevron = Rect::from_center_size(pos2(rect.right() - 10.0, rect.center().y), vec2(14.0, 14.0));
     crate::paint_named(ui.painter(), chevron, if open { "chevron-down" } else { "chevron-right" }, visuals.weak_text_color(), false, false);
-    let font = FontId::proportional(12.5);
-    let size = ui.painter().layout_no_wrap(title.to_string(), font.clone(), text).size();
-    let w = size.x.min(rect.width() - 26.0).max(0.0);
-    let at = Rect::from_min_size(pos2(rect.left() + 22.0, rect.center().y - size.y / 2.0), vec2(w, size.y));
-    let label = ui.put(at, egui::Label::new(egui::RichText::new(title).font(font).color(text).strong()).selectable(false).truncate());
+    let font = FontId::proportional(13.0);
+    let size = ui.painter().layout_no_wrap(title.to_string(), font.clone(), ink).size();
+    let w = size.x.min(rect.width() - 34.0).max(0.0);
+    let at = Rect::from_min_size(pos2(rect.left() + 10.0, rect.center().y - size.y / 2.0), vec2(w, size.y));
+    let label = ui.put(at, egui::Label::new(egui::RichText::new(title).font(font).color(ink).strong()).selectable(false).truncate());
     let resp = resp.labelled_by(label.id);
     if resp.clicked() || label.clicked() {
         open = !open;
@@ -161,11 +180,15 @@ pub fn section(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool, add: 
             ui.spacing_mut().item_spacing.y = ROW_GAP;
             add(ui);
         });
-        ui.add_space(8.0);
+        ui.add_space(6.0);
     } else {
-        ui.add_space(3.0);
+        ui.add_space(2.0);
     }
 }
+
+/// The section title's gold bar and navy ink (KhianKrub's band colours).
+const SECTION_GOLD: Color32 = Color32::from_rgb(0xF2, 0xB7, 0x05);
+const SECTION_NAVY: Color32 = Color32::from_rgb(0x16, 0x2A, 0x63);
 
 #[cfg(test)]
 mod tests {

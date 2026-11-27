@@ -91,8 +91,12 @@ pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
     }
     let mut open = true;
     let mut close = false;
+    // One dialog look for the three apps (owner, 2026-11-24, draft A): a grey body with a rim,
+    // the content on a white card, the buttons in a row of their own (`krub_icons::dialog`).
+    let window_id = egui::Id::unique(("dialog", d.id.clone()));
     let mut window = egui::Window::new(tl!(title(&d.id)))
-        .id(egui::Id::unique(("dialog", d.id.clone())))
+        .frame(krub_icons::dialog::window_frame(&ctx.global_style()))
+        .id(window_id)
         .collapsible(false)
         .resizable(false)
         .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
@@ -100,22 +104,31 @@ pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
     // Two columns of colour rows plus Save must fit the first frame (Theme Colors), as must Save
     // in Theme Fonts. A later resize clips the buttons (the window size sticks) and clicks miss them.
     if d.id == "themeColors" {
-        window = window.default_size(vec2(760.0, 420.0)).min_width(720.0).min_height(420.0);
+        window = window.default_size(vec2(760.0, 280.0)).min_width(720.0).min_height(280.0);
     } else if d.id == "themeFonts" {
-        window = window.default_size(vec2(460.0, 320.0)).min_width(420.0).min_height(300.0);
+        window = window.default_size(vec2(460.0, 260.0)).min_width(420.0).min_height(260.0);
     }
+    let width_key = window_id.with("content width");
+    krub_icons::dialog::begin(ctx, ctx.data(|m| m.get_temp::<f32>(width_key)));
     window.show(ctx, |ui| {
-        ui.set_min_width(match d.id.as_str() {
-            "themeColors" => 700.0,
-            "themeFonts" => 400.0,
-            _ => 340.0,
-        });
-        if d.id == "themeColors" {
-            ui.set_min_height(360.0);
-        } else if d.id == "themeFonts" {
-            ui.set_min_height(280.0);
-        }
-        close = body(app, ui, &mut d);
+        krub_icons::dialog::rim(ui, |ui| {
+            krub_icons::dialog::field_style(ui.style_mut());
+            let at = ui.painter().add(egui::Shape::Noop);
+            let pad = krub_icons::dialog::CARD_PAD;
+            let inner = egui::Frame::new().inner_margin(egui::Margin::same(pad as i8)).show(ui, |ui| {
+                ui.set_min_width(match d.id.as_str() {
+                    "themeColors" => 700.0,
+                    "themeFonts" => 400.0,
+                    _ => 340.0,
+                });
+                close = body(app, ui, &mut d);
+            });
+            let r = inner.response.rect;
+            let bottom = krub_icons::dialog::footer_top(ui.ctx()).map_or(r.max.y, |y| y - krub_icons::dialog::CARD_GAP + pad);
+            krub_icons::dialog::card_behind(ui, at, r.shrink(pad), bottom.min(r.max.y));
+            let w = ui.min_rect().width();
+            ui.ctx().data_mut(|m| m.insert_temp(width_key, w));
+        })
     });
     let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if open && !close && !escape {
@@ -137,8 +150,14 @@ pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
 fn buttons(ui: &mut Ui, ok_label: &str) -> (bool, bool) {
     let mut ok = false;
     let mut cancel = false;
-    ui.add_space(8.0);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    // The shared button row (owner, 2026-11-24: one dialog look): OK at the far right.
+    // The card's own padding under the last row, however tight the dialog's row spacing.
+    ui.add_space((krub_icons::dialog::CARD_PAD - ui.spacing().item_spacing.y - 2.0).max(0.0));
+    krub_icons::dialog::footer(ui);
+    // One row high: a dialog with a minimum height (Theme Colors) would otherwise centre the
+    // buttons in the space left below the hairline.
+    let row = vec2(ui.available_width(), krub_icons::dialog::FIELD_H);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let t = Tokens::get(ui.ctx());
         if ui.add(egui::Button::new(egui::RichText::new(tl!(ok_label)).color(t.accent_text)).fill(t.accent).min_size(vec2(72.0, 24.0))).clicked()
             || ui.input(|i| i.key_pressed(egui::Key::Enter))

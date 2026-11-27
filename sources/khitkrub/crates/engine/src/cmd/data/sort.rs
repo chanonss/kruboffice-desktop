@@ -326,7 +326,15 @@ fn sorted_anchor(sh: &Sheet, a: Anchor, bottom: (u32, u32, f32, f32), by_cols: b
         // An extent that is not positive means the sort put the bottom-right line before the
         // top-left one on that axis: the object keeps its old size there.
         let fit = |extent: f64, old: f32| if extent > 0.0 { extent as f32 } else { old.max(0.0) };
-        Anchor { cell: CellRef::new(nr, nc), dx: a.dx, dy: a.dy, width: fit(x2 - x1, a.width), height: fit(y2 - y1, a.height), mode: a.mode }
+        Anchor {
+            locked: a.locked,
+            cell: CellRef::new(nr, nc),
+            dx: a.dx,
+            dy: a.dy,
+            width: fit(x2 - x1, a.width),
+            height: fit(y2 - y1, a.height),
+            mode: a.mode,
+        }
     } else {
         Anchor { cell: CellRef::new(nr, nc), ..a }
     }

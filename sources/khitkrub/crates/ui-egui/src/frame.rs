@@ -104,6 +104,37 @@ pub fn grab_at(f: Rect, deg: f32, rotate: bool, p: Pos2) -> Option<Grab> {
     handles(f).filter(|h| d(h) <= GRAB_R).min_by(|a, b| d(a).total_cmp(&d(b))).map(Grab::Resize)
 }
 
+/// Where a rounded rectangle's corner handle is on frame `f` turned `deg`, for a corner radius of
+/// `r` screen points: on the top edge where the top-left curve ends.
+pub fn corner_handle(f: Rect, deg: f32, r: f32) -> Pos2 {
+    let r = r.clamp(0.0, (f.width().min(f.height()) / 2.0).max(0.0));
+    turn(pos2(f.min.x + r, f.min.y), f.center(), deg)
+}
+
+/// Whether screen point `p` grabs the corner handle at `at`: within reach, and nearer to it than
+/// to every resize handle of frame `f` turned `deg` (a square corner's handle sits on the corner's).
+pub fn corner_handle_wins(f: Rect, deg: f32, at: Pos2, p: Pos2) -> bool {
+    let d = at.distance(p);
+    d <= GRAB_R && handles(f).all(|h| h.at_turned(f, deg).distance(p) > d)
+}
+
+/// The corner radius (screen points) that the corner handle of frame `f` turned `deg` gives when
+/// dragged to `p`: how far along the frame's own top edge `p` is from its left end, between square
+/// (0) and round ends.
+pub fn corner_radius_at(f: Rect, deg: f32, p: Pos2) -> f32 {
+    let q = turn(p, f.center(), -deg);
+    (q.x - f.min.x).clamp(0.0, (f.width().min(f.height()) / 2.0).max(0.0))
+}
+
+/// The gold diamond of a rounded rectangle's corner handle at `at`.
+pub fn paint_corner_handle(p: &Painter, at: Pos2) {
+    const GOLD: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xB7, 0x05);
+    const EDGE: egui::Color32 = egui::Color32::from_rgb(0x7A, 0x5B, 0x00);
+    let k = HANDLE_R + 1.0;
+    let pts = vec![at + vec2(0.0, -k), at + vec2(k, 0.0), at + vec2(0.0, k), at + vec2(-k, 0.0)];
+    p.add(egui::Shape::convex_polygon(pts, GOLD, Stroke::new(1.0, EDGE)));
+}
+
 /// The angle (degrees clockwise, `[0, 360)`) that points frame `f`'s rotation handle at `p`,
 /// by whole degrees or, with `snap`, by [`SNAP_DEG`].
 pub fn angle_to(f: Rect, p: Pos2, snap: bool) -> f32 {

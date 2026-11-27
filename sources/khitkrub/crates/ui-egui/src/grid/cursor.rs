@@ -58,6 +58,7 @@ fn drag_cursor(drag: &Drag, rtl: bool) -> Option<CursorIcon> {
         Drag::ResizeRow { .. } => Some(CursorIcon::ResizeRow),
         Drag::Freeze { cols, .. } => Some(if *cols { CursorIcon::ResizeHorizontal } else { CursorIcon::ResizeVertical }),
         Drag::Rotate { .. } => Some(CursorIcon::Crosshair),
+        Drag::Corner { .. } => Some(CursorIcon::PointingHand),
         Drag::FormulaRef { grab: super::ref_drag::RefGrab::Border { .. }, .. } => Some(CursorIcon::Move),
         Drag::FormulaRef { .. } => Some(CursorIcon::Crosshair),
         Drag::Object { handle: Some(h), .. } | Drag::ChartData { corner: h, .. } => Some(h.cursor(rtl)),
@@ -101,8 +102,11 @@ fn hover_cursor(app: &SheetApp, ctx: &egui::Context, resp: &egui::Response, poin
     // A corner of the selected chart's values outline resizes the chart's data, where no object covers it.
     let data_handle = if idle && !on_object { crate::chartview::chart_data_handle(app, geo, sh, p).map(|(.., h)| h) } else { None };
     let on_rotate = idle && crate::chartview::selected_rotate(app, geo, sh, p).is_some();
+    let on_corner = idle && crate::chartview::selected_corner(app, geo, sh, p).is_some();
     if on_rotate {
         ctx.set_cursor_icon(CursorIcon::Crosshair);
+    } else if on_corner {
+        ctx.set_cursor_icon(CursorIcon::PointingHand);
     } else if let Some((o, _, h)) = object_handle {
         // A turned frame's handles point another way: the cursor follows the turn.
         let deg = crate::chartview::frame_of(sh, o).0;

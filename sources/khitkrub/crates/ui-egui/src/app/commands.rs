@@ -165,6 +165,12 @@ impl SheetApp {
     pub(super) fn alert(&mut self, e: String) {
         // Shown in the window the user ends up in, also after a command that switched windows.
         self.follow_active_window();
+        // A change a locked object refused shows on the object (its badge and a note), not in a
+        // message box (owner, 2026-11-23).
+        if krub_icons::object_lock::is_lock_error(&e) {
+            krub_icons::object_lock::ask();
+            return;
+        }
         if e.contains("is not available right now") {
             self.toast = Some((e, now_ms()));
         } else {

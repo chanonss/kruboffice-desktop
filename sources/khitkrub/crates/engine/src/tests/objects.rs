@@ -164,6 +164,23 @@ fn anchor_of(s: &Session, o: ObjRef) -> (String, f32, f32, f32, f32) {
     (a.cell.a1(), a.dx, a.dy, a.width, a.height)
 }
 
+/// A locked object stays locked when inserted rows or a sort move and re-fit it (both rebuild
+/// its anchor).
+#[test]
+fn a_locked_object_stays_locked_through_row_edits_and_sorts() {
+    let mut s = s();
+    s.execute("range.setValues", json!({"range": "A1", "values": [["k"], [3], [1], [4], [2]]})).unwrap();
+    let pic = picture(&mut s, "A2", AnchorMode::MoveAndSize, 5.0, 10.0, 30.0, 25.0);
+    s.execute("shape.lock", json!({"kind": "image", "id": pic.id})).unwrap();
+    let locked = |s: &Session| sheet(s, 0).object_anchor(pic).unwrap().locked;
+    assert!(locked(&s));
+    s.execute("home.insertRows", json!({"rows": "1:1"})).unwrap();
+    assert!(locked(&s), "inserted rows above keep the lock");
+    s.execute("selection.set", json!({"range": "A2:A6"})).unwrap();
+    s.execute("data.sortAscending", json!({"header": true, "column": "A"})).unwrap();
+    assert!(locked(&s), "a sort keeps the lock");
+}
+
 /// Sorting rows under a picture follows its anchor mode, as Excel's "Move and size with cells",
 /// "Move but don't size with cells" and "Don't move or size with cells" do.
 #[test]

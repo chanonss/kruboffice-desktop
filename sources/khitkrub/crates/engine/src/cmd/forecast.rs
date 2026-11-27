@@ -444,7 +444,15 @@ fn forecast_sheet(s: &mut Session, p: &Json) -> Result<Json> {
         sheet.charts.push(Chart {
             id: chart_id,
             kind: if opts.column_chart { ChartKind::ColumnClustered } else { ChartKind::Line },
-            anchor: Anchor { cell: CellRef::new(1, chart_col), dx: 0.0, dy: 0.0, width: 480.0, height: 288.0, mode: Default::default() },
+            anchor: Anchor {
+                locked: false,
+                cell: CellRef::new(1, chart_col),
+                dx: 0.0,
+                dy: 0.0,
+                width: 480.0,
+                height: 288.0,
+                mode: Default::default(),
+            },
             title: None,
             series,
             legend: LegendPos::Bottom,

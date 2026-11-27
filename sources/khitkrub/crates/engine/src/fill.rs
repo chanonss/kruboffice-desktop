@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gridcraft_core::date::{MONTHS, WEEKDAYS, datetime_from_serial, days_in_month, serial_from_ymd};
 use gridcraft_core::{CellRef, RangeRef, Value};
 use gridcraft_model::{Cell, Formula, Workbook};
-use gridcraft_numfmt::{FormatKind, NumberFormat};
+use gridcraft_numfmt::{FormatKind, NumberFormat, THAI_MONTHS, THAI_MONTHS_SHORT, THAI_WEEKDAYS, THAI_WEEKDAYS_SHORT};
 
 use crate::Result;
 use crate::cmd::Ctx;
@@ -70,6 +70,18 @@ fn lists() -> Vec<Vec<String>> {
         short_months,
         MONTHS.iter().map(|s| s.to_string()).collect(),
         vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
+        // KhitKrub (owner, 2026-11-23): the Thai days and months, spelt as Thai date formats show
+        // them; the full day names without the วัน that `dddd` puts in front.
+        THAI_WEEKDAYS_SHORT.iter().map(|s| s.to_string()).collect(),
+        THAI_WEEKDAYS.iter().map(|s| s.strip_prefix("วัน").unwrap_or(s).to_string()).collect(),
+        // The full names with วัน (วันจันทร์, วันอังคาร…), and the everyday short พฤหัส for
+        // Thursday (owner, 2026-11-25). After the lists above, so พุธ still goes on to พฤหัสบดี.
+        THAI_WEEKDAYS.iter().map(|s| s.to_string()).collect(),
+        THAI_WEEKDAYS.iter().map(|s| s.strip_prefix("วัน").unwrap_or(s).replace("พฤหัสบดี", "พฤหัส")).collect(),
+        THAI_MONTHS_SHORT.iter().map(|s| s.to_string()).collect(),
+        THAI_MONTHS.iter().map(|s| s.to_string()).collect(),
+        // The twelve Thai year animals (owner, 2026-11-23); after กุน comes ชวด again.
+        ["ชวด", "ฉลู", "ขาล", "เถาะ", "มะโรง", "มะเส็ง", "มะเมีย", "มะแม", "วอก", "ระกา", "จอ", "กุน"].iter().map(|s| s.to_string()).collect(),
     ]
 }
 
@@ -235,6 +247,8 @@ enum Pattern {
         first: i64,
         step: i64,
         width: usize,
+        /// The number is written in Thai digits (`ข้อ ๑` → `ข้อ ๒`).
+        thai: bool,
     },
     /// A position in a list (days, months, custom).
     List {
@@ -376,14 +390,22 @@ impl Pattern {
                 }
             }
             // Text with a number at the end (or start).
-            let split: Vec<Option<(String, i64, String, usize)>> = texts.iter().map(|t| split_num(t)).collect();
+            let split: Vec<Option<NumParts>> = texts.iter().map(|t| split_num(t)).collect();
             if split.iter().all(Option::is_some) {
-                let parts: Vec<(String, i64, String, usize)> = split.into_iter().flatten().collect();
-                if parts.iter().all(|p| p.0 == parts[0].0 && p.2 == parts[0].2) {
+                let parts: Vec<NumParts> = split.into_iter().flatten().collect();
+                if parts.iter().all(|p| p.0 == parts[0].0 && p.2 == parts[0].2 && p.4 == parts[0].4) {
                     let first = parts.first().map(|p| p.1).unwrap_or(0);
                     let last = parts.last().map(|p| p.1).unwrap_or(0);
                     let step = if parts.len() >= 2 { parts[1].1 - parts[0].1 } else { 1 };
-                    return Pattern::TextNum { prefix: parts[0].0.clone(), suffix: parts[0].2.clone(), last, first, step, width: parts[0].3 };
+                    return Pattern::TextNum {
+                        prefix: parts[0].0.clone(),
+                        suffix: parts[0].2.clone(),
+                        last,
+                        first,
+                        step,
+                        width: parts[0].3,
+                        thai: parts[0].4,
+                    };
                 }
             }
         }
@@ -412,18 +434,20 @@ impl Pattern {
                 let base = if forward { *last } else { *first };
                 Some(Value::number(round15(base + step * (k * sign) as f64)))
             }
-            Pattern::TextNum { prefix, suffix, last, first, step, width } => {
+            Pattern::TextNum { prefix, suffix, last, first, step, width, thai } => {
                 let base = if forward { *last } else { *first };
                 // Text numbers come from input and can sit near i64::MAX (`X 9223372036854775807`):
                 // an overflowing series yields nothing — the cell keeps its source value — rather
                 // than wrapping in release or panicking in debug.
                 let n = step.checked_mul(k)?.checked_mul(sign)?.checked_add(base)?;
-                // `Qtr3`, `Quarter 3` wrap after 4 like `Q3`.
+                // `Qtr3`, `Quarter 3` and `ไตรมาส ๓` wrap after 4 like `Q3`.
                 let quarter = suffix.is_empty()
                     && (1..=4).contains(&base)
-                    && ["q", "qtr", "quarter"].contains(&prefix.trim_end().to_ascii_lowercase().as_str());
+                    && ["q", "qtr", "quarter", "ไตรมาส"].contains(&prefix.trim_end().to_ascii_lowercase().as_str());
                 let n = if quarter { n.checked_sub(1)?.rem_euclid(4) + 1 } else { n.checked_abs()? };
-                Some(Value::text(format!("{prefix}{n:0width$}{}", ordinal_suffix(n, suffix), width = *width)))
+                let digits = format!("{n:0width$}", width = *width);
+                let digits = if *thai { digits.chars().map(to_thai_digit).collect() } else { digits };
+                Some(Value::text(format!("{prefix}{digits}{}", ordinal_suffix(n, suffix))))
             }
             Pattern::List { list, last, first, step, upper, lower } => {
                 let len = list.len() as i64;
@@ -540,20 +564,37 @@ fn ordinal_suffix(n: i64, suffix: &str) -> String {
     format!("{new}{rest}")
 }
 
-/// `Item 007` → ("Item ", 7, "", 3); `3rd` style leading numbers → ("", 3, "rd", 1).
-fn split_num(t: &str) -> Option<(String, i64, String, usize)> {
+/// Text split round its number: prefix, number, suffix, zero-padded width, Thai digits.
+type NumParts = (String, i64, String, usize, bool);
+
+/// A Thai digit (๐–๙) as its ASCII digit.
+fn from_thai_digit(c: char) -> Option<char> {
+    let d = u32::from(c).checked_sub(0x0E50).filter(|d| *d <= 9)?;
+    char::from_digit(d, 10)
+}
+
+/// An ASCII digit as its Thai digit; other characters stay.
+fn to_thai_digit(c: char) -> char {
+    c.to_digit(10).and_then(|d| char::from_u32(0x0E50 + d)).unwrap_or(c)
+}
+
+/// `Item 007` → ("Item ", 7, "", 3, false); `3rd` style leading numbers → ("", 3, "rd", 1, false);
+/// `ข้อ ๑` → ("ข้อ ", 1, "", 1, true). The last run of digits counts, ASCII or Thai (not mixed).
+fn split_num(t: &str) -> Option<NumParts> {
     let chars: Vec<char> = t.chars().collect();
-    let end = chars.iter().rposition(char::is_ascii_digit)?;
+    let end = chars.iter().rposition(|c| c.is_ascii_digit() || from_thai_digit(*c).is_some())?;
+    let thai = chars.get(end).is_some_and(|c| !c.is_ascii_digit());
+    let same = |c: &char| if thai { from_thai_digit(*c).is_some() } else { c.is_ascii_digit() };
     let mut start = end;
-    while start > 0 && chars.get(start - 1).is_some_and(char::is_ascii_digit) {
+    while start > 0 && chars.get(start - 1).is_some_and(same) {
         start -= 1;
     }
-    let digits: String = chars.get(start..=end)?.iter().collect();
+    let digits: String = chars.get(start..=end)?.iter().map(|c| from_thai_digit(*c).unwrap_or(*c)).collect();
     let n: i64 = digits.parse().ok()?;
     let prefix: String = chars.get(..start)?.iter().collect();
     let suffix: String = chars.get(end + 1..)?.iter().collect();
     let width = if digits.starts_with('0') && digits.len() > 1 { digits.len() } else { 1 };
-    Some((prefix, n, suffix, width))
+    Some((prefix, n, suffix, width, thai))
 }
 
 /// Options for filling a numeric or date series.
@@ -838,9 +879,14 @@ mod tests {
 
     #[test]
     fn split_numbers() {
-        assert_eq!(split_num("Item 7"), Some(("Item ".into(), 7, "".into(), 1)));
-        assert_eq!(split_num("Q003x"), Some(("Q".into(), 3, "x".into(), 3)));
+        assert_eq!(split_num("Item 7"), Some(("Item ".into(), 7, "".into(), 1, false)));
+        assert_eq!(split_num("Q003x"), Some(("Q".into(), 3, "x".into(), 3, false)));
         assert_eq!(split_num("abc"), None);
+        assert_eq!(split_num("ข้อ ๑๒"), Some(("ข้อ ".into(), 12, "".into(), 1, true)));
+        assert_eq!(split_num("๑"), Some(("".into(), 1, "".into(), 1, true)));
+        // Only the last run counts, in its own digits.
+        assert_eq!(split_num("ชุด 2 ข้อ ๓"), Some(("ชุด 2 ข้อ ".into(), 3, "".into(), 1, true)));
+        assert_eq!(split_num("๒5"), Some(("๒".into(), 5, "".into(), 1, false)));
     }
 
     #[test]
@@ -862,6 +908,43 @@ mod tests {
             fill(serde_json::json!([["Product 1"], ["On backorder"]]), "E1:E2", "E1:E6"),
             ["Product 1", "On backorder", "Product 2", "On backorder", "Product 3", "On backorder"]
         );
+    }
+
+    /// KhitKrub (owner, 2026-11-23): Thai days and months fill like the English ones, wrapping
+    /// round, and numbers in Thai digits count on in Thai digits.
+    #[test]
+    fn thai_days_months_and_digits_fill_in_thai() {
+        let mut s = crate::Session::new();
+        s.new_workbook();
+        let mut fill = |values: serde_json::Value, source: &str, target: &str| {
+            s.execute("range.setValues", serde_json::json!({"range": source.get(..2).unwrap(), "values": values})).unwrap();
+            s.execute("edit.autoFill", serde_json::json!({"source": source, "target": target})).unwrap();
+            let sh = s.doc().unwrap().wb.active().unwrap();
+            let r = RangeRef::parse(target).unwrap();
+            r.iter().map(|c| crate::display::cell_text(&s.doc().unwrap().wb, sh, c)).collect::<Vec<_>>()
+        };
+        assert_eq!(fill(serde_json::json!([["ศ."]]), "A1", "A1:A4"), ["ศ.", "ส.", "อา.", "จ."]);
+        assert_eq!(fill(serde_json::json!([["พุธ"]]), "B1", "B1:B5"), ["พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]);
+        // With วัน, and the short พฤหัส (owner, 2026-11-25); พุธ alone still gives พฤหัสบดี.
+        assert_eq!(fill(serde_json::json!([["วันศุกร์"]]), "L1", "L1:L4"), ["วันศุกร์", "วันเสาร์", "วันอาทิตย์", "วันจันทร์"]);
+        assert_eq!(fill(serde_json::json!([["วันจันทร์"], ["วันพุธ"]]), "M1:M2", "M1:M4"), ["วันจันทร์", "วันพุธ", "วันศุกร์", "วันอาทิตย์"]);
+        assert_eq!(fill(serde_json::json!([["พฤหัส"]]), "N1", "N1:N4"), ["พฤหัส", "ศุกร์", "เสาร์", "อาทิตย์"]);
+        assert_eq!(fill(serde_json::json!([["อังคาร"]]), "O1", "O1:O4"), ["อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์"]);
+        assert_eq!(fill(serde_json::json!([["พุธ"], ["พฤหัส"]]), "P1:P2", "P1:P4"), ["พุธ", "พฤหัส", "ศุกร์", "เสาร์"]);
+        assert_eq!(fill(serde_json::json!([["พ.ย."]]), "C1", "C1:C4"), ["พ.ย.", "ธ.ค.", "ม.ค.", "ก.พ."]);
+        assert_eq!(fill(serde_json::json!([["มกราคม"], ["มีนาคม"]]), "D1:D2", "D1:D4"), ["มกราคม", "มีนาคม", "พฤษภาคม", "กรกฎาคม"]);
+        // The year animals, round past กุน.
+        assert_eq!(fill(serde_json::json!([["จอ"]]), "J1", "J1:J4"), ["จอ", "กุน", "ชวด", "ฉลู"]);
+        assert_eq!(fill(serde_json::json!([["ชวด"], ["ขาล"]]), "K1:K2", "K1:K4"), ["ชวด", "ขาล", "มะโรง", "มะเมีย"]);
+        assert_eq!(fill(serde_json::json!([["๘"]]), "E1", "E1:E4"), ["๘", "๙", "๑๐", "๑๑"]);
+        assert_eq!(fill(serde_json::json!([["๑"], ["๓"]]), "F1:F2", "F1:F4"), ["๑", "๓", "๕", "๗"]);
+        assert_eq!(fill(serde_json::json!([["ข้อ ๑"]]), "G1", "G1:G3"), ["ข้อ ๑", "ข้อ ๒", "ข้อ ๓"]);
+        assert_eq!(fill(serde_json::json!([["ครั้งที่ 1"]]), "H1", "H1:H3"), ["ครั้งที่ 1", "ครั้งที่ 2", "ครั้งที่ 3"]);
+        // Filling upwards counts down.
+        assert_eq!(fill(serde_json::json!([["ไตรมาส ๓"]]), "I3", "I1:I3"), ["ไตรมาส ๑", "ไตรมาส ๒", "ไตรมาส ๓"]);
+        // ไตรมาส wraps after 4 like Quarter, in either digits.
+        assert_eq!(fill(serde_json::json!([["ไตรมาส ๓"]]), "J1", "J1:J4"), ["ไตรมาส ๓", "ไตรมาส ๔", "ไตรมาส ๑", "ไตรมาส ๒"]);
+        assert_eq!(fill(serde_json::json!([["ไตรมาส 4"]]), "K1", "K1:K2"), ["ไตรมาส 4", "ไตรมาส 1"]);
     }
 
     #[test]

@@ -144,6 +144,15 @@ pub(super) fn interact(app: &mut SheetApp, ui: &mut egui::Ui, resp: &egui::Respo
             app.grid.drag = Drag::Rotate { obj, rect, stepped: false };
             return;
         }
+        // A rounded rectangle's corner handle, on its top edge, rounds its corners.
+        if primary_drag
+            && let Some(p) = at
+            && let Some((obj, rect)) = crate::chartview::selected_corner(app, geo, sh, p)
+        {
+            let deg = crate::chartview::frame_of(sh, obj).0;
+            app.grid.drag = Drag::Corner { obj, rect, deg, stepped: false };
+            return;
+        }
         // The selected object's handles reach a little outside it, so they win over hit-testing.
         // Only they resize: a press anywhere on another object selects and moves it, as the
         // hover cursor shows.
@@ -781,6 +790,7 @@ fn handle_dragging(app: &mut SheetApp, input: &InteractionInput<'_>) {
                 scroll_by(app, auto);
             }
             Drag::Rotate { obj, rect, .. } => rotate_object(app, obj, rect, p, input.modifiers.shift),
+            Drag::Corner { obj, rect, deg, .. } => round_corners(app, geo, obj, rect, deg, p),
             Drag::ChartData { .. } => {
                 drag_chart_data(app, geo, sh, p);
                 scroll_by(app, auto);
@@ -1235,11 +1245,34 @@ fn rotate_object(app: &mut SheetApp, obj: ObjRef, rect: Rect, p: Pos2, snap: boo
     }
 }
 
+/// Gives the dragged rounded rectangle the corner radius its corner handle at `p` shows; the drag
+/// is one undo step (`shape.format`'s `cornerRadius`, points).
+fn round_corners(app: &mut SheetApp, geo: &Geo, obj: ObjRef, rect: Rect, deg: f32, p: Pos2) {
+    let r = crate::frame::corner_radius_at(rect, deg, p) / geo.z.max(0.01);
+    let revision = app.session.active().map(|d| d.revision);
+    let _ = app.session.run("shape.format", json!({"id": obj.id, "cornerRadius": r}));
+    let Drag::Corner { stepped, .. } = app.grid.drag else { return };
+    if stepped {
+        coalesce_last_undo(app);
+    } else if app.session.active().map(|d| d.revision) != revision
+        && let Drag::Corner { stepped, .. } = &mut app.grid.drag
+    {
+        *stepped = true;
+    }
+}
+
 /// Moves the dragged object, or resizes it from the grabbed handle, to follow the pointer at `p`
 /// (logical coordinates). The whole drag coalesces into one undo step of its own.
 fn drag_object(app: &mut SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) {
     let Drag::Object { obj, start, orig, handle, stepped } = app.grid.drag.clone() else { return };
     let d = (p - start) / geo.z;
+    // A locked object stays put: the drag shows the refusal (owner, 2026-11-23).
+    if sh.object_anchor(obj).is_some_and(|a| a.locked) {
+        if d.length() > 4.0 {
+            krub_icons::object_lock::ask();
+        }
+        return;
+    }
     let (cell, dx, dy, w, h) = orig;
     let x0 = sh.col_left(cell.col) as f32 + dx;
     let y0 = sh.row_top(cell.row) as f32 + dy;

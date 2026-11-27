@@ -174,7 +174,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Format Shape",
             [],
             None,
-            "{id: shape id, fill?: color|null (null: no fill), fillTransparency?: 0..100, line?: color|null (null: no outline), lineWidth?: pt 0.25..72, lineDash?: solid|sysDot|dash|lgDash|dashDot, lineTransparency?: 0..100, arrowStart?: bool, arrowEnd?: bool, rotation?: deg, flipH?: bool, flipV?: bool, shadow?: null|{dist?: pt 0..200, dir?: deg, blur?: pt 0..100, transparency?: 0..100}, glowRadius?: pt 0..150 (0: no glow), glowColor?: color, glowTransparency?: 0..100, softEdge?: pt 0..100}",
+            "{id: shape id, fill?: color|null (null: no fill), fillTransparency?: 0..100, line?: color|null (null: no outline), lineWidth?: pt 0.25..72, lineDash?: solid|sysDot|dash|lgDash|dashDot, lineTransparency?: 0..100, arrowStart?: bool, arrowEnd?: bool, rotation?: deg, flipH?: bool, flipV?: bool, shadow?: null|{dist?: pt 0..200, dir?: deg, blur?: pt 0..100, transparency?: 0..100}, glowRadius?: pt 0..150 (0: no glow), glowColor?: color, glowTransparency?: 0..100, softEdge?: pt 0..100, cornerRadius?: in the anchor's size unit (rounded rectangles: 0 square, half the shorter side or more round ends)}",
             has_doc,
             shape_format
         ),
@@ -192,7 +192,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Format Shape",
             [],
             None,
-            "{id: shape id, fill?: color|null (null: no fill), fillTransparency?: 0..100, line?: color|null (null: no outline), lineWidth?: pt 0.25..72, lineDash?: solid|sysDot|dash|lgDash|dashDot, lineTransparency?: 0..100, arrowStart?: bool, arrowEnd?: bool, rotation?: deg, flipH?: bool, flipV?: bool, shadow?: null|{dist?: pt 0..200, dir?: deg, blur?: pt 0..100, transparency?: 0..100}, glowRadius?: pt 0..150 (0: no glow), glowColor?: color, glowTransparency?: 0..100, softEdge?: pt 0..100}",
+            "{id: shape id, fill?: color|null (null: no fill), fillTransparency?: 0..100, line?: color|null (null: no outline), lineWidth?: pt 0.25..72, lineDash?: solid|sysDot|dash|lgDash|dashDot, lineTransparency?: 0..100, arrowStart?: bool, arrowEnd?: bool, rotation?: deg, flipH?: bool, flipV?: bool, shadow?: null|{dist?: pt 0..200, dir?: deg, blur?: pt 0..100, transparency?: 0..100}, glowRadius?: pt 0..150 (0: no glow), glowColor?: color, glowTransparency?: 0..100, softEdge?: pt 0..100, cornerRadius?: in the anchor's size unit (rounded rectangles: 0 square, half the shorter side or more round ends)}",
             has_doc,
             shape_format
         ),
@@ -204,6 +204,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{kind: shape, id, op: bringToFront|bringForward|sendBackward|sendToBack} (among the sheet's shapes)",
             has_doc,
             object_order
+        ),
+        cmd!(
+            "shape.lock",
+            "Lock",
+            [],
+            None,
+            "{kind: chart|image|shape|slicer|equation|control, id, locked?: bool} (toggles without `locked`)",
+            has_doc,
+            objects::lock_object
         ),
         cmd!("object.delete", "Delete Object", [], None, "{kind: chart|image|shape|slicer|equation|control, id}", has_doc, delete_object),
         cmd!(
@@ -335,8 +344,64 @@ fn insert_symbol(s: &mut Session, p: &Json) -> Result<Json> {
 mod tests {
     use super::*;
 
+    /// A locked object (owner, 2026-11-23) refuses moving, formatting, text and deleting until
+    /// it is unlocked; Lock is one undo step.
+    #[test]
+    fn a_locked_object_refuses_changes_until_unlocked() {
+        let mut s = Session::new();
+        s.new_workbook();
+        let a = s.execute("insert.shape", json!({"kind": "rectangle", "at": "B2"})).unwrap()["shape"].as_u64().unwrap();
+        let get = |s: &Session| s.active().unwrap().wb.active().unwrap().shapes.iter().find(|x| u64::from(x.id) == a).unwrap().clone();
+        s.execute("shape.lock", json!({"kind": "shape", "id": a})).unwrap();
+        let before = get(&s);
+        assert!(before.anchor.locked);
+        for (cmd, p) in [
+            ("object.move", json!({"kind": "shape", "id": a, "dx": 40})),
+            ("object.delete", json!({"kind": "shape", "id": a})),
+            ("shape.format", json!({"id": a, "fill": "#FF0000"})),
+            ("chart.shapeFill", json!({"kind": "shape", "id": a, "color": "#FF0000"})),
+            ("arrange.bringForward", json!({"kind": "shape", "id": a})),
+        ] {
+            let e = s.execute(cmd, p).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(e.contains(crate::cmd::controls::OBJECT_LOCKED), "{cmd} on a locked shape: {e:?}");
+        }
+        assert_eq!(get(&s), before);
+        s.execute("shape.lock", json!({"kind": "shape", "id": a, "locked": false})).unwrap();
+        s.execute("object.move", json!({"kind": "shape", "id": a, "dx": 40})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        assert!(get(&s).anchor.locked);
+    }
+
     /// Shape pane: `shape.format` stores fill, outline, arrows, rotation and flips in one undo
     /// step, refuses bad values without changing anything, and `object.order` restacks shapes.
+    /// The Shape pane's Corner radius and the corner handle: points in, the file's share of the
+    /// shorter side stored; only for rounded rectangles; one undo step; refused when locked.
+    #[test]
+    fn corner_radius_sets_and_respects_kind_and_lock() {
+        let mut s = Session::new();
+        s.new_workbook();
+        let rect = s.execute("insert.shape", json!({"kind": "rectangle", "at": "B2"})).unwrap()["shape"].as_u64().unwrap();
+        let a = s.execute("insert.shape", json!({"kind": "roundedRectangle", "at": "D4"})).unwrap()["shape"].as_u64().unwrap();
+        let get = |s: &Session, id: u64| s.active().unwrap().wb.active().unwrap().shapes.iter().find(|x| u64::from(x.id) == id).unwrap().clone();
+        assert!(s.execute("shape.format", json!({"id": rect, "cornerRadius": 5})).is_err(), "a plain rectangle has no corner radius");
+        let sh = get(&s, a);
+        assert_eq!(sh.format.corner, None, "the default corner until changed");
+        let side = f64::from(sh.anchor.width.min(sh.anchor.height));
+        s.execute("shape.format", json!({"id": a, "cornerRadius": side / 4.0})).unwrap();
+        assert_eq!(get(&s, a).format.corner, Some(25_000));
+        s.execute("shape.format", json!({"id": a, "cornerRadius": side * 9.0})).unwrap();
+        assert_eq!(get(&s, a).format.corner, Some(gridcraft_model::MAX_CORNER), "round ends at most");
+        s.execute("shape.format", json!({"id": a, "cornerRadius": 0})).unwrap();
+        assert_eq!(get(&s, a).format.corner, Some(0), "square corners");
+        assert!(s.execute("shape.format", json!({"id": a, "cornerRadius": -1})).is_err());
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(get(&s, a).format.corner, Some(gridcraft_model::MAX_CORNER), "one undo step");
+        s.execute("shape.lock", json!({"kind": "shape", "id": a})).unwrap();
+        assert!(s.execute("shape.format", json!({"id": a, "cornerRadius": 3})).is_err(), "locked");
+        assert_eq!(get(&s, a).format.corner, Some(gridcraft_model::MAX_CORNER));
+    }
+
     #[test]
     fn shape_format_and_order_store_and_undo() {
         let mut s = Session::new();

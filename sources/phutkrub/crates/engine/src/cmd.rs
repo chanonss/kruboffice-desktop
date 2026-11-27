@@ -474,6 +474,9 @@ fn ctx_xfrm(doc: &deckcraft_model::Presentation, sel: &crate::Selection, shape: 
 }
 
 /// Run `f` on each target shape (copy-on-write), materialising inherited boxes first.
+/// Edits that still apply to a locked object.
+const LOCK_EXEMPT: [&str; 4] = ["shape.lock", "shape.rename", "shape.altText", "shape.visible"];
+
 pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<Value> {
     let mut ids = targets(s, p)?;
     if ids.is_empty() {
@@ -482,6 +485,17 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
     // A shape named twice is edited once.
     let mut seen = std::collections::HashSet::new();
     ids.retain(|id| seen.insert(*id));
+    // A locked object can't be changed (owner, 2026-11-23): only locking, its name, its
+    // alternative text and whether it shows apply to it. Locked targets are left out; when every
+    // target is locked nothing changes.
+    if !LOCK_EXEMPT.contains(&cmd) {
+        let st = s.doc()?;
+        let total = ids.len();
+        ids.retain(|id| !st.shape(*id).is_some_and(|x| x.locked));
+        if total > 0 && ids.is_empty() {
+            return Err(bad(cmd, "the object is locked"));
+        }
+    }
     s.edit(|doc, sel| {
         // The boxes are read from the shapes in place: no copy of a shape (and its text) per id.
         let boxes: std::collections::HashMap<ShapeId, Xfrm> = ids

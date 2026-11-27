@@ -6856,7 +6856,7 @@ fn smart_art_round_trips_through_docx() {
     let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for i in 0..zip.len() {
         let mut f = zip.by_index(i).unwrap();
-        let name = f.name().to_string();
+        let name = f.name().unwrap().to_string();
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).unwrap();
         if name.ends_with("data1.xml") {
@@ -8919,4 +8919,34 @@ fn pasted_paragraphs_keep_their_source_alignment_not_thai_distributed() {
     assert!(aligns.iter().any(|(t, a)| t == "ย่อหน้าเต็มแนว" && *a == Align::Justify), "{aligns:?}");
     // Typing a new paragraph in the document still gets its Thai Distributed default.
     assert_eq!(s.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps::default()).align, Align::ThaiDistribute);
+}
+
+#[test]
+fn paste_merge_formatting_keeps_bold_and_italic_in_a_complex_script_run() {
+    // From WordCraft #4852: with the caret in a run marked `w:cs` (Thai from a WPS or Word file),
+    // the pasted text takes `cs` too, so its bold and italic must be the complex-script ones too.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "ภาษาไทย"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.set", json!({"props": {"cs": true}}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.pasteMerge", json!({"rtf": r"{\rtf1{\b bold}{\i slant}\par}"}));
+    let p = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+    let at = |word: &str| p.props_of_char(p.text.find(word).unwrap() + 1).clone();
+    let (b, i) = (at("bold"), at("slant"));
+    assert_eq!((b.cs, b.bold, b.bold_cs), (Some(true), Some(true), Some(true)), "{b:?}");
+    assert_eq!((i.cs, i.italic, i.italic_cs), (Some(true), Some(true), Some(true)), "{i:?}");
+    assert_ne!(b.italic, Some(true));
+    assert!(s.doc.styles.resolve_char(None, &b).bold_cs, "drawn bold as complex script");
+}
+
+#[test]
+fn style_sets_make_thai_headings_bold_or_italic_too() {
+    // From WordCraft #4852: the sets that make headings bold or italic do it in both scripts.
+    let mut s = s();
+    let cs = wordcraft_doc::props::CharProps { cs: Some(true), ..Default::default() };
+    run(&mut s, "design.styleSet", json!({ "name": "basic" }));
+    assert!(s.doc.styles.resolve_char(Some("Heading1"), &cs).bold_cs, "basic");
+    run(&mut s, "design.styleSet", json!({ "name": "casual" }));
+    assert!(s.doc.styles.resolve_char(Some("Heading2"), &cs).italic_cs, "casual");
 }

@@ -120,6 +120,7 @@ fn values(app: &SlideApp, ui: &Ui, sh: &Shape) -> Values {
     let x = app.session.active().map(|d| deckcraft_engine::cmd::xfrm_of(&d.doc, &d.selection, sh));
     let len = app.session.prefs.units;
     let ppu = len.points_per_unit();
+    let side = x.map_or(0.0, |x| x.w.min(x.h).max(0.0));
     Values {
         open: sh.is_line(),
         has_fill: !matches!(sh.fill, Some(Fill::None)),
@@ -143,8 +144,34 @@ fn values(app: &SlideApp, ui: &Ui, sh: &Shape) -> Values {
         size_max: (20000.0 / ppu) as f32,
         rotation: x.map_or(0.0, |x| x.rot as f32),
         keep_ratio: ui.data(|d| d.get_temp(keep_id())).unwrap_or(false),
+        corner: round_rect_adj(sh).map(|a| (side * a / 100_000.0 / ppu) as f32),
+        corner_max: (side / 2.0 / ppu) as f32,
     }
 }
+
+/// A rounded rectangle's corner radius as the Shape pane's Corner radius box shows it ("0.85 cm"),
+/// for its frame `x`; `None` for any other shape.
+pub(crate) fn corner_number(app: &SlideApp, sh: &Shape, x: &deckcraft_model::Xfrm) -> Option<String> {
+    let len = app.session.prefs.units;
+    let side = x.w.min(x.h).max(0.0);
+    round_rect_adj(sh).map(|a| widgets::fmt_num(side * a / 100_000.0 / len.points_per_unit(), len.suffix()))
+}
+
+/// A rounded rectangle's corner (`roundRect`'s `adj`, 100000ths of the shorter side, within round
+/// ends); `None` for any other shape.
+fn round_rect_adj(sh: &Shape) -> Option<f64> {
+    match &sh.geom {
+        deckcraft_model::Geom::Preset { name, adj } if name == "roundRect" => {
+            let a = adj.first().copied().filter(|a| a.is_finite()).unwrap_or(ROUND_RECT_DEFAULT);
+            Some(a.clamp(0.0, ROUND_RECT_MAX))
+        }
+        _ => None,
+    }
+}
+
+/// `roundRect`'s default corner and its largest (round ends), in 100000ths of the shorter side.
+const ROUND_RECT_DEFAULT: f64 = 16_667.0;
+const ROUND_RECT_MAX: f64 = 50_000.0;
 
 /// Run an edit from the shared pane as PhutKrub's command.
 fn apply(app: &mut SlideApp, ui: &Ui, sh: &Shape, v: &Values, edit: Edit) {
@@ -184,6 +211,15 @@ fn apply(app: &mut SlideApp, ui: &Ui, sh: &Shape, v: &Values, edit: Edit) {
             return;
         }
         Edit::Rotation(r) => ("shape.rotate", json!({"deg": r})),
+        Edit::CornerRadius(r) => {
+            let x = app.session.active().map(|d| deckcraft_engine::cmd::xfrm_of(&d.doc, &d.selection, sh));
+            let side = x.map_or(0.0, |x| x.w.min(x.h));
+            if round_rect_adj(sh).is_none() || side <= 0.0 {
+                return;
+            }
+            let adj = (f64::from(r.max(0.0)) * ppu / side * 100_000.0).round().clamp(0.0, ROUND_RECT_MAX);
+            ("shape.adjust", json!({"index": 0, "value": adj}))
+        }
         Edit::FlipVertical => ("arrange.flipVertical", json!({})),
         Edit::FlipHorizontal => ("arrange.flipHorizontal", json!({})),
         Edit::Align(edge) => ("arrange.align", json!({"edge": edge, "to": to})),
@@ -200,21 +236,43 @@ pub(crate) fn shape_pane(app: &mut SlideApp, ui: &mut Ui) {
     let Some(sh) = app.session.active().and_then(|d| d.selected_shapes().first().map(|s| (*s).clone())) else {
         return;
     };
+    // A locked object (owner, 2026-11-23): a gold line with Unlock on top, everything that would
+    // change it greyed, and the Lock tile (Size and Position) still live.
+    let locked = sh.locked;
+    if locked && krub_icons::object_lock::pane_banner(ui, tl!("Locked: it can't be moved, resized or edited."), tl!("Unlock")) {
+        run(app, "shape.lock", json!({"locked": false}));
+        return;
+    }
     let v = values(app, ui, &sh);
     let tr = |s: &str| tl!(s).to_string();
-    let edits = widgets::in_pane(|| {
-        let mut host = PhutKrub { app: &mut *app, effects: sh.effects.clone().unwrap_or_default() };
-        krub_icons::shape_pane::sections(ui, &v, CAPS, &tr, &mut host)
-    });
+    let edits = ui
+        .add_enabled_ui(!locked, |ui| {
+            widgets::in_pane(|| {
+                let mut host = PhutKrub { app: &mut *app, effects: sh.effects.clone().unwrap_or_default() };
+                krub_icons::shape_pane::sections(ui, &v, CAPS, &tr, &mut host)
+            })
+        })
+        .inner;
     for edit in edits {
         apply(app, ui, &sh, &v, edit);
     }
     // PhutKrub's own, under the sub-panel each belongs to (owner, 2026-11-18): with Size and
     // Position, whether Align lines objects up with the slide or with each other (the same
-    // choice as Arrange › Align on Home); with Fill and Line, the former Shape Format tab's
-    // sections.
+    // choice as Arrange › Align on Home), and Lock; with Fill and Line, the former Shape Format
+    // tab's sections.
     use krub_icons::shape_pane::Tab;
-    match krub_icons::shape_pane::current_tab(ui.ctx(), CAPS) {
+    let tab = krub_icons::shape_pane::current_tab(ui.ctx(), CAPS);
+    if tab == Tab::SizePosition {
+        ui.add_space(4.0);
+        let w = ui.available_width().floor();
+        if krub_icons::object_lock::lock_tile(ui, locked, tl!("Lock"), tl!("Lock it so it can't be moved, resized or edited"), w).clicked() {
+            run(app, "shape.lock", json!({"locked": !locked}));
+        }
+    }
+    if locked {
+        return;
+    }
+    match tab {
         Tab::SizePosition => {
             let selection = app.session.active().map(|d| d.selection.shapes.clone()).unwrap_or_default();
             let to_slide = crate::ribbon::align_to_slide(app.align_to.as_ref(), &selection);

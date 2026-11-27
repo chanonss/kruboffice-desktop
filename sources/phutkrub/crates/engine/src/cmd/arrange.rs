@@ -198,6 +198,10 @@ fn group(s: &mut Session, p: &Value) -> Result<Value> {
         if members.len() < 2 {
             return Err(bad("arrange.group", "select two or more objects on the slide"));
         }
+        // A locked object stays where it is (owner, 2026-11-23): unlock it before grouping.
+        if members.iter().any(|m| m.locked) {
+            return Err(bad("arrange.group", "the object is locked"));
+        }
         if group_depth(&members) + 1 > MAX_GROUP_DEPTH {
             return Err(bad("arrange.group", format!("groups can be nested at most {MAX_GROUP_DEPTH} deep")));
         }

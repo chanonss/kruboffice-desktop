@@ -41,6 +41,7 @@ pub mod smart_art;
 pub mod styles;
 pub mod symbol_fonts;
 pub mod table;
+mod thai_words;
 pub mod wordart;
 pub mod wrap;
 pub mod zip_guard;
@@ -1561,9 +1562,14 @@ impl PermRange {
     }
 }
 
-/// Words in `s` (tokens separated by whitespace that contain at least one alphanumeric char).
+/// Words in `s`: tokens separated by whitespace that contain at least one alphanumeric char.
+/// Thai is written without spaces between words, so a token with Thai in it counts the words a
+/// dictionary word breaker finds in it ([`thai_words::count`]), as Word does.
 pub fn count_words(s: &str) -> usize {
-    s.split(|c: char| c.is_whitespace() || c == para::OBJ).filter(|w| w.chars().any(char::is_alphanumeric)).count()
+    s.split(|c: char| c.is_whitespace() || c == para::OBJ)
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .map(|w| if w.chars().any(thai_words::is_thai) { thai_words::count(w) } else { 1 })
+        .fold(0usize, usize::saturating_add)
 }
 
 fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize) {

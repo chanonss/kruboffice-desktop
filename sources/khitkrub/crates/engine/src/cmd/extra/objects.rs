@@ -40,6 +40,8 @@ pub(super) fn shape_outline(s: &mut Session, p: &Json) -> Result<Json> {
 fn with_shape(s: &mut Session, p: &Json, f: impl FnOnce(&mut Shape)) -> Result<Json> {
     let si = s.doc()?.wb.active_sheet();
     let id = u32_param(p, "id");
+    let target = id.or_else(|| s.doc().ok()?.wb.sheet(si)?.shapes.last().map(|x| x.id));
+    crate::cmd::controls::check_not_locked(s, si, ObjKind::Shape, &target.into_iter().collect::<Vec<_>>(), "shape")?;
     edit(s, |cx| {
         let shapes = &mut cx.sheet_mut(si)?.shapes;
         let sh = match id {

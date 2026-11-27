@@ -714,7 +714,8 @@ fn all_charts_inserts_a_hundred_percent_stacked_area() {
     h.state_mut().open_dialog("recommendedCharts", json!({"tab": "All Charts"}));
     h.run_steps(4);
     // The entry sits below the list's visible height: scroll the list with the wheel first.
-    let first = h.get_by_label("Pie").rect().center();
+    // Over a row that is in view (rows are 28 pt high in dialogs, so Pie is below the fold).
+    let first = h.get_by_label("Clustered Bar").rect().center();
     h.input_mut().events.push(Event::PointerMoved(first));
     h.input_mut().events.push(Event::MouseWheel {
         unit: egui::MouseWheelUnit::Line,

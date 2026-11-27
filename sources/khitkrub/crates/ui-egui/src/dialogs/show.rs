@@ -193,7 +193,10 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
         _ => 380.0,
     };
     let window_id = egui::Id::unique("dialog").with(&d.name);
+    // One dialog look for the three apps (owner, 2026-11-24, draft A): a grey body with a rim,
+    // the content on a white card, the buttons in a row of their own (`krub_icons::dialog`).
     let window = egui::Window::new(app.ui.language.tr(&d.title))
+        .frame(krub_icons::dialog::window_frame(&ctx.global_style()))
         .id(window_id)
         .collapsible(false)
         .resizable(false)
@@ -209,13 +212,19 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
     };
     let window = super::sort_dialog::window(window, &d.name, ctx, app.ui.language);
     let (window, collapsed) = place_window(app, ctx, &mut d, window, window_id);
-    let shown = window.show(ctx, |ui| {
+    let width_key = window_id.with("content width");
+    krub_icons::dialog::begin(ctx, ctx.data(|m| m.get_temp::<f32>(width_key)));
+    let shown = window.show(ctx, |ui| krub_icons::dialog::rim(ui, |ui| {
+            krub_icons::dialog::field_style(ui.style_mut());
             if let Some(key) = &collapsed {
                 let title = d.title.clone();
                 ref_edit(app, ui, &mut d, key, RefLabel::Named(&title), (width - 40.0).min(380.0));
                 return;
             }
-            ui.set_min_width(width - 20.0);
+            let at = ui.painter().add(egui::Shape::Noop);
+            let pad = krub_icons::dialog::CARD_PAD;
+            let inner = egui::Frame::new().inner_margin(egui::Margin::same(pad as i8)).show(ui, |ui| {
+            ui.set_min_width(width - 20.0 - 2.0 * pad);
             match d.name.as_str() {
                 "formatCells" => format_cells(app, ui, &mut d, &mut confirm),
                 "dataValidation" => data_validation_form(app, ui, &mut d, &mut confirm, &mut open),
@@ -414,7 +423,13 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                 }
                 _ => form(app, ui, &mut d, &mut confirm, &mut open),
             }
-        });
+            });
+            let r = inner.response.rect;
+            let bottom = krub_icons::dialog::footer_top(ui.ctx()).map_or(r.max.y, |y| y - krub_icons::dialog::CARD_GAP + pad);
+            krub_icons::dialog::card_behind(ui, at, r.shrink(pad), bottom.min(r.max.y));
+            let w = ui.min_rect().width();
+            ui.ctx().data_mut(|m| m.insert_temp(width_key, w));
+        }));
     window_shown(ctx, &mut d, collapsed.is_some(), shown.map(|r| r.response.rect));
     // Hyperlinks inside dialogs (About ▸ Contributors) open through the host's `open_url`, since
     // the native shell has no browser integration of its own.
@@ -559,7 +574,8 @@ pub(super) fn open_confirmed_link(app: &mut SheetApp, d: &Dialog) -> Result<(), 
 }
 
 pub(super) fn ok_cancel(ui: &mut egui::Ui, confirm: &mut bool, open: &mut bool) {
-    ui.add_space(8.0);
+    // The shared button row (owner, 2026-11-24: one dialog look): OK at the far right.
+    krub_icons::dialog::footer(ui);
     // A row as tall as the buttons: a right-to-left layout straight in the window takes all the
     // height it is offered, which stretched every form dialog to the screen's height.
     ui.horizontal(|ui| {

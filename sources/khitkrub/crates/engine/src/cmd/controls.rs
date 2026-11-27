@@ -197,6 +197,7 @@ fn new_anchor(s: &Session, p: &Json, size: (f32, f32)) -> Result<Anchor> {
     let dim = |k: &str, v: f32| f64_param(p, k).filter(|x| x.is_finite()).map_or(v, |x| x.clamp(4.0, 10_000.0) as f32);
     let off = |k: &str| f64_param(p, k).filter(|x| x.is_finite()).map_or(0.0, |x| x.clamp(-10_000.0, 10_000.0) as f32);
     Ok(Anchor {
+        locked: false,
         cell,
         dx: off("dx"),
         dy: off("dy"),
@@ -306,7 +307,21 @@ fn find(s: &Session, cmd: &str, p: &Json) -> Result<(usize, usize, FormControl)>
 /// For the object commands (`object.move`, `object.delete`, `object.setAnchorMode`, `arrange.*`,
 /// `arrange.align`): refuses to change form controls `ids` on `sheet` when one is locked and the
 /// sheet is protected, as `control.format` and `control.assign` do. Other kinds pass.
+/// The words a refused change to a locked object gives (`krub_icons::object_lock::LOCKED_ERROR`
+/// in the interface).
+pub const OBJECT_LOCKED: &str = "the object is locked";
+
+/// Refuse a change to an object locked with `shape.lock` (owner, 2026-11-23).
+pub(crate) fn check_not_locked(s: &Session, sheet: usize, kind: ObjKind, ids: &[u32], cmd: &str) -> Result<()> {
+    let Some(sh) = s.doc()?.wb.sheet(sheet) else { return Ok(()) };
+    if ids.iter().any(|id| sh.object_anchor(gridcraft_model::ObjRef::new(kind, *id)).is_some_and(|a| a.locked)) {
+        return Err(bad(cmd, OBJECT_LOCKED));
+    }
+    Ok(())
+}
+
 pub(crate) fn check_objects_unlocked(s: &Session, sheet: usize, kind: ObjKind, ids: &[u32]) -> Result<()> {
+    check_not_locked(s, sheet, kind, ids, "object")?;
     if kind != ObjKind::Control {
         return Ok(());
     }

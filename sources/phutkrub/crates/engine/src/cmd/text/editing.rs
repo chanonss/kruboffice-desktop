@@ -20,6 +20,10 @@ pub(super) fn edit(s: &mut Session, p: &Value) -> Result<Value> {
         None => s.doc()?.selection.shapes.first().copied().ok_or_else(|| bad("text.edit", "select a shape with text"))?,
     };
     let sh = shape_of(s, id)?;
+    // The text of a locked object can't be edited (owner, 2026-11-23).
+    if sh.locked {
+        return Err(bad("text.edit", "the object is locked"));
+    }
     let cell = p.get("cell").and_then(Value::as_array).and_then(|a| Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize)));
     let body = match (&sh.kind, cell) {
         (ShapeKind::Table(t), Some((r, c))) => t.cell(r, c).map(|x| x.text.clone()).ok_or_else(|| bad("text.edit", "no such cell"))?,

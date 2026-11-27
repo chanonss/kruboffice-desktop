@@ -71,6 +71,9 @@ impl eframe::App for App {
 
 /// The per-user settings directory: `ui.json`, `prefs.json` and `logs/` live here.
 fn config_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = deckcraft_engine::portable::data_dir() {
+        return Some(dir);
+    }
     if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Application Support/PhutKrub"))
     } else if cfg!(windows) {
@@ -379,11 +382,11 @@ mod tests {
     fn macos_runtime_icon_has_a_transparent_margin() {
         let icon = app_icon().expect("the bundled icon decodes");
         assert_eq!((icon.width, icon.height), (512, 512));
-        assert!(icon.rgba.chunks_exact(4).enumerate().all(|(i, pixel)| {
+        assert!(icon.rgba.as_chunks::<4>().0.iter().enumerate().all(|(i, pixel)| {
             let (x, y) = (i % 512, i / 512);
             (50..462).contains(&x) && (50..462).contains(&y) || pixel[3] == 0
         }));
-        assert!(icon.rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+        assert!(icon.rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
     }
 
     /// #279: on macOS the process ends inside `on_exit`, before eframe would tear the window down.

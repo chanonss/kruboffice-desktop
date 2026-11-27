@@ -143,14 +143,16 @@ fn tabs_dialog_sets_clears_and_applies_on_ok() {
     h.get_by_label("Center").click();
     h.run_steps(2);
     h.get_by_label("Set").click();
-    h.run_steps(2);
+    // Three frames: the new row makes the dialog taller, and it centres again a frame later.
+    h.run_steps(3);
     if let Ok(img) = h.render() {
         let _ = img.save("/tmp/tabs_dialog.png");
     }
     // Nothing changes until OK.
     assert_eq!(ruler(&mut h)["tabs"].as_array().unwrap().len(), 1);
     h.query_all_by_label("Clear").next().expect("a Clear button per stop").click();
-    h.run_steps(2);
+    // The row goes, the dialog gets shorter and centres again a frame later.
+    h.run_steps(3);
     h.get_by_label("OK").click();
     h.run_steps(2);
     assert!(h.state().dialog.is_none());

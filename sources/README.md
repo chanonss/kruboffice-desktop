@@ -1,16 +1,16 @@
 # Source code of the three programs · ซอร์สโค้ดของสามโปรแกรม
 
 Written by `packaging/export-sources.sh` at each KrubOffice release: the desktop source of the programs
-bundled in KrubOffice 0.7.0, the files only (no history). The web-only
+bundled in KrubOffice 0.8.0, the files only (no history). The web-only
 parts (the web app, the website and its publishing scripts) are not included.
 
 ซอร์สโค้ดฉบับเดสก์ท็อปของสามโปรแกรมใน KrubOffice เขียนโดยอัตโนมัติทุกครั้งที่ออกรุ่นใหม่ ไม่รวมส่วนที่ใช้เฉพาะบนเว็บ
 
 | Folder | Program | Version | Commit | Based on |
 |---|---|---|---|---|
-| [`khiankrub/`](khiankrub/) | KhianKrub (เขียนครับ) | 0.20.0 | `877e32dc1f82` | [storytold/wordcraft](https://github.com/storytold/wordcraft) |
-| [`khitkrub/`](khitkrub/) | KhitKrub (คิดครับ) | 0.7.2 | `2799cef950b7` | [storytold/gridcraft](https://github.com/storytold/gridcraft) |
-| [`phutkrub/`](phutkrub/) | PhutKrub (พูดครับ) | 0.9.1 | `ace6b33c737d` | [storytold/deckcraft](https://github.com/storytold/deckcraft) |
+| [`khiankrub/`](khiankrub/) | KhianKrub (เขียนครับ) | 0.21.0 | `d7cfbe9a3bf3` | [storytold/wordcraft](https://github.com/storytold/wordcraft) |
+| [`khitkrub/`](khitkrub/) | KhitKrub (คิดครับ) | 0.8.1 | `7249003dc459` | [storytold/gridcraft](https://github.com/storytold/gridcraft) |
+| [`phutkrub/`](phutkrub/) | PhutKrub (พูดครับ) | 0.10.1 | `6209510bc99f` | [storytold/deckcraft](https://github.com/storytold/deckcraft) |
 
 Each folder is a Cargo workspace (MIT OR Apache-2.0, see its `LICENSE-*`, `NOTICE` and `ATTRIBUTION.md`).
 Fonts: release builds embed [storytold/craft-fonts](https://github.com/storytold/craft-fonts) at

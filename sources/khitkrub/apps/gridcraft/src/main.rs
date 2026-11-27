@@ -82,7 +82,12 @@ impl eframe::App for App {
     }
 }
 
+/// The settings folder: preferences, logs and recovery copies. In portable mode it is
+/// [`portable_dir`]; otherwise the platform's per-user folder.
 fn config_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = portable_dir() {
+        return Some(dir);
+    }
     if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Application Support/KhitKrub"))
     } else if cfg!(windows) {
@@ -93,6 +98,23 @@ fn config_dir() -> Option<std::path::PathBuf> {
             .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
             .map(|c| c.join("khitkrub"))
     }
+}
+
+/// Portable mode (Windows, the portable zip): with a file named `portable` next to the
+/// program, every setting lives in `data\KhitKrub` beside it instead of `%APPDATA%`, so the app
+/// runs from a USB stick and leaves nothing on the computer. Each KrubOffice program has its own
+/// folder under `data`, since the KrubOffice portable zip puts all three in one folder (the Start
+/// Center reads them there). The installed version has no marker and is unchanged.
+fn portable_dir() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    portable_dir_beside(exe.parent()?)
+}
+
+fn portable_dir_beside(program_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    program_dir.join("portable").is_file().then(|| program_dir.join("data").join("KhitKrub"))
 }
 
 /// Runs without preferences (`GRIDCRAFT_NO_PREFS`, agents' test runs) neither read nor write
@@ -468,11 +490,28 @@ mod packaging_tests {
     fn macos_runtime_icon_has_a_transparent_margin() {
         let icon = super::icon().expect("the bundled icon decodes");
         assert_eq!((icon.width, icon.height), (512, 512));
-        assert!(icon.rgba.chunks_exact(4).enumerate().all(|(i, pixel)| {
+        assert!(icon.rgba.as_chunks::<4>().0.iter().enumerate().all(|(i, pixel)| {
             let (x, y) = (i % 512, i / 512);
             (50..462).contains(&x) && (50..462).contains(&y) || pixel[3] == 0
         }));
-        assert!(icon.rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+        assert!(icon.rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
+    }
+
+    /// Portable mode: only a file named `portable` beside the program moves the settings into
+    /// `data\KhitKrub` next to it.
+    #[test]
+    fn portable_marker_keeps_settings_beside_the_program() {
+        let root = std::env::temp_dir().join(format!("khitkrub-portable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("portable")).unwrap();
+        assert_eq!(super::portable_dir_beside(&root), None);
+        std::fs::remove_dir_all(root.join("portable")).unwrap();
+        std::fs::write(root.join("portable"), "").unwrap();
+        assert_eq!(super::portable_dir_beside(&root), Some(root.join("data").join("KhitKrub")));
+        let _ = std::fs::remove_dir_all(&root);
+        if !cfg!(windows) {
+            assert_eq!(super::portable_dir(), None);
+        }
     }
 
     /// The text between `start` and `end` that follows each `marker` in `text`, sorted (e.g. the

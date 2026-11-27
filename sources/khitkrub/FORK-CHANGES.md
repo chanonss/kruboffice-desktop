@@ -6,6 +6,12 @@ Thai-speaking audience and called **คิดครับ · KhitKrub**. It foll
 the original, newest first. The original's own progress notes are in `ROADMAP.md` and `docs/`; they are not
 edited here. Each entry matches commits on the `my-changes` branch.
 
+## 2026-11-25
+
+### Thai lists for AutoFill (owner, 2026-11-23)
+- Dragging the fill handle continues Thai lists like the English Monday → Tuesday: short and full weekdays (`จ.`, `จันทร์`), short and full months (`ม.ค.`, `มกราคม`) and the twelve year animals (`ชวด` … `กุน`), all wrapping round (`crates/engine/src/fill.rs` `lists()`, names from `gridcraft_numfmt::THAI_*`, now public). Added 2026-11-25: weekdays with วัน (`วันจันทร์` → `วันอังคาร`) and the everyday short `พฤหัส` for Thursday; `พุธ` alone still goes on to `พฤหัสบดี`.
+- Thai digits count on in Thai digits (`๘` → `๙`, `๑๐`; `ข้อ ๑` → `ข้อ ๒`); `ไตรมาส ๓` wraps after 4 like `Q3`. Tests: `thai_days_months_and_digits_fill_in_thai`, `split_numbers`.
+
 ## 2026-11-06
 
 ### Upstream round: GridCraft main 632e4a1b → ff35c6b8 (after v0.16.1)

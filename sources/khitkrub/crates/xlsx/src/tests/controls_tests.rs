@@ -13,7 +13,7 @@ fn at(a: &str) -> CellRef {
 }
 
 fn anchor(cell: &str, width: f32, height: f32) -> Anchor {
-    Anchor { cell: at(cell), dx: 4.0, dy: 3.0, width, height, mode: AnchorMode::MoveOnly }
+    Anchor { locked: false, cell: at(cell), dx: 4.0, dy: 3.0, width, height, mode: AnchorMode::MoveOnly }
 }
 
 fn note(author: &str, text: &str) -> Comment {

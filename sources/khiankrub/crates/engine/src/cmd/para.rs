@@ -1026,13 +1026,24 @@ fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
     // when it changed: the dialog sends the font every time, and a document with its own Thai
     // heading font (Latin Calibri, Thai Angsana New) keeps it.
     let latin_font = s.doc.styles.resolve_char(Some(&id), &CharProps::default()).font;
+    // Bold and italic go for Thai text too only where the style (through its bases and the
+    // document defaults) doesn't already keep a separate complex-script value (WordCraft #4198).
+    let d = &s.doc.styles.default_chr;
+    let (eff_b, eff_b_cs, eff_i, eff_i_cs) =
+        s.doc.styles.chain(&id).into_iter().fold((d.bold, d.bold_cs, d.italic, d.italic_cs), |(b, b_cs, i, i_cs), st| {
+            (st.chr.bold.or(b), st.chr.bold_cs.or(b_cs), st.chr.italic.or(i), st.chr.italic_cs.or(i_cs))
+        });
     let chr = chr.map(|mut c| {
         if c.font_cs.is_none() && c.font.as_ref().is_some_and(|f| *f != latin_font) {
             c.font_cs = c.font.clone();
         }
         c.size_cs = c.size_cs.or(c.size);
-        c.bold_cs = c.bold_cs.or(c.bold);
-        c.italic_cs = c.italic_cs.or(c.italic);
+        if eff_b_cs.filter(|&cs| Some(cs) != eff_b).is_none() {
+            c.bold_cs = c.bold_cs.or(c.bold);
+        }
+        if eff_i_cs.filter(|&cs| Some(cs) != eff_i).is_none() {
+            c.italic_cs = c.italic_cs.or(c.italic);
+        }
         c
     });
     // Numbering for the style: a list of the document's, a new multilevel list, or none. The

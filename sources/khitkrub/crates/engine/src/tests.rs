@@ -825,11 +825,13 @@ fn rich_clipboard_omits_html_for_large_ranges_without_truncating_text() {
 #[test]
 fn rich_clipboard_omits_html_when_escaping_exceeds_byte_budget() {
     let mut s = s();
-    let text = "&".repeat(1_000_000);
-    s.execute("range.setValues", json!({"range": "A1", "values": [[text]]})).unwrap();
-    let copied = s.execute("edit.copy", json!({"range": "A1", "html": true})).unwrap();
+    // Cells hold at most 32,767 characters, so 30 full cells of `&` (5 bytes each once escaped)
+    // pass the 4 MiB HTML budget while the plain text stays far below it.
+    let cell = "&".repeat(32_767);
+    s.execute("range.setValues", json!({"range": "A1", "values": [vec![cell; 30]]})).unwrap();
+    let copied = s.execute("edit.copy", json!({"range": "A1:AD1", "html": true})).unwrap();
     assert!(copied.get("html").is_none(), "an oversized escaped value must not produce partial HTML");
-    assert_eq!(copied["text"].as_str().unwrap().len(), 1_000_001);
+    assert_eq!(copied["text"].as_str().unwrap().len(), 30 * 32_767 + 30);
     assert!(copied["text"].as_str().unwrap().ends_with("&\n"));
 }
 
@@ -4205,7 +4207,7 @@ fn add_image(s: &mut Session, cell: &str, mode: gridcraft_model::AnchorMode) -> 
     let id = wb.next_object_id();
     wb.sheet_mut(0).unwrap().images.push(gridcraft_model::Image {
         id,
-        anchor: gridcraft_model::Anchor { cell: CellRef::parse(cell).unwrap(), dx: 0.0, dy: 0.0, width: 40.0, height: 40.0, mode },
+        anchor: gridcraft_model::Anchor { locked: false, cell: CellRef::parse(cell).unwrap(), dx: 0.0, dy: 0.0, width: 40.0, height: 40.0, mode },
         data: tiny_png().into(),
         mime: "image/png".into(),
         alt: String::new(),

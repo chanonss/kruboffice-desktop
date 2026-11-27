@@ -89,7 +89,7 @@ fn insert_equation(s: &mut Session, p: &Json) -> Result<Json> {
     let mut shape = Shape {
         id,
         kind: ShapeKind::Equation,
-        anchor: Anchor { cell: at, dx: 0.0, dy: 0.0, width, height, mode: AnchorMode::MoveOnly },
+        anchor: Anchor { locked: false, cell: at, dx: 0.0, dy: 0.0, width, height, mode: AnchorMode::MoveOnly },
         fill: Color::Auto,
         line: color,
         text: latex.to_string(),
@@ -115,6 +115,9 @@ fn edit_equation(s: &mut Session, p: &Json) -> Result<Json> {
     let sheet = d.wb.active_sheet();
     let sh = d.wb.active().ok_or_else(|| bad(CMD, "no such equation"))?;
     let shape = sh.shapes.iter().find(|x| x.id == id && x.kind == ShapeKind::Equation).ok_or_else(|| bad(CMD, "no such equation"))?;
+    if shape.anchor.locked {
+        return Err(bad(CMD, crate::cmd::controls::OBJECT_LOCKED));
+    }
     if sh.is_protected() {
         return Err(EngineError::Other(PROTECTED.into()));
     }

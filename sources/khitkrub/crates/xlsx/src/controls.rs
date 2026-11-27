@@ -542,7 +542,7 @@ fn anchor_from_markers(a: &El, sheet: &Sheet) -> Option<Anchor> {
         (true, false) => AnchorMode::MoveOnly,
         _ => AnchorMode::Absolute,
     };
-    Some(Anchor { cell, dx, dy, width: (x2 - x1).clamp(1.0, 10_000.0) as f32, height: (y2 - y1).clamp(1.0, 10_000.0) as f32, mode })
+    Some(Anchor { locked: false, cell, dx, dy, width: (x2 - x1).clamp(1.0, 10_000.0) as f32, height: (y2 - y1).clamp(1.0, 10_000.0) as f32, mode })
 }
 
 /// A VML `x:Anchor` (`LeftColumn, LeftOffset, TopRow, TopOffset, RightColumn, RightOffset,
@@ -566,6 +566,7 @@ fn vml_anchor(shape: &El, sheet: &Sheet) -> Option<Anchor> {
         _ => AnchorMode::Absolute,
     };
     Some(Anchor {
+        locked: false,
         cell,
         dx: off(*dx1) as f32,
         dy: off(*dy1) as f32,

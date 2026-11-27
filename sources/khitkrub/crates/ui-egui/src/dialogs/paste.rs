@@ -54,8 +54,8 @@ pub(super) fn paste_special(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialo
             ui.end_row();
         });
     });
-    ui.add_space(8.0);
-    ui.separator();
+    // The shared button row (owner, 2026-11-24: one dialog look), Paste Link at its left.
+    krub_icons::dialog::footer(ui);
     ui.horizontal(|ui| {
         // Excel's Paste Link pastes references to the copied cells straight away.
         if ui.button(lang.tr("Paste Link")).on_hover_text(lang.tr("Paste formulas that refer to the copied cells")).clicked() || link_now {

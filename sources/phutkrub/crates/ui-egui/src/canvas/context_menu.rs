@@ -8,6 +8,14 @@ pub(super) fn context_menu(app: &mut SlideApp, resp: &egui::Response) {
         app.session.tool.edit_vertex = Some((path, index));
     }
     resp.context_menu(|ui| {
+        // Accent colours (style A, owner 2026-11-25), as the same icons on the ribbon.
+        let colour = !crate::theme::Tokens::get(ui.ctx()).flat_icons;
+        krub_icons::tabler_colour::with_colour(&ui.ctx().clone(), colour, || menu_body(app, ui));
+    });
+}
+
+fn menu_body(app: &mut SlideApp, ui: &mut egui::Ui) {
+    {
         let editing = app.session.active().and_then(|d| app.session.tool.editing_points(d).and_then(|id| d.shape(id).cloned()));
         if let Some(sh) = editing {
             edit_points_menu(app, ui, &sh);
@@ -34,7 +42,7 @@ pub(super) fn context_menu(app: &mut SlideApp, resp: &egui::Response) {
         } else {
             slide_items(app, ui);
         }
-    });
+    }
 }
 
 fn edit_points_menu(app: &mut SlideApp, ui: &mut egui::Ui, sh: &deckcraft_model::Shape) {
@@ -226,10 +234,9 @@ fn shape_items(app: &mut SlideApp, ui: &mut egui::Ui) {
         crate::ribbon::menu_item(app, ui, crate::icons::Icon::Ungroup, tl!("Ungroup"), "arrange.ungroup", json!({}));
     });
     let locked = app.session.active().is_some_and(|d| d.selected_shapes().iter().all(|s| s.locked));
-    if ui.button(if locked { "Unlock" } else { "Lock" }).clicked() {
-        let _ = app.run("shape.lock", json!({"locked": !locked}));
-        ui.close();
-    }
+    // Lock / Unlock with its padlock (owner, 2026-11-23).
+    let (icon, label) = if locked { (crate::icons::Icon::Lock, tl!("Unlock")) } else { (crate::icons::Icon::Unlock, tl!("Lock")) };
+    crate::ribbon::menu_item(app, ui, icon, label, "shape.lock", json!({"locked": !locked}));
     let picture =
         app.session.active().is_some_and(|d| d.selected_shapes().iter().any(|s| matches!(s.kind, deckcraft_model::ShapeKind::Picture { .. })));
     if picture && ui.button(tl!("Change Picture…")).clicked() {

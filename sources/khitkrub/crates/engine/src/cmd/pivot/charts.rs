@@ -54,6 +54,7 @@ pub(super) fn insert_pivot_chart(s: &mut Session, p: &Json) -> Result<Json> {
         id,
         kind,
         anchor: Anchor {
+            locked: false,
             cell: at,
             dx: 0.0,
             dy: 0.0,

@@ -133,3 +133,30 @@ fn tracked_formatting_keeps_independent_complex_script_values() {
         assert_eq!(overlaid.fmt_change, c.fmt_change);
     });
 }
+
+#[test]
+fn complex_script_runs_take_bold_and_italic_only_from_bcs_and_ics() {
+    // From WordCraft #4852. Word draws Thai marked `w:cs` with `<w:b/><w:i/>` and no
+    // `w:bCs`/`w:iCs` neither bold nor italic, through a style too; a run not marked `w:cs` still
+    // borrows the Latin values. The Latin text of every run keeps `w:b` and `w:i`.
+    let styles = r#"
+<w:style w:type="paragraph" w:styleId="LatinBold"><w:name w:val="LatinBold"/><w:rPr><w:b/><w:i/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="BothBold"><w:name w:val="BothBold"/><w:rPr><w:bCs/><w:iCs/></w:rPr></w:style>"#;
+    let cases = [
+        (r#"<w:b/><w:i/><w:cs/>"#, "", false),
+        (r#"<w:cs/>"#, r#"<w:pStyle w:val="LatinBold"/>"#, false),
+        (r#"<w:b/><w:i/><w:cs/>"#, r#"<w:pStyle w:val="BothBold"/>"#, true),
+        (r#"<w:b/><w:bCs/><w:i/><w:iCs/><w:cs/>"#, "", true),
+        (r#"<w:b/><w:i/>"#, "", true),
+    ];
+    for (run, style, complex) in cases {
+        check_generations(&package(run, "", styles, style), |d| {
+            let p = paragraph(d);
+            let c = d.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props);
+            let cs = c.complex();
+            assert_eq!((cs.bold, cs.italic), (complex, complex), "{run} {style}");
+            let latin = run.contains("<w:b/>") || style.contains("LatinBold");
+            assert_eq!((c.bold, c.italic), (latin, latin), "Latin text: {run} {style}");
+        });
+    }
+}

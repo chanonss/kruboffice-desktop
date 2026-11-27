@@ -142,7 +142,7 @@ fn insert_slicer(s: &mut Session, p: &Json) -> Result<Json> {
         table,
         column: column.clone(),
         caption: column,
-        anchor: Anchor { cell: at, dx: 4.0, dy: 4.0, width, height, mode: AnchorMode::MoveOnly },
+        anchor: Anchor { locked: false, cell: at, dx: 4.0, dy: 4.0, width, height, mode: AnchorMode::MoveOnly },
         selected: None,
         columns,
     };

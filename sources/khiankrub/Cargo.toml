@@ -1,10 +1,11 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+exclude = ["vendor"]
 default-members = ["crates/*", "apps/wordcraft", "apps/wordcraft-cli", "xtask"]
 
 [workspace.package]
-version = "0.20.0"
+version = "0.21.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -62,7 +63,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 craft-drawingml = { git = "https://github.com/storytold/craft-libs", rev = "44d83fa8f635333dcb3c231f87381387a1f5631b", version = "0.1.0" }
 craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef", version = "=0.1.0", default-features = false, features = ["write"] }
 quick-xml = "0.41"
-zip = { version = "3", default-features = false, features = ["deflate"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate"] }
 # zlib streams (compressed metafile pictures in `.doc` drawings); already in the lock as a dependency of other crates.
 miniz_oxide = "0.8"
 cfb = "0.15"
@@ -123,4 +124,6 @@ codegen-units = 1
 
 # Required by craft-pdf: the backend rejects writers that failed during unwinding.
 [patch.crates-io]
-krilla = { git = "https://github.com/storytold/craft-libs", rev = "9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef" }
+# Craft-libs 9f75d3d plus one fix not yet upstream: zero widths written in /W, so printers that
+# ignore /DW do not scatter Thai marks (vendor/krilla/README.craft.md).
+krilla = { path = "vendor/krilla" }

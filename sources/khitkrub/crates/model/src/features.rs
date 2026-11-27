@@ -425,6 +425,10 @@ pub struct Anchor {
     /// How the object follows its anchor cell when rows/columns move (sort, insert, delete).
     #[serde(default)]
     pub mode: AnchorMode,
+    /// Locked (owner, 2026-11-23): it can't be moved, resized, formatted, edited or deleted until
+    /// it is unlocked (`shape.lock`). Saved as DrawingML's `noMove`/`noResize`… locks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1139,6 +1143,33 @@ pub struct ShapeFormat {
     pub glow_transparency: f32,
     /// Soft edges (`a:softEdge`): how far in from the edge the shape fades out, in points.
     pub soft_edge: f32,
+    /// A rounded rectangle's corner radius (`roundRect`'s `adj`, ECMA-376 §20.1.10.56): in
+    /// 100000ths of the shorter side, at most [`MAX_CORNER`]; `None` draws [`DEFAULT_CORNER`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corner: Option<u32>,
+}
+
+/// The largest rounded-rectangle corner: half the shorter side, which makes its ends round.
+pub const MAX_CORNER: u32 = 50_000;
+
+/// A rounded rectangle's corner without its own (`roundRect`'s default `adj`): 16667 of 100000.
+pub const DEFAULT_CORNER: u32 = 16_667;
+
+/// The corner radius of a `w` × `h` rounded rectangle with `corner` (see [`ShapeFormat::corner`]),
+/// in the unit of `w` and `h`.
+pub fn corner_radius(corner: Option<u32>, w: f64, h: f64) -> f64 {
+    let side = if w.is_finite() && h.is_finite() { w.min(h).max(0.0) } else { 0.0 };
+    side * f64::from(corner.unwrap_or(DEFAULT_CORNER).min(MAX_CORNER)) / 100_000.0
+}
+
+/// The stored corner that gives a `w` × `h` rounded rectangle a corner radius of `radius` (same
+/// unit): 0 is square, half the shorter side (or more) round ends.
+pub fn corner_from_radius(radius: f64, w: f64, h: f64) -> u32 {
+    let side = if w.is_finite() && h.is_finite() { w.min(h).max(0.0) } else { 0.0 };
+    if side <= 0.0 || !radius.is_finite() {
+        return 0;
+    }
+    ((radius.max(0.0) / side) * 100_000.0).round().clamp(0.0, f64::from(MAX_CORNER)) as u32
 }
 
 /// An outer shadow: distance and blur in points, direction in degrees clockwise from the right,

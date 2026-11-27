@@ -551,14 +551,18 @@ fn options(app: &mut SheetApp, ui: &mut Ui, d: &mut Dialog) {
     let label = ui.label("Description:");
     let mut desc = d.values.get("description").and_then(Json::as_str).unwrap_or("").to_string();
     ui.add(egui::TextEdit::multiline(&mut desc).desired_rows(3).desired_width(f32::INFINITY).id_salt("macro_description")).labelled_by(label.id);
-    ui.add_space(6.0);
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
     let mut done = false;
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if ui.button("Cancel").clicked() {
-            done = true;
-        }
+    // One row high: a right-to-left layout straight in the window takes all the height left.
+    let row = egui::vec2(ui.available_width(), krub_icons::dialog::FIELD_H);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // OK at the far right, Cancel beside it.
         if ui.add_enabled(conflict.is_none(), egui::Button::new("OK")).clicked() {
             done = save_options(app, &name, letter, &desc);
+        }
+        if ui.button("Cancel").clicked() {
+            done = true;
         }
     });
     d.values.insert("shortcut".into(), json!(key));
@@ -653,11 +657,12 @@ pub fn record_dialog(app: &mut SheetApp, ui: &mut Ui, d: &mut Dialog, open: &mut
     if let Some(p) = &problem {
         ui.label(egui::RichText::new(p).color(Tokens::get(ui.ctx()).danger));
     }
-    ui.add_space(6.0);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if ui.button("Cancel").clicked() {
-            *open = false;
-        }
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
+    // One row high: a right-to-left layout straight in the window takes all the height left.
+    let row = egui::vec2(ui.available_width(), krub_icons::dialog::FIELD_H);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // OK at the far right, Cancel beside it.
         if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked() {
             let mut p = json!({"name": name.trim(), "description": desc, "relative": app.macros.relative});
             if !key.trim().is_empty() {
@@ -667,6 +672,9 @@ pub fn record_dialog(app: &mut SheetApp, ui: &mut Ui, d: &mut Dialog, open: &mut
                 Ok(_) => *open = false,
                 Err(e) => app.message = Some(("Record Macro".into(), crate::clean_error(&e))),
             }
+        }
+        if ui.button("Cancel").clicked() {
+            *open = false;
         }
     });
     d.values.insert("name".into(), json!(name));

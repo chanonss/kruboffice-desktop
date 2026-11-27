@@ -379,7 +379,21 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Arc<Wor
     if let Some((start, r)) = paint_selection_frame(app, p, geo, sh) {
         done(start, r);
     }
+    // The faint padlock on a locked object under the pointer (owner, 2026-11-23).
+    if let Some(h) = hover
+        && let Some((o, r)) = hit(app, geo, sh, h)
+        && app.selected_object != Some(o)
+        && sh.object_anchor(o).is_some_and(|a| a.locked)
+    {
+        krub_icons::object_lock::paint_hover(p, corners(r, frame_of(sh, o).0));
+    }
+    krub_icons::object_lock::show_note(p.ctx(), crate::i18n::current(p.ctx()).tr("Locked. Unlock it from the right-click menu."));
     painted
+}
+
+/// The four corners of `r` turned `deg` about its centre, clockwise from the top left.
+fn corners(r: Rect, deg: f32) -> [egui::Pos2; 4] {
+    [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()].map(|c| crate::frame::turn(c, r.center(), deg))
 }
 
 /// Paints shape `sp` in `r` at zoom `z` (sheet pixels to points): fill, outline, effects and,
@@ -455,11 +469,11 @@ pub(crate) fn paint_shape(p: &Painter, wb: &Workbook, sp: &gridcraft_engine::mod
             p.rect_stroke(r, 0.0, Stroke::new(1.0, line), StrokeKind::Inside);
         }
         ShapeKind::RoundedRectangle if turned || dashed || f.line_width.is_some() => {
-            polygon(p, rounded_rect_points(r, 10.0 * z));
+            polygon(p, rounded_rect_points(r, corner_px(f, r)));
         }
         ShapeKind::RoundedRectangle => {
-            p.rect_filled(r, 10.0 * z, fill);
-            p.rect_stroke(r, 10.0 * z, Stroke::new(1.0, line), StrokeKind::Inside);
+            p.rect_filled(r, corner_px(f, r), fill);
+            p.rect_stroke(r, corner_px(f, r), Stroke::new(1.0, line), StrokeKind::Inside);
         }
         ShapeKind::Ellipse => {
             let pts: Vec<Pos2> = (0..64)
@@ -635,20 +649,47 @@ fn paint_selection_frame(app: &SheetApp, p: &Painter, geo: &Geo, sh: &Sheet) -> 
     let r = object_rect(geo, sh, o).filter(|r| r.intersects(p.clip_rect()))?;
     let start = p.add(egui::Shape::Noop);
     let (deg, rotates, resizes) = frame_of(sh, o);
-    crate::frame::paint(p, r, deg, rotates, resizes);
+    if sh.object_anchor(o).is_some_and(|a| a.locked) {
+        // Locked (owner, 2026-11-23): the shared look, a grey frame and a padlock, no handles.
+        let c = corners(r, deg);
+        if krub_icons::object_lock::take_ask() {
+            krub_icons::object_lock::refuse(p.ctx(), krub_icons::object_lock::badge_rect(c).right_top());
+        }
+        krub_icons::object_lock::paint_selected(p.ctx(), p, c);
+    } else {
+        crate::frame::paint(p, r, deg, rotates, resizes);
+        if let Some(at) = corner_handle_of(sh, o, r, deg).filter(|_| resizes) {
+            crate::frame::paint_corner_handle(p, at);
+            // While the handle is dragged, the radius as it changes, as the Shape pane's box
+            // shows it (owner, 2026-11-24).
+            if matches!(app.grid.drag, crate::grid::Drag::Corner { obj, .. } if obj == o)
+                && let Some(s) = sh.shapes.iter().find(|s| s.id == o.id)
+            {
+                let (w, h) = (f64::from(s.anchor.width), f64::from(s.anchor.height));
+                let v = gridcraft_engine::model::corner_radius(s.format.corner, w, h);
+                let lang = crate::i18n::current(p.ctx());
+                let tr = |t: &str| lang.tr(t).to_string();
+                let text = krub_icons::shape_pane::corner_readout_text(&tr, &crate::ribbon::corner_number(app, v));
+                krub_icons::shape_pane::paint_corner_readout(p, at, text);
+            }
+        }
+    }
     Some((start, r))
 }
 
 /// The selected object's turn in degrees (a shape's `format.rotation`), and whether its frame
 /// shows a rotation handle and resize handles (an ink stroke shows neither).
 pub fn frame_of(sh: &Sheet, o: ObjRef) -> (f32, bool, bool) {
-    match sh.shapes.iter().find(|s| o.kind == ObjKind::Shape && s.id == o.id) {
+    // A locked object has no handles (owner, 2026-11-23).
+    let locked = sh.object_anchor(o).is_some_and(|a| a.locked);
+    let (deg, rotates, resizes) = match sh.shapes.iter().find(|s| o.kind == ObjKind::Shape && s.id == o.id) {
         Some(s) => {
             let deg = if s.format.rotation.is_finite() { s.format.rotation.rem_euclid(360.0) } else { 0.0 };
             (deg, s.kind != ShapeKind::Ink, s.kind != ShapeKind::Ink)
         }
         None => (0.0, false, true),
-    }
+    };
+    (deg, rotates && !locked, resizes && !locked)
 }
 
 /// How far from a corner of a selected chart's values outline a press still grabs it.
@@ -766,6 +807,25 @@ pub fn selected_rotate(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option
     (rotates && matches!(crate::frame::grab_at(r, deg, true, p), Some(crate::frame::Grab::Rotate))).then_some((o, r))
 }
 
+/// The selected rounded rectangle and its rect when `p` is on its corner handle.
+pub fn selected_corner(app: &SheetApp, geo: &Geo, sh: &Sheet, p: Pos2) -> Option<(ObjRef, Rect)> {
+    if !geo.cells.contains(p) || app.session.active().is_some_and(|d| objects_hidden(&d.wb)) {
+        return None;
+    }
+    let o = app.selected_object?;
+    let r = object_rect(geo, sh, o)?;
+    let (deg, _, resizes) = frame_of(sh, o);
+    let at = corner_handle_of(sh, o, r, deg).filter(|_| resizes)?;
+    crate::frame::corner_handle_wins(r, deg, at, p).then_some((o, r))
+}
+
+/// Where the corner handle of `o` is on screen when it is a rounded rectangle (frame `r` turned
+/// `deg`).
+fn corner_handle_of(sh: &Sheet, o: ObjRef, r: Rect, deg: f32) -> Option<Pos2> {
+    let s = sh.shapes.iter().find(|s| o.kind == ObjKind::Shape && s.id == o.id && s.kind == ShapeKind::RoundedRectangle)?;
+    Some(crate::frame::corner_handle(r, deg, corner_px(&s.format, r)))
+}
+
 /// The topmost object under `p` and its rect: form controls paint on top, so they are hit first,
 /// then slicers, charts, pictures and shapes (equations included), each from the top of its stack.
 /// Nothing is hit outside the cell area or while objects are hidden.
@@ -831,7 +891,7 @@ fn paint_effects(
 ) {
     let f = &sp.format;
     let alpha = |c: Color32, t: f32| c.gamma_multiply((1.0 - t / 100.0).clamp(0.0, 1.0));
-    if let Some((pts, closed)) = effect_path(sp.kind, r, z) {
+    if let Some((pts, closed)) = effect_path(sp.kind, r, corner_px(&sp.format, r)) {
         let px = |pt: f32| pt * 96.0 / 72.0 * z;
         let placed: Vec<Pos2> = pts.iter().map(|q| place(*q)).collect();
         let solid = closed && base_fill != Color32::TRANSPARENT;
@@ -889,10 +949,10 @@ fn paint_preset(
 
 /// The outline of a shape the effects follow, before rotation and flips: its points and whether
 /// it is closed (a line is not). `None` for kinds without effects (ink, icons, equations).
-fn effect_path(kind: ShapeKind, r: Rect, z: f32) -> Option<(Vec<Pos2>, bool)> {
+fn effect_path(kind: ShapeKind, r: Rect, corner: f32) -> Option<(Vec<Pos2>, bool)> {
     Some(match kind {
         ShapeKind::Rectangle | ShapeKind::TextBox => (vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], true),
-        ShapeKind::RoundedRectangle => (rounded_rect_points(r, 10.0 * z), true),
+        ShapeKind::RoundedRectangle => (rounded_rect_points(r, corner), true),
         ShapeKind::Ellipse => (
             (0..64)
                 .map(|i| {
@@ -974,6 +1034,12 @@ fn dash_pattern(d: gridcraft_engine::model::LineDash, width: f32) -> (f32, f32) 
 }
 
 /// A rounded rectangle's outline as points (for drawing it turned or with a dashed outline).
+/// A rounded rectangle's corner radius on screen, for its frame `r` on screen: its own corner (a
+/// share of the shorter side), else the default.
+pub(crate) fn corner_px(f: &gridcraft_engine::model::ShapeFormat, r: Rect) -> f32 {
+    gridcraft_engine::model::corner_radius(f.corner, f64::from(r.width()), f64::from(r.height())) as f32
+}
+
 fn rounded_rect_points(r: Rect, radius: f32) -> Vec<Pos2> {
     let k = radius.min(r.width() / 2.0).min(r.height() / 2.0).max(0.0);
     let corners = [

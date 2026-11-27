@@ -216,6 +216,13 @@ pub(super) fn chart_design(app: &mut SheetApp, ui: &mut Ui) {
 const PX_PER_INCH: f64 = 96.0;
 
 /// Whether sizes show in centimetres (every language but English, as on the rulers).
+/// A corner radius of `v` (the anchor's size unit) as the Shape pane's Corner radius box shows it:
+/// two decimals in centimetres or inches ("0.85 cm").
+pub(crate) fn corner_number(app: &SheetApp, v: f64) -> String {
+    let (per, suffix) = if metric_sizes(app) { (PX_PER_INCH / 2.54, " cm") } else { (PX_PER_INCH, " in") };
+    format!("{:.2}{suffix}", if v.is_finite() { v / per } else { 0.0 })
+}
+
 fn metric_sizes(app: &SheetApp) -> bool {
     !matches!(app.ui.language, crate::i18n::Language::En)
 }
@@ -479,6 +486,11 @@ pub(super) fn object_pane(app: &mut SheetApp, ui: &mut Ui) {
         v.glow_radius = f.glow_radius;
         v.glow_transparency = f.glow_transparency;
         v.soft_edge = f.soft_edge;
+        if sp.kind == ShapeKind::RoundedRectangle {
+            let (w, h) = (f64::from(a.width), f64::from(a.height));
+            v.corner = Some((gridcraft_engine::model::corner_radius(f.corner, w, h) / per) as f32);
+            v.corner_max = (w.min(h).max(0.0) / 2.0 / per) as f32;
+        }
     }
     let tr = |s: &str| lang.tr(s).to_string();
     let edits = {
@@ -524,6 +536,7 @@ pub(super) fn object_pane(app: &mut SheetApp, ui: &mut Ui) {
             Edit::ArrowStart(on) => act(app, "shape.format", fmt(json!({"arrowStart": on}))),
             Edit::ArrowEnd(on) => act(app, "shape.format", fmt(json!({"arrowEnd": on}))),
             Edit::Rotation(r) => act(app, "shape.format", fmt(json!({"rotation": r}))),
+            Edit::CornerRadius(r) => act(app, "shape.format", fmt(json!({"cornerRadius": f64::from(r.max(0.0)) * per}))),
             Edit::FlipVertical => act(app, "shape.format", fmt(json!({"flipV": !shape.as_ref().is_some_and(|s| s.format.flip_v)}))),
             Edit::FlipHorizontal => act(app, "shape.format", fmt(json!({"flipH": !shape.as_ref().is_some_and(|s| s.format.flip_h)}))),
             Edit::Order(op) => act(app, "object.order", json!({"kind": "shape", "id": o.id, "op": op})),

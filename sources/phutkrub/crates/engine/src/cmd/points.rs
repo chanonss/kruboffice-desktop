@@ -492,7 +492,7 @@ fn target(s: &Session, p: &Value, cmd: &str) -> Result<ShapeId> {
         return Err(bad(cmd, "only a shape with an outline has points to edit"));
     }
     if sh.locked {
-        return Err(bad(cmd, "the shape is locked"));
+        return Err(bad(cmd, "the object is locked"));
     }
     Ok(id)
 }

@@ -270,6 +270,7 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
         id,
         kind,
         anchor: Anchor {
+            locked: false,
             cell: at,
             dx: 0.0,
             dy: 0.0,
@@ -313,7 +314,12 @@ fn find_chart(s: &Session, p: &Json) -> Result<(usize, usize)> {
         Some(id) => sh.charts.iter().position(|c| c.id == id),
         None => sh.charts.len().checked_sub(1),
     };
-    idx.map(|i| (sheet, i)).ok_or_else(|| bad("chart", "no such chart"))
+    let i = idx.ok_or_else(|| bad("chart", "no such chart"))?;
+    // A locked chart stays as it is (owner, 2026-11-23).
+    if sh.charts.get(i).is_some_and(|c| c.anchor.locked) {
+        return Err(bad("chart", crate::cmd::controls::OBJECT_LOCKED));
+    }
+    Ok((sheet, i))
 }
 
 pub(super) fn chart_set(s: &mut Session, p: &Json) -> Result<Json> {

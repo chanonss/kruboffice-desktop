@@ -132,7 +132,12 @@ impl SlideApp {
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
-        self.status = Some((msg.into(), now_ms()));
+        let msg = msg.into();
+        // A change a locked object refused also shows on the object (its badge and a note).
+        if krub_icons::object_lock::is_lock_error(&msg) {
+            krub_icons::object_lock::ask();
+        }
+        self.status = Some((msg, now_ms()));
     }
 
     /// After a save that didn't go through `file.save`: say which fonts it couldn't embed
@@ -347,7 +352,9 @@ impl SlideApp {
         }
         if self.backstage.is_none() && self.session.active().is_some() {
             ribbon::show(self, ui);
-            status::status_bar(self, ui);
+            // Accent colours (style A, owner 2026-11-25), as in KhianKrub: the status bar, the
+            // side panels, the slide sorter and the dialogs. Disabled icons stay grey.
+            krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || status::status_bar(self, ui));
         }
         let now = ui.input(|i| i.time);
         if self.tick_anim_preview(now) {
@@ -363,11 +370,11 @@ impl SlideApp {
                 return;
             }
             match self.ui.view {
-                ViewMode::Sorter => sorter::show(self, ui),
+                ViewMode::Sorter => krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || sorter::show(self, ui)),
                 ViewMode::NotesPage => sorter::notes_page(self, ui),
                 ViewMode::Outline | ViewMode::Normal | ViewMode::Reading => {
                     // The right-hand dock: the task pane and the panes that follow the selection.
-                    panes::show(self, ui);
+                    krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || panes::show(self, ui));
                     if self.ui.view == ViewMode::Outline {
                         sorter::outline_pane(self, ui);
                     } else {
@@ -384,7 +391,7 @@ impl SlideApp {
         });
         toast::note_missing_fonts(self);
         toast::show(self, &ctx);
-        dialogs::show(self, &ctx);
+        krub_icons::tabler_colour::with_colour(&ctx, !t.flat_icons, || dialogs::show(self, &ctx));
         #[cfg(not(target_arch = "wasm32"))]
         updates_ui::show(self, &ctx);
         menus::palette(self, &ctx);

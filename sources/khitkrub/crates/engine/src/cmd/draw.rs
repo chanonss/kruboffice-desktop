@@ -84,6 +84,7 @@ fn stroke(s: &mut Session, p: &Json) -> Result<Json> {
         id,
         kind: ShapeKind::Ink,
         anchor: Anchor {
+            locked: false,
             cell,
             dx,
             dy,

@@ -353,7 +353,7 @@ pub(super) fn insert_icon(s: &mut Session, p: &Json) -> Result<Json> {
     let shape = Shape {
         id,
         kind: ShapeKind::Icon,
-        anchor: Anchor { cell: at, dx: 4.0, dy: 4.0, width: size, height: size, mode: anchor_mode_param(p).unwrap_or_default() },
+        anchor: Anchor { locked: false, cell: at, dx: 4.0, dy: 4.0, width: size, height: size, mode: anchor_mode_param(p).unwrap_or_default() },
         fill: color,
         line: Color::Auto,
         text: name,

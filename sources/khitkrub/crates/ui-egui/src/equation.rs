@@ -251,7 +251,8 @@ pub fn editor(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog, confirm: &m
             ui.painter().text(card.center(), egui::Align2::CENTER_CENTER, hint, theme::ui_font(12.0), t.sheet_control_text);
         }
     }
-    ui.add_space(8.0);
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
     let valid = pv.result.as_ref().is_ok_and(|l| !l.items.is_empty());
     let cmd_enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Enter));
     ui.allocate_ui_with_layout(vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {

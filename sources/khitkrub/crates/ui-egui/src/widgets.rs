@@ -20,10 +20,16 @@ fn tr<'a>(ui: &Ui, text: &'a str) -> &'a str {
 pub(crate) fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, ink: Color32) {
     let t = Tokens::of(ui);
     if t.flat_icons {
-        icons::paint_flat(ui.painter(), rect, icon, ink, t.band);
+        krub_icons::tabler_colour::with_colour(ui.ctx(), false, || icons::paint_flat(ui.painter(), rect, icon, ink, t.band));
     } else {
-        icons::paint(ui.painter(), rect, icon, ink);
+        mono_when_disabled(ui, || icons::paint(ui.painter(), rect, icon, ink));
     }
+}
+
+/// Runs `draw` with the accent colours (style A) off when `ui` is disabled: a disabled button
+/// fades its whole `Ui`, so a coloured icon would stay coloured, only paler. Disabled stays grey.
+pub(crate) fn mono_when_disabled<R>(ui: &Ui, draw: impl FnOnce() -> R) -> R {
+    if ui.is_enabled() { draw() } else { krub_icons::tabler_colour::with_colour(ui.ctx(), false, draw) }
 }
 
 /// Fills a button's background; a selected one also gets the gold outline.
@@ -342,7 +348,7 @@ pub fn small_button_accent(ui: &mut Ui, icon: Icon, accent: Option<Color32>, lab
     }
     let icon_rect = Rect::from_center_size(pos2(rect.left() + SMALL_W / 2.0, rect.center().y), vec2(SMALL_ICON, SMALL_ICON));
     if accent.is_some() && !t.flat_icons {
-        icons::paint_accent(ui.painter(), icon_rect, icon, t.text, accent);
+        mono_when_disabled(ui, || icons::paint_accent(ui.painter(), icon_rect, icon, t.text, accent));
     } else {
         paint_icon(ui, icon_rect, icon, t.text);
     }

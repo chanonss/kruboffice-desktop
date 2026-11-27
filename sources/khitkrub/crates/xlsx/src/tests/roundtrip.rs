@@ -355,7 +355,7 @@ fn sample() -> Workbook {
     s.images.push(Image {
         id: 10,
         // A non-default anchor mode, to prove it survives an xlsx round-trip.
-        anchor: Anchor { cell: at("C10"), dx: 5.0, dy: 4.0, width: 120.0, height: 80.0, mode: AnchorMode::MoveOnly },
+        anchor: Anchor { locked: true, cell: at("C10"), dx: 5.0, dy: 4.0, width: 120.0, height: 80.0, mode: AnchorMode::MoveOnly },
         data: png.into(),
         mime: "image/png".into(),
         alt: "Logo \"x\"".into(),
@@ -364,7 +364,7 @@ fn sample() -> Workbook {
         math: Default::default(),
         id: 11,
         kind: ShapeKind::Ellipse,
-        anchor: Anchor { cell: at("E10"), dx: 0.0, dy: 0.0, width: 64.0, height: 40.0, mode: AnchorMode::Absolute },
+        anchor: Anchor { locked: true, cell: at("E10"), dx: 0.0, dy: 0.0, width: 64.0, height: 40.0, mode: AnchorMode::Absolute },
         fill: Color::Rgb(0x4472C4),
         line: Color::Rgb(0x000000),
         text: "Hi\nthere".into(),
@@ -614,6 +614,12 @@ fn assert_table_roundtrip(a: &Sheet, b: &Sheet) {
     assert_eq!(b.value(at("P1")), Value::text("Region"), "header cells carry the column names");
 }
 
+/// Lock (owner, 2026-11-23) survives as DrawingML's locks; an unlocked object stays unlocked.
+fn assert_locks_roundtrip(b: &Sheet) {
+    assert!(b.images[0].anchor.locked && b.shapes[0].anchor.locked, "locked picture and shape");
+    assert!(!b.shapes[1].anchor.locked, "unlocked shape");
+}
+
 fn assert_drawing_and_chart_roundtrip(a: &Sheet, b: &Sheet) {
     // Drawings.
     assert_eq!(b.images.len(), 1);
@@ -629,6 +635,7 @@ fn assert_drawing_and_chart_roundtrip(a: &Sheet, b: &Sheet) {
     assert_eq!(ib.mode, AnchorMode::MoveOnly, "image anchor mode");
     assert_eq!(b.shapes[0].anchor.mode, AnchorMode::Absolute, "shape anchor mode");
     assert_eq!(b.shapes[1].anchor.mode, AnchorMode::MoveAndSize, "default anchor mode");
+    assert_locks_roundtrip(b);
     assert_eq!(b.shapes.len(), a.shapes.len());
     for (x, y) in a.shapes.iter().zip(&b.shapes) {
         assert_eq!((x.kind, &x.text, x.fill, x.line, &x.format), (y.kind, &y.text, y.fill, y.line, &y.format));
@@ -660,7 +667,7 @@ fn assert_drawing_and_chart_roundtrip(a: &Sheet, b: &Sheet) {
 fn package_structure() {
     let bytes = write_xlsx(&sample()).unwrap();
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
-    let names: Vec<String> = (0..z.len()).map(|i| z.name_for_index(i).unwrap().to_string()).collect();
+    let names: Vec<String> = (0..z.len()).map(|i| z.name_for_index(i).unwrap().unwrap().to_string()).collect();
     assert_eq!(names[0], "[Content_Types].xml");
     for n in [
         "_rels/.rels",
@@ -927,7 +934,7 @@ fn vba_project_roundtrip() {
     assert_eq!(write_xlsx(&wb).unwrap(), bytes, "output is deterministic");
 
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).unwrap();
-    let names: Vec<String> = (0..z.len()).map(|i| z.name_for_index(i).unwrap().to_string()).collect();
+    let names: Vec<String> = (0..z.len()).map(|i| z.name_for_index(i).unwrap().unwrap().to_string()).collect();
     assert!(names.iter().any(|x| x == "xl/vbaProject.bin"), "missing vbaProject.bin");
     let mut bin = vec![];
     z.by_name("xl/vbaProject.bin").unwrap().read_to_end(&mut bin).unwrap();

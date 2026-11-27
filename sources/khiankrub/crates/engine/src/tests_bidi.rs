@@ -269,3 +269,23 @@ fn typing_kurdish_in_new_document_advances_caret_smoothly() {
     assert!(last_x < first_x.unwrap(), "caret should advance leftwards overall");
     assert_eq!(props(&s, 0).bidi, Some(true), "paragraph auto-detected as right-to-left");
 }
+
+#[test]
+fn bold_and_italic_buttons_follow_what_a_complex_script_run_shows() {
+    // From WordCraft #4852. Thai marked `w:cs` with `w:b`/`w:i` and no `w:bCs`/`w:iCs` is drawn
+    // plain, so the buttons are off and the first click makes it bold and italic.
+    let mut s = session("ทดสอบ", false);
+    let p = s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+    for r in &mut p.runs {
+        (r.props.cs, r.props.bold, r.props.italic) = (Some(true), Some(true), Some(true));
+    }
+    run(&mut s, "select.all", json!({}));
+    let state = run(&mut s, "format.state", json!({}));
+    assert_eq!((state["bold"].as_bool(), state["italic"].as_bool()), (Some(false), Some(false)));
+    run(&mut s, "format.bold", json!({}));
+    run(&mut s, "format.italic", json!({}));
+    let c = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props_of_char(0).clone();
+    assert_eq!((c.bold_cs, c.italic_cs), (Some(true), Some(true)));
+    let state = run(&mut s, "format.state", json!({}));
+    assert_eq!((state["bold"].as_bool(), state["italic"].as_bool()), (Some(true), Some(true)));
+}

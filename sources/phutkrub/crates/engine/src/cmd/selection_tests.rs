@@ -168,7 +168,7 @@ fn lock_cascades_through_groups_and_undoes() {
 }
 
 #[test]
-fn locked_objects_refuse_moving_sizing_rotating_but_take_formatting() {
+fn locked_objects_refuse_moving_sizing_rotating_and_formatting() {
     let (mut s, ids) = deck();
     let (a, b) = (ids[0], ids[1]);
     s.execute("shape.lock", &json!({"id": a, "locked": true})).unwrap();
@@ -190,8 +190,18 @@ fn locked_objects_refuse_moving_sizing_rotating_but_take_formatting() {
     s.execute("shape.move", &json!({"ids": [a, b], "dx": 10})).unwrap();
     assert_eq!(bx(&mut s, a), before);
     assert_eq!(bx(&mut s, b)["x"].as_f64().unwrap(), bb["x"].as_f64().unwrap() + 10.0);
-    // Formatting and the name still change.
-    s.execute("shape.fill", &json!({"ids": [a], "color": "#00ff00"})).unwrap();
+    // Formatting, text, deleting and grouping are refused too (owner, 2026-11-23); the name, the
+    // alternative text and Lock itself still change.
+    for (cmd, p) in [
+        ("shape.fill", json!({"ids": [a], "color": "#00ff00"})),
+        ("text.edit", json!({"id": a})),
+        ("edit.delete", json!({"ids": [a]})),
+        ("arrange.group", json!({"ids": [a, b]})),
+    ] {
+        let e = s.execute(cmd, &p).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("the object is locked"), "{cmd} on a locked shape: {e:?}");
+    }
+    assert!(s.doc().unwrap().shape(deckcraft_model::ShapeId(a)).is_some());
     s.execute("shape.rename", &json!({"id": a, "name": "Anchor"})).unwrap();
     assert_eq!(s.doc().unwrap().shape(deckcraft_model::ShapeId(a)).unwrap().name, "Anchor");
     // The arrow keys don't nudge it.

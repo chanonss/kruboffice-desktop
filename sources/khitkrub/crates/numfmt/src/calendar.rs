@@ -15,14 +15,14 @@ pub(crate) enum Calendar {
 }
 
 /// Thai month names, January first, for `mmmm` under a Thai locale tag.
-const THAI_MONTHS: [&str; 12] =
+pub const THAI_MONTHS: [&str; 12] =
     ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 /// Their abbreviations, for `mmm`.
-const THAI_MONTHS_SHORT: [&str; 12] = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+pub const THAI_MONTHS_SHORT: [&str; 12] = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 /// Thai weekday names, Sunday first, for `dddd`.
-const THAI_WEEKDAYS: [&str; 7] = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+pub const THAI_WEEKDAYS: [&str; 7] = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
 /// Their abbreviations, for `ddd`.
-const THAI_WEEKDAYS_SHORT: [&str; 7] = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+pub const THAI_WEEKDAYS_SHORT: [&str; 7] = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
 
 /// Arabic names of the Hijri months, Muharram first. Two-word names are joined by a no-break
 /// space (U+00A0), as Excel writes them.

@@ -6826,7 +6826,7 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "delete-comment" | "deleteComment" => "message-x",
         "comments-bubble" | "comments-small" | "show-comments" | "showComments" => "messages",
         "dictate" => "microphone",
-        "hyphenation" | "minus" | "outlineCollapse" | "outlineExpand" => "minus",
+        "hyphenation" | "minus" | "outlineCollapse" => "minus",
         "video" => "movie",
         "addNote" | "note" | "notes" | "notes-small" => "note",
         "notes-master" | "showNotes" | "view-notes-page" => "notes",
@@ -6856,7 +6856,7 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "mediaStop" | "stop" | "stop-square" => "player-stop",
         "continue" | "last" | "next" | "run-to" => "player-track-next",
         "first" | "play-from-start" | "previous" => "player-track-prev",
-        "insert" | "plus" => "plus",
+        "insert" | "outlineExpand" | "plus" => "plus",
         "select" => "pointer",
         "set-up-show" | "slide" | "slide-master" | "view-show-small" => "presentation",
         "presenter-view" => "presentation-analytics",
@@ -6894,7 +6894,8 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "find" | "search" => "search",
         "section" => "section",
         "ccDropDown" => "select",
-        "breaks" => "separator",
+        // A page split by a dashed line (owner, 2026-11-23: the bare separator read as nothing).
+        "breaks" => "page-break",
         "splitTable" => "separator-horizontal",
         "split-cells" | "splitCells" => "separator-vertical",
         "options" | "optionsGeneral" | "settings" => "settings",
@@ -7334,9 +7335,13 @@ fn glyph(tabler: &str) -> Option<&'static Glyph> {
 }
 
 /// Draw the Tabler icon chosen for `name` into the largest square centred in `r`, in `ink`
-/// (35% of it when `disabled`). `false` when `name` keeps its KrubOffice drawing.
+/// (35% of it when `disabled`). `false` when `name` keeps its KrubOffice drawing. While the caller
+/// has accent colours on (`crate::tabler_colour::with_colour`), the parts listed there take colour.
 pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool) -> bool {
-    let Some(glyph) = tabler_name(name).and_then(glyph) else {
+    let Some(tabler) = tabler_name(name) else {
+        return false;
+    };
+    let Some(glyph) = glyph(tabler) else {
         return false;
     };
     let size = r.width().min(r.height());
@@ -7344,34 +7349,43 @@ pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool) -> 
         return false;
     }
     let ink = if disabled { ink.gamma_multiply(0.35) } else { ink };
+    let parts = if !disabled && crate::tabler_colour::enabled(p.ctx()) { crate::tabler_colour::parts(tabler) } else { &[] };
     let scale = size / 24.0;
     let origin = r.center() - vec2(size, size) * 0.5;
     let at = |x: f32, y: f32| origin + vec2(x, y) * scale;
     // KrubOffice's line weight on the 24-unit grid, never thinner than one hairline.
-    let stroke = Stroke::new((1.75 * scale).max(0.9), ink);
+    let width = (1.75 * scale).max(0.9);
     // Curves are split finely enough to look smooth at the drawn size on this screen.
     let steps = (size * p.ctx().pixels_per_point() / 6.0).ceil().clamp(3.0, 16.0) as usize;
     let mut outline: Vec<Pos2> = Vec::new();
-    let half = stroke.width * 0.5;
+    let half = width * 0.5;
     // Round ends and dots: egui's filled circles, as the KrubOffice drawings use for their caps.
-    let cap = |end: Pos2| {
-        p.circle_filled(end, half, ink);
+    let cap = |end: Pos2, colour: Color32| {
+        p.circle_filled(end, half, colour);
     };
-    let flush = |outline: &mut Vec<Pos2>, closed: bool| {
+    // Each outline (counted from 0: every `M` or circle starts one) in its colour, tint first.
+    let flush = |outline: &mut Vec<Pos2>, closed: bool, part: usize| {
+        let (colour, tint) = crate::tabler_colour::colours(parts, part, ink);
+        let stroke = Stroke::new(width, colour);
+        if let Some(tint) = tint
+            && outline.len() > 2
+        {
+            crate::tabler_colour::fill(p, outline, tint);
+        }
         let length: f32 = outline.windows(2).map(|pair| if let [a, b] = pair { a.distance(*b) } else { 0.0 }).sum();
         let first = outline.first().copied();
         let second = outline.get(1).copied();
         let last = outline.last().copied();
         let before_last = outline.iter().rev().nth(1).copied();
         match (first, second, last, before_last) {
-            (Some(centre), None, _, _) => cap(centre),
-            (Some(centre), Some(_), _, _) if length < 0.05 * scale => cap(centre),
+            (Some(centre), None, _, _) => cap(centre, colour),
+            (Some(centre), Some(_), _, _) if length < 0.05 * scale => cap(centre, colour),
             (Some(_), Some(_), _, _) if closed && outline.len() > 2 => {
                 p.add(Shape::closed_line(std::mem::take(outline), stroke));
             }
             (Some(start), Some(_), Some(end), Some(_)) => {
-                cap(start);
-                cap(end);
+                cap(start, colour);
+                cap(end, colour);
                 p.add(Shape::line(std::mem::take(outline), stroke));
             }
             _ => {}
@@ -7379,14 +7393,21 @@ pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool) -> 
         outline.clear();
     };
     let mut pen = pos2(0.0, 0.0);
+    let (mut part, mut next) = (0usize, 0usize);
     for seg in glyph.strokes {
         match *seg {
             O(x, y, radius) => {
-                flush(&mut outline, false);
-                p.circle_stroke(at(x, y), radius * scale, stroke);
+                flush(&mut outline, false, part);
+                (part, next) = (next, next + 1);
+                let (colour, tint) = crate::tabler_colour::colours(parts, part, ink);
+                if let Some(tint) = tint {
+                    p.circle_filled(at(x, y), radius * scale, tint);
+                }
+                p.circle_stroke(at(x, y), radius * scale, Stroke::new(width, colour));
             }
             M(x, y) => {
-                flush(&mut outline, false);
+                flush(&mut outline, false, part);
+                (part, next) = (next, next + 1);
                 pen = pos2(x, y);
                 outline.push(at(x, y));
             }
@@ -7406,19 +7427,27 @@ pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, disabled: bool) -> 
             }
         }
     }
-    flush(&mut outline, false);
+    flush(&mut outline, false, part);
     if !glyph.fills.is_empty() {
+        // The solid shapes take the colour listed for `tabler_colour::SOLID`, else the ink.
+        let (solid, _) = crate::tabler_colour::colours(parts, usize::from(crate::tabler_colour::SOLID), ink);
         let mut mesh = egui::Mesh::default();
         for &[ax, ay, bx, by, cx, cy] in glyph.fills {
             let base = mesh.vertices.len() as u32;
             for point in [at(ax, ay), at(bx, by), at(cx, cy)] {
-                mesh.colored_vertex(point, ink);
+                mesh.colored_vertex(point, solid);
             }
             mesh.add_triangle(base, base + 1, base + 2);
         }
         p.add(Shape::mesh(mesh));
     }
     true
+}
+
+/// How many outlines the Tabler drawing `tabler` has (each `M` or circle starts one).
+#[cfg(test)]
+pub(crate) fn outline_count(tabler: &str) -> Option<usize> {
+    glyph(tabler).map(|g| g.strokes.iter().filter(|s| matches!(s, M(..) | O(..))).count())
 }
 
 #[cfg(test)]
