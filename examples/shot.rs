@@ -59,6 +59,7 @@ fn main() {
         ("start-narrow", 640.0, 440.0, false, ""),
         ("settings", 1040.0, 650.0, false, "available"),
         ("about", 1040.0, 650.0, false, ""),
+        ("settings-pointer", 1040.0, 650.0, false, "available"),
     ];
     if std::env::var_os("KRUBOFFICE_SHOT_UPDATES").is_some() {
         shots.extend([
@@ -78,10 +79,14 @@ fn main() {
         app.show_with(recent.clone());
         app.pin_for_show(recent.first().map(|r| vec![r.path.clone()]).unwrap_or_default());
         app.open_window(match name {
-            "settings" => Some(Window::Settings),
+            "settings" | "settings-pointer" => Some(Window::Settings),
             "about" => Some(Window::About),
             _ => None,
         });
+        // The cat pointer over the Start Center (the other shots keep the system's).
+        if name == "settings-pointer" {
+            app.set_pointer(kruboffice::pointer::Pointer::Cat);
+        }
         let mut fonts_done = false;
         let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(2.0).wgpu().build_ui_state(
             move |ui, app: &mut StartCenter| {
@@ -94,6 +99,9 @@ fn main() {
             },
             app,
         );
+        if name == "settings-pointer" {
+            harness.input_mut().events.push(egui::Event::PointerMoved(egui::pos2(300.0, 420.0)));
+        }
         for _ in 0..6 {
             harness.step();
         }

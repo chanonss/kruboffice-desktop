@@ -1,6 +1,6 @@
 # Attribution
 
-This repository's image files are screenshots of KrubOffice itself and the Windows icon (below). It holds no font files. The app icons in a built KrubOffice are made
+This repository's image files are screenshots of KrubOffice itself, the Windows icon and the mouse pointer pictures (below). It holds no font files. The app icons in a built KrubOffice are made
 at build time (`packaging/macos/build-app.sh`) from the apps' own icons, each recorded in its
 repository's `ATTRIBUTION.md`:
 
@@ -23,6 +23,13 @@ Built apps also carry, in their resources:
 |---|---|---|---|
 | `fonts/Sarabun-Regular.ttf`, `fonts/Sarabun-SemiBold.ttf`, `fonts/OFL.txt` | Cadson Demak | google/fonts `ofl/sarabun` (as used by the web apps; the Start Center's Thai fallback) | SIL OFL 1.1 |
 | `icons/khiankrub-192.png`, `khitkrub-192.png`, `phutkrub-192.png` | Chanon Sarasuk | the apps' repositories (`assets/app-icon`) | MIT OR Apache-2.0 (Thai outline: Sarabun, SIL OFL 1.1) |
+
+Mouse pointer pictures (`src/pointer.rs`; the same files are in the three apps' repositories):
+
+| File | Author | Source | Licence |
+|---|---|---|---|
+| `assets/pointers/*.svg` (classic-white, classic-black, gold, big-white, animal-cat, animal-rabbit, animal-chick, animal-elephant) | Chanon Sarasuk with Claude | original drawings made for KrubOffice (2026-11-27), 32 × 32, drawn in SVG | MIT OR Apache-2.0 |
+| `assets/pointers/*.png` (the same eight) | Chanon Sarasuk with Claude | rendered from the SVG files at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 |
 
 Screenshots in this repository:
 

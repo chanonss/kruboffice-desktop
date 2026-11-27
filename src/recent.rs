@@ -121,6 +121,24 @@ pub fn load_pins(settings: &Path) -> Vec<PathBuf> {
 /// Write the pinned files into `settings.json`, keeping its other keys (through a temporary
 /// file, so a crash never leaves half a file).
 pub fn save_pins(settings: &Path, pins: &[PathBuf]) -> Result<(), String> {
+    let list: Vec<serde_json::Value> = pins.iter().take(MAX_PINS).map(|p| serde_json::Value::String(p.to_string_lossy().into_owned())).collect();
+    save_key(settings, "pinned", serde_json::Value::Array(list))
+}
+
+/// One key of `settings.json` (`null` when the file or the key is missing or unreadable).
+pub fn load_key(settings: &Path, key: &str) -> serde_json::Value {
+    std::fs::metadata(settings)
+        .ok()
+        .filter(|m| m.len() <= MAX_SETTINGS_BYTES)
+        .and_then(|_| std::fs::read(settings).ok())
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get(key).cloned())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Write one key into `settings.json`, keeping its other keys (through a temporary file, so a
+/// crash never leaves half a file).
+pub fn save_key(settings: &Path, key: &str, value: serde_json::Value) -> Result<(), String> {
     let old = std::fs::metadata(settings)
         .ok()
         .filter(|m| m.len() <= MAX_SETTINGS_BYTES)
@@ -129,9 +147,8 @@ pub fn save_pins(settings: &Path, pins: &[PathBuf]) -> Result<(), String> {
         .filter(serde_json::Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
     let mut v = old;
-    let list: Vec<serde_json::Value> = pins.iter().take(MAX_PINS).map(|p| serde_json::Value::String(p.to_string_lossy().into_owned())).collect();
     if let Some(map) = v.as_object_mut() {
-        map.insert("pinned".into(), serde_json::Value::Array(list));
+        map.insert(key.into(), value);
     }
     if let Some(dir) = settings.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
