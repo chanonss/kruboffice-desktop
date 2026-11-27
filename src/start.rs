@@ -141,6 +141,8 @@ pub struct StartCenter {
     /// The pinned files (KrubOffice's `settings.json`), and where they are kept.
     pins: Vec<PathBuf>,
     pins_path: Option<PathBuf>,
+    /// The mouse pointer's arrow (`settings.json`'s `pointer`): the system's or a KrubOffice picture.
+    pointer: crate::pointer::Pointer,
     /// The Settings or About window, when open.
     window: Option<Window>,
     #[cfg(target_os = "macos")]
@@ -164,6 +166,7 @@ impl StartCenter {
             filter: Filter::All,
             pins: Vec::new(),
             pins_path: None,
+            pointer: crate::pointer::Pointer::System,
             window: None,
             #[cfg(target_os = "macos")]
             events: None,
@@ -211,6 +214,7 @@ impl StartCenter {
         };
         let settings = updates::settings_path(&root);
         self.pins = recent::load_pins(&settings);
+        self.pointer = serde_json::from_value(recent::load_key(&settings, "pointer")).unwrap_or_default();
         self.pins_path = Some(settings);
         self.recent = recent::with_pins(recent::collect(&root, MAX_RECENT), &self.pins);
     }
@@ -627,6 +631,13 @@ impl StartCenter {
             });
         });
         self.windows(&ctx, &p);
+        // Last, once every widget has asked for its cursor: the chosen arrow, if any.
+        crate::pointer::paint(&ctx, self.pointer);
+    }
+
+    /// Use this pointer without saving it (screenshots and tests).
+    pub fn set_pointer(&mut self, pointer: crate::pointer::Pointer) {
+        self.pointer = pointer;
     }
 
     /// The bar across the top: logo, the three new-file buttons, search, Settings and About.
@@ -864,10 +875,43 @@ impl StartCenter {
         }
     }
 
+    /// Settings: the mouse pointer, kept in `settings.json` with the other keys.
+    fn pointer_setting(&mut self, ui: &mut egui::Ui, p: &Palette) {
+        use crate::pointer::Pointer;
+        ui.label(RichText::new("ตัวชี้เมาส์").font(bold(14.0)).color(p.text));
+        let current = self.pointer;
+        let mut chosen = None;
+        ui.horizontal(|ui| {
+            current.preview(ui, 20.0);
+            egui::ComboBox::from_id_salt("kruboffice-pointer").width(200.0).selected_text(pointer_name(current)).show_ui(ui, |ui| {
+                for ptr in Pointer::ALL {
+                    let row = ui.horizontal(|ui| {
+                        ptr.preview(ui, 20.0);
+                        ui.selectable_label(current == ptr, pointer_name(ptr))
+                    });
+                    if row.inner.clicked() {
+                        chosen = Some(ptr);
+                    }
+                }
+            });
+        });
+        ui.label(RichText::new("เปลี่ยนเฉพาะลูกศร ตัวชี้สำหรับพิมพ์ข้อความ ลิงก์ และปรับขนาด ยังเป็นแบบของระบบ").size(12.5).color(p.sub));
+        if let Some(ptr) = chosen.filter(|ptr| *ptr != current) {
+            self.pointer = ptr;
+            if let Some(settings) = &self.pins_path
+                && let Err(e) = recent::save_key(settings, "pointer", serde_json::Value::String(ptr.code().into()))
+            {
+                self.say(format!("บันทึกการตั้งค่าไม่ได้: {e}"));
+            }
+        }
+    }
+
     /// Settings: the update check. Returns true to close.
     fn settings_body(&mut self, ui: &mut egui::Ui, p: &Palette) -> bool {
         ui.label(RichText::new("ตั้งค่า").font(bold(18.0)).color(p.text));
         ui.add_space(6.0);
+        self.pointer_setting(ui, p);
+        ui.add_space(10.0);
         ui.label(RichText::new("รุ่นใหม่ของ KrubOffice").font(bold(14.0)).color(p.text));
         let lang = self.lang;
         let Some(u) = &mut self.updates else {
@@ -897,6 +941,22 @@ impl StartCenter {
         }
         ui.label(RichText::new(format!("รุ่นที่ใช้อยู่: {}", updates::current())).size(12.5).color(p.sub));
         false
+    }
+}
+
+/// The Thai name of a pointer, as in the apps' Options.
+fn pointer_name(ptr: crate::pointer::Pointer) -> &'static str {
+    use crate::pointer::Pointer;
+    match ptr {
+        Pointer::System => "ตามระบบ",
+        Pointer::White => "ลูกศรขาว",
+        Pointer::Black => "ลูกศรดำ",
+        Pointer::Gold => "ลูกศรทอง",
+        Pointer::Large => "ลูกศรใหญ่",
+        Pointer::Cat => "แมว",
+        Pointer::Rabbit => "กระต่าย",
+        Pointer::Chick => "ลูกเจี๊ยบ",
+        Pointer::Elephant => "ช้าง",
     }
 }
 

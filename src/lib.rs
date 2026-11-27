@@ -4,6 +4,7 @@
 
 pub mod dispatch;
 pub mod fonts;
+pub mod pointer;
 pub mod recent;
 pub mod start;
 pub mod updates;
