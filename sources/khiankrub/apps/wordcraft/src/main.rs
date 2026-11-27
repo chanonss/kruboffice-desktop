@@ -415,9 +415,17 @@ fn open_non_unicode(app: &mut WordApp, path: &std::path::Path) {
 }
 
 fn main() -> eframe::Result {
+    // KhianKrub: settings moved out of WordCraft's folder (they were shared with WordCraft). Before
+    // the logger, which writes into the settings folder.
+    let migrated = if prefs_enabled() { Some(wordcraft_control_key::migrate_from_wordcraft()) } else { None };
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
     logging::install_panic_hook();
+    match migrated {
+        Some(Ok(Some(from))) => log::info!("settings copied from WordCraft's folder {}", from.display()),
+        Some(Err(e)) => log::warn!("could not copy settings from WordCraft's folder: {e}"),
+        _ => {}
+    }
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;

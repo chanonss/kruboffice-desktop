@@ -11,7 +11,7 @@ use wordcraft_doc::props::{Border, BorderStyle, Borders, Rgb, TabAlign, TabLeade
 use crate::WordApp;
 use crate::dialogs::{buttons, color_menu};
 use crate::options::MeasureExt;
-use crate::theme::{Tokens, semibold};
+use crate::theme::Tokens;
 
 /// Stops closer than this (points) are the same stop.
 /// A leader choice: the value, its menu label (translated), and the fill the closed box shows.
@@ -529,43 +529,45 @@ impl BordersForm {
 
 /// The Borders and Shading dialog body. Returns true to close.
 pub fn borders(app: &mut WordApp, ui: &mut Ui, f: &mut BordersForm) -> bool {
-    ui.horizontal(|ui| {
-        for (i, l) in ["Borders", "Page Border", "Shading"].into_iter().enumerate() {
-            if ui.steady_label(f.tab == i as u8, tl!(l)).clicked() {
-                f.tab = i as u8;
-            }
-        }
-    });
-    ui.separator();
+    // Tabs as one segmented control, sections on cards in two columns (owner, 2026-11-24: one
+    // dialog look).
+    let names = [tl!("Borders").to_string(), tl!("Page Border").to_string(), tl!("Shading").to_string()];
+    if let Some(k) = krub_icons::dialog::tabs(ui, &names, usize::from(f.tab.min(2))) {
+        f.tab = k as u8;
+    }
     let theme = app.session.doc.settings.theme_colors.clone();
     match f.tab {
         0 => {
             let to_text = f.to_text;
-            lines(ui, "para", &mut f.para, &theme, Rgb::parse(&f.fill), Target::from(to_text));
-            ui.horizontal(|ui| {
-                ui.label(tl!("Apply to:"));
+            let fill = Rgb::parse(&f.fill);
+            lines(ui, "para", &mut f.para, &theme, fill, Target::from(to_text), |ui| {
                 ui.radio_value(&mut f.to_text, false, tl!("Paragraph"));
                 ui.radio_value(&mut f.to_text, true, tl!("Text"));
             });
         }
         1 => {
-            lines(ui, "page", &mut f.page, &theme, None, Target::Page);
-            ui.horizontal(|ui| {
-                ui.label(tl!("Apply to:"));
+            lines(ui, "page", &mut f.page, &theme, None, Target::Page, |ui| {
                 ui.radio_value(&mut f.whole_doc, true, tl!("Whole document"));
                 ui.radio_value(&mut f.whole_doc, false, tl!("This section"));
             });
         }
         _ => {
-            ui.label(egui::RichText::new(tl!("Fill")).font(semibold(12.5)));
-            color_menu(ui, &theme, &mut f.fill);
-            ui.add_space(6.0);
-            let fill = Rgb::parse(&f.fill);
-            preview(ui, &LineForm::read(None), fill, Target::from(f.fill_to_text));
-            ui.horizontal(|ui| {
-                ui.label(tl!("Apply to:"));
-                ui.radio_value(&mut f.fill_to_text, false, tl!("Paragraph"));
-                ui.radio_value(&mut f.fill_to_text, true, tl!("Text"));
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(BORDER_LEFT_COLUMN);
+                    krub_icons::dialog::section(ui, tl!("Fill"), |ui| color_menu(ui, &theme, &mut f.fill));
+                });
+                ui.vertical(|ui| {
+                    ui.set_width(BORDER_RIGHT_COLUMN);
+                    krub_icons::dialog::section(ui, tl!("Preview"), |ui| {
+                        let fill = Rgb::parse(&f.fill);
+                        preview(ui, &LineForm::read(None), fill, Target::from(f.fill_to_text));
+                        apply_to(ui, |ui| {
+                            ui.radio_value(&mut f.fill_to_text, false, tl!("Paragraph"));
+                            ui.radio_value(&mut f.fill_to_text, true, tl!("Text"));
+                        });
+                    });
+                });
             });
         }
     }
@@ -574,6 +576,17 @@ pub fn borders(app: &mut WordApp, ui: &mut Ui, f: &mut BordersForm) -> bool {
         f.apply(app);
     }
     ok || cancel
+}
+
+/// The widths of Borders and Shading's two columns of cards (points).
+const BORDER_LEFT_COLUMN: f32 = 300.0;
+const BORDER_RIGHT_COLUMN: f32 = 250.0;
+
+/// "Apply to:" and its choices `add`, under a preview.
+fn apply_to(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(4.0);
+    ui.label(tl!("Apply to:"));
+    ui.horizontal_wrapped(add);
 }
 
 /// What the borders in a preview go around.
@@ -591,53 +604,71 @@ impl From<bool> for Target {
     }
 }
 
-/// Setting, style, colour and width on the left; the preview with its side toggles on the right.
-fn lines(ui: &mut Ui, id: &str, l: &mut LineForm, theme: &[Rgb], fill: Option<Rgb>, target: Target) {
+/// Two columns of cards: Setting, then the line's style, colour and width on the left; the
+/// preview with its side toggles and "Apply to" (`apply`) on the right.
+fn lines(ui: &mut Ui, id: &str, l: &mut LineForm, theme: &[Rgb], fill: Option<Rgb>, target: Target, apply: impl FnOnce(&mut Ui)) {
     let between = target == Target::Paragraph;
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new(tl!("Setting:")).font(semibold(12.5)));
-            for (s, label) in
-                [(Setting::None, "None"), (Setting::Box, "Box"), (Setting::Shadow, "Shadow"), (Setting::ThreeD, "3-D"), (Setting::Custom, "Custom")]
-            {
-                if ui.radio(l.setting == s, tl!(label)).clicked() {
-                    l.apply_setting(s);
-                }
-            }
-        });
-        ui.add_space(8.0);
-        ui.vertical(|ui| {
-            ui.label(tl!("Style:"));
-            crate::line_looks::borders(ui, egui::Id::new((id, "style")), 120.0, &mut l.style, &STYLES);
-            ui.label(tl!("Color:"));
-            color_menu(ui, theme, &mut l.color);
-            ui.label(tl!("Width:"));
-            egui::ComboBox::from_id_salt((id, "width"))
-                .selected_text(crate::i18n::fmt(tl!("{n} pt"), &[("n", &l.width.to_string())]))
-                .width(120.0)
-                .show_ui(ui, |ui| {
-                    for w in WIDTHS {
-                        ui.steady_value(&mut l.width, w, crate::i18n::fmt(tl!("{n} pt"), &[("n", &w.to_string())]));
+            ui.set_width(BORDER_LEFT_COLUMN);
+            krub_icons::dialog::section(ui, tl!("Setting"), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (s, label) in [
+                        (Setting::None, "None"),
+                        (Setting::Box, "Box"),
+                        (Setting::Shadow, "Shadow"),
+                        (Setting::ThreeD, "3-D"),
+                        (Setting::Custom, "Custom"),
+                    ] {
+                        if ui.radio(l.setting == s, tl!(label)).clicked() {
+                            l.apply_setting(s);
+                        }
                     }
                 });
+            });
+            krub_icons::dialog::section(ui, tl!("Line"), |ui| {
+                egui::Grid::new((id, "line")).num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+                    ui.label(tl!("Style:"));
+                    crate::line_looks::borders(ui, egui::Id::new((id, "style")), 150.0, &mut l.style, &STYLES);
+                    ui.end_row();
+                    ui.label(tl!("Color:"));
+                    color_menu(ui, theme, &mut l.color);
+                    ui.end_row();
+                    ui.label(tl!("Width:"));
+                    egui::ComboBox::from_id_salt((id, "width"))
+                        .selected_text(crate::i18n::fmt(tl!("{n} pt"), &[("n", &l.width.to_string())]))
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            for w in WIDTHS {
+                                ui.steady_value(&mut l.width, w, crate::i18n::fmt(tl!("{n} pt"), &[("n", &w.to_string())]));
+                            }
+                        });
+                    ui.end_row();
+                });
+            });
         });
-        ui.add_space(8.0);
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new(tl!("Preview")).font(semibold(12.5)));
-            if let Some(side) = preview(ui, l, fill, target) {
-                l.toggle(side);
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.set_max_width(180.0);
-                let mut sides = vec![(TOP, "Top"), (BOTTOM, "Bottom"), (LEFT, "Left"), (RIGHT, "Right")];
-                if between {
-                    sides.push((BETWEEN, "Between"));
+            ui.set_width(BORDER_RIGHT_COLUMN);
+            krub_icons::dialog::section(ui, tl!("Preview"), |ui| {
+                if let Some(side) = preview(ui, l, fill, target) {
+                    l.toggle(side);
                 }
-                for (i, n) in sides {
-                    if ui.steady_label(l.sides.get(i).copied().unwrap_or(false), tl!(n)).clicked() {
-                        l.toggle(i);
+                // The sides as toggles on one line under the preview (a click on an edge of the
+                // preview does the same).
+                ui.horizontal_wrapped(|ui| {
+                    // Whole words: a label that doesn't fit goes to the next line.
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    let mut sides = vec![(TOP, "Top"), (BOTTOM, "Bottom"), (LEFT, "Left"), (RIGHT, "Right")];
+                    if between {
+                        sides.push((BETWEEN, "Between"));
                     }
-                }
+                    for (i, n) in sides {
+                        if ui.steady_label(l.sides.get(i).copied().unwrap_or(false), tl!(n)).clicked() {
+                            l.toggle(i);
+                        }
+                    }
+                });
+                apply_to(ui, apply);
             });
         });
     });

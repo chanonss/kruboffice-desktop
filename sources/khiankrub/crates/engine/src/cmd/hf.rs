@@ -34,6 +34,15 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .pure()
         .params(r#"{"value"?: bool} (false: hide the body text while a header or footer is edited; default: toggle)"#),
+        // Landscape pages in a portrait report (owner, 2026-11-22): their header and footer turn
+        // to sit where the bound sheet has them, the page number reading as on every other page.
+        CommandSpec::new("hf.turnOnLandscape", "Turn on Landscape Pages", "Header & Footer › Options", |s, v| {
+            let on = p::bool(v, "value").unwrap_or(!wordcraft_layout::turns_landscape_headers(&s.doc));
+            s.doc.set_custom_prop(wordcraft_layout::TURN_HF_PROP, if on { "on" } else { "off" });
+            s.touch();
+            Ok(json!({"value": on}))
+        })
+        .params(r#"{"value"?: bool} (true: on landscape pages of a portrait report, the header and footer turn to sit where the bound sheet has them, the page number at its top right; false: across the landscape page, as Word does; default: toggle)"#),
     ]
 }
 
@@ -111,9 +120,16 @@ fn set_of(sp: &SectionProps, header: bool) -> &HeaderSet {
 }
 
 /// Whether section `section`'s header (or footer) for `slot` is the previous section's: it has
-/// none of its own. The first section links to nothing.
+/// none of its own, or its own is the very part the previous section shows (a shared part, as
+/// files or older section breaks may hold: editing one changes the other, so it is linked). The
+/// first section links to nothing.
 pub fn is_linked(s: &Session, section: usize, header: bool, slot: HfSlot) -> bool {
-    section > 0 && s.doc.sections().get(section).is_some_and(|(_, sp)| slot_of(set_of(sp, header), slot).is_none())
+    let Some(prev) = section.checked_sub(1) else { return false };
+    let Some((_, sp)) = s.doc.sections().get(section).copied() else { return false };
+    match slot_of(set_of(sp, header), slot) {
+        None => true,
+        Some(id) => inherited(s, prev, header, slot) == Some(id),
+    }
 }
 
 /// The part section `section` shows for `slot`: its own or the nearest earlier section's.
@@ -140,6 +156,8 @@ pub struct HfState {
     pub different_first: bool,
     pub different_odd_even: bool,
     pub show_document_text: bool,
+    /// Landscape pages' headers and footers turn for binding (`hf.turnOnLandscape`).
+    pub turn_on_landscape: bool,
     pub header_from_top: f32,
     pub footer_from_bottom: f32,
     pub page_number_format: String,
@@ -159,6 +177,7 @@ impl HfState {
             "differentFirst": self.different_first,
             "differentOddEven": self.different_odd_even,
             "showDocumentText": self.show_document_text,
+            "turnOnLandscape": self.turn_on_landscape,
             "headerFromTop": self.header_from_top,
             "footerFromBottom": self.footer_from_bottom,
             "pageNumberFormat": self.page_number_format,
@@ -191,6 +210,7 @@ pub fn state(s: &mut Session) -> HfState {
         different_first: sp.title_page,
         different_odd_even: s.doc.settings.even_odd_headers,
         show_document_text: s.view.hf_document_text,
+        turn_on_landscape: wordcraft_layout::turns_landscape_headers(&s.doc),
         header_from_top: sp.header,
         footer_from_bottom: sp.footer,
         page_number_format: sp.page_num_format.ooxml().to_string(),
@@ -231,8 +251,10 @@ fn link_to_previous(s: &mut Session, v: &Value) -> CmdResult {
     let want = p::bool(v, "value").unwrap_or(!linked);
     let editing_it = ctx.is_some_and(|c| c.header == header && c.section == section);
     let story = if want {
-        // Link: the section's own goes; the previous section's shows instead.
-        if !linked {
+        // Link: the section's own goes (or the reference to a shared part); the previous
+        // section's shows instead.
+        let own = s.doc.sections().get(section).and_then(|(_, sp)| slot_of(set_of(sp, header), slot));
+        if own.is_some() {
             let sect = s.doc.section_mut(end);
             *slot_mut(if header { &mut sect.headers } else { &mut sect.footers }, slot) = None;
             s.touch();
@@ -452,6 +474,130 @@ mod tests {
         assert_eq!(l[1], ("Footer -Section 2-".to_string(), true));
     }
 
+    /// The header and footer text and part each page shows.
+    fn shown_parts(s: &mut Session) -> Vec<(Option<u32>, Option<u32>)> {
+        s.layout().pages.iter().map(|pg| (pg.header_story, pg.footer_story)).collect()
+    }
+
+    /// One section with a header "H" and footer "F" (both made from page 1), the caret back at
+    /// the end of the body.
+    fn with_header_and_footer(first_page: bool, odd_even: bool) -> Session {
+        let mut s = Session::new(wordcraft_doc::Document::default());
+        s.run("text.insert", &json!({"text": "Front"})).unwrap();
+        s.run("insert.pageBreak", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Front 2"})).unwrap();
+        s.run("insert.editHeader", &json!({"page": 0})).unwrap();
+        s.run("text.insert", &json!({"text": "H"})).unwrap();
+        s.run("insert.editFooter", &json!({"page": 0})).unwrap();
+        s.run("text.insert", &json!({"text": "F"})).unwrap();
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        if first_page {
+            s.run("layout.differentFirstPage", &json!({"value": true})).unwrap();
+        }
+        if odd_even {
+            s.run("layout.differentOddEven", &json!({"value": true})).unwrap();
+        }
+        s.sel = Selection::caret(s.doc.end_of(StoryRef::Body));
+        s
+    }
+
+    /// Owner's report (2026-11-22): after a Next Page section break under a section that has a
+    /// header and footer, Link to Previous showed off although the new section still used the
+    /// previous one's (the break copied its references), so unlinking took two presses. Now the
+    /// new section has no references of its own: linked, shown pressed, one press unlinks.
+    #[test]
+    fn next_page_break_links_the_new_section_and_one_press_unlinks() {
+        for (first_page, odd_even) in [(false, false), (true, false), (false, true), (true, true)] {
+            let case = format!("first page {first_page}, odd & even {odd_even}");
+            let mut s = with_header_and_footer(first_page, odd_even);
+            s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+            s.run("text.insert", &json!({"text": "Body"})).unwrap();
+            s.run("insert.pageBreak", &json!({})).unwrap();
+            s.run("text.insert", &json!({"text": "Body 2"})).unwrap();
+            let sections = s.doc.sections();
+            assert_eq!(sections.len(), 2, "{case}");
+            let new = sections.get(1).unwrap().1;
+            assert_eq!((new.headers, new.footers), Default::default(), "{case}: no references of its own");
+            // Every slot of the new section is linked, header and footer.
+            for slot in [HfSlot::Default, HfSlot::First, HfSlot::Even] {
+                assert!(is_linked(&s, 1, true, slot) && is_linked(&s, 1, false, slot), "{case}: {slot:?}");
+            }
+            // In each header and footer of section 2 the button shows pressed, and one press
+            // gives the section its own copy, which no longer changes section 1's.
+            let pages = s.layout().pages.iter().filter(|pg| pg.section == 1).count();
+            let first2 = s.layout().pages.iter().position(|pg| pg.section == 1).unwrap();
+            for page in first2..first2 + pages {
+                for footer in [false, true] {
+                    let cmd = if footer { "insert.editFooter" } else { "insert.editHeader" };
+                    s.run(cmd, &json!({"page": page})).unwrap();
+                    let st = state(&mut s);
+                    let what = format!("{case}: page {page}, footer {footer}");
+                    assert!(st.can_link && st.section == 1, "{what}");
+                    if !st.linked {
+                        continue; // Unlinked by an earlier page of the same slot.
+                    }
+                    let before = context(&mut s).unwrap().story;
+                    let r = s.run("layout.linkToPrevious", &json!({})).unwrap();
+                    assert_eq!(r["linked"], json!(false), "{what}: one press unlinks");
+                    assert!(!state(&mut s).linked, "{what}");
+                    let own = context(&mut s).unwrap().story;
+                    assert_ne!(own, before, "{what}: its own copy");
+                    s.run("text.insert", &json!({"text": "!"})).unwrap();
+                }
+            }
+            // Text typed in section 2's own copies never reached section 1's.
+            let (_, first) = s.doc.sections().first().map(|(e, sp)| (*e, (*sp).clone())).unwrap();
+            for set in [first.headers, first.footers] {
+                for id in [set.default, set.first, set.even].into_iter().flatten() {
+                    let part = s.doc.parts.get(&id).unwrap();
+                    assert!(part.blocks.iter().all(|b| b.as_para().is_some_and(|x| !x.text.contains('!'))), "{case}: part {id}");
+                }
+            }
+        }
+    }
+
+    /// A break inside a later section that has its own header: the part stays with the section
+    /// before the break and the new section links to it.
+    #[test]
+    fn break_in_a_section_with_its_own_header_links_the_new_part() {
+        let mut s = with_header_and_footer(false, false);
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "Two"})).unwrap();
+        s.run("insert.editHeader", &json!({"page": 2})).unwrap();
+        s.run("layout.linkToPrevious", &json!({"value": false})).unwrap();
+        let own = context(&mut s).unwrap().story;
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.sel = Selection::caret(s.doc.end_of(StoryRef::Body));
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "Three"})).unwrap();
+        assert_eq!(s.doc.sections().get(1).unwrap().1.headers.default, Some(own));
+        assert!(is_linked(&s, 2, true, HfSlot::Default) && !is_linked(&s, 1, true, HfSlot::Default));
+        let parts = shown_parts(&mut s);
+        assert_eq!(parts.get(3).and_then(|x| x.0), Some(own), "section 3 shows section 2's header");
+    }
+
+    /// A section whose reference names the very part the previous section shows (files, older
+    /// breaks) is linked: the button shows pressed and one press gives it its own copy.
+    #[test]
+    fn a_shared_header_part_counts_as_linked() {
+        let mut s = with_header_and_footer(false, false);
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "Two"})).unwrap();
+        let shared = s.doc.sections().first().unwrap().1.headers.default.unwrap();
+        s.doc.last_section.headers.default = Some(shared);
+        s.touch();
+        assert!(is_linked(&s, 1, true, HfSlot::Default));
+        s.run("insert.editHeader", &json!({"page": 2})).unwrap();
+        assert!(state(&mut s).linked);
+        let r = s.run("layout.linkToPrevious", &json!({})).unwrap();
+        assert_eq!(r["linked"], json!(false));
+        let own = s.doc.last_section.headers.default.unwrap();
+        assert_ne!(own, shared);
+        // Linking again drops the reference.
+        s.run("layout.linkToPrevious", &json!({})).unwrap();
+        assert_eq!(s.doc.last_section.headers.default, None);
+    }
+
     #[test]
     fn link_commands_refuse_where_they_cannot_act() {
         let mut s = two_sections();
@@ -475,5 +621,33 @@ mod tests {
         assert!(!s.view.hf_document_text);
         s.run("hf.showDocumentText", &json!({"value": true})).unwrap();
         assert!(s.view.hf_document_text);
+    }
+
+    /// Owner, 2026-11-22: a landscape page inside a portrait report turns its page number to
+    /// where the bound sheet has it; Header & Footer › Turn on Landscape Pages turns that off
+    /// (and on), saved with the document, and a double-click on the turned header edits it.
+    #[test]
+    fn a_landscape_pages_page_number_turns_and_the_option_turns_it_back() {
+        let mut s = Session::new(wordcraft_doc::Document::default());
+        s.run("insert.pageNumber", &json!({"position": "top", "align": "right"})).unwrap();
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Portrait"})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("layout.orientation", &json!({"value": "landscape"})).unwrap();
+        s.run("text.insert", &json!({"text": "Landscape"})).unwrap();
+        let turned = |s: &mut Session| s.layout().pages.iter().map(|p| p.hf_turned).collect::<Vec<_>>();
+        assert_eq!(turned(&mut s), vec![false, true]);
+        assert!(state(&mut s).turn_on_landscape);
+        // The header strip is the right edge: a double-click there finds the header.
+        let l = s.layout();
+        let p = &l.pages[1];
+        let zone = l.header_footer_zone(1, p.body.right() + 10.0, p.h - 40.0);
+        assert_eq!(zone, Some((p.header_story.map(StoryRef::Part), true)));
+        assert_eq!(l.header_footer_zone(1, p.body.x - 10.0, 40.0).map(|z| z.1), Some(false), "the footer strip is the left edge");
+        s.run("hf.turnOnLandscape", &json!({"value": false})).unwrap();
+        assert_eq!(turned(&mut s), vec![false, false]);
+        assert!(!state(&mut s).turn_on_landscape);
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(turned(&mut s), vec![false, true], "undo turns it back");
     }
 }

@@ -504,3 +504,63 @@ fn widow_control_moves_a_three_line_paragraph_whole() {
     }
     assert!(split4, "the sweep never took the paragraph across a page break");
 }
+
+/// A report bound on the left with a landscape page inside (owner, 2026-11-22): the landscape
+/// page is turned so its top faces the spine, and its page number belongs at the sheet's top
+/// right, reading the same way as every other page. On the landscape page that is its bottom
+/// right corner, the text turned a quarter clockwise.
+#[test]
+fn a_landscape_pages_header_turns_onto_the_portrait_sheet() {
+    use wordcraft_doc::props::{Align, CharProps};
+    let mut d = Document::from_text("Portrait\nLandscape\nPortrait again");
+    let mut number = Paragraph::with_text("5", CharProps::default());
+    number.props.align = Some(Align::Right);
+    let id = d.add_part(PartKind::Header, vec![Arc::new(Block::Para(number))]);
+    let portrait = SectionProps { headers: wordcraft_doc::section::HeaderSet { default: Some(id), ..Default::default() }, ..d.last_section.clone() };
+    let (pw, ph) = (portrait.page_w, portrait.page_h);
+    assert!(ph > pw, "the default page is portrait");
+    // Turned to landscape the way Page Setup does it: the margins turn with the page.
+    let landscape = SectionProps {
+        page_w: ph,
+        page_h: pw,
+        margin_top: portrait.margin_left,
+        margin_bottom: portrait.margin_right,
+        margin_left: portrait.margin_bottom,
+        margin_right: portrait.margin_top,
+        headers: Default::default(),
+        ..portrait.clone()
+    };
+    d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().section = Some(Box::new(portrait.clone()));
+    d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section = Some(Box::new(landscape));
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 3);
+    let header_rect = |p: &Page| {
+        p.header.iter().find_map(|it| match it {
+            Placed::Lines { story: StoryRef::Part(s), .. } if *s == id => Some((it.turned_bounds(), it.clone())),
+            _ => None,
+        })
+    };
+    // Portrait pages: upright, at the top right.
+    let (turned, _) = header_rect(&l.pages[0]).unwrap();
+    assert!(turned.is_none() && !l.pages[0].hf_turned);
+    // The landscape page: turned, along its right edge in its bottom half, near the corner.
+    let p = &l.pages[1];
+    assert!(p.hf_turned && p.w > p.h);
+    let (turned, item) = header_rect(p).unwrap();
+    let r = turned.expect("the header text is turned");
+    assert!(matches!(item, Placed::Lines { turn: TextDirection::Down, .. }));
+    assert!(r.x > p.w - portrait.margin_top, "on the right edge, within the sheet's top margin: {r:?}");
+    // The line runs down the sheet's width, margin to margin; the right-aligned number ends it,
+    // at the bottom right.
+    assert!((r.y - portrait.margin_left).abs() < 1.0, "the line starts at the sheet's left margin: {r:?}");
+    assert!((r.y + r.h - (p.h - portrait.margin_right)).abs() < 1.0, "and ends at its right margin, the page's bottom: {r:?}");
+    assert!((p.w - (r.x + r.w) - portrait.header).abs() < 1.0, "the sheet's header distance from the right edge: {r:?}");
+    // The body keeps its own top margin (the header isn't above it any more).
+    let (body_top, _) = extent(&p.items, StoryRef::Body).unwrap();
+    assert!((body_top - p.body.y).abs() < 30.0 && p.body.y <= portrait.margin_left + 0.5, "body at {body_top}");
+    // Turned off, the header runs across the landscape page's top as in Word.
+    d.set_custom_prop(TURN_HF_PROP, "off");
+    let l = lay(&d);
+    let (turned, _) = header_rect(&l.pages[1]).unwrap();
+    assert!(turned.is_none() && !l.pages[1].hf_turned);
+}

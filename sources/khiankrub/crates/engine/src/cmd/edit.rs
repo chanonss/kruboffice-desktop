@@ -300,6 +300,7 @@ fn cut(s: &mut Session, _: &Value) -> CmdResult {
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
     let frag = super::paste::paste_fragment(s, v)?;
     if !super::table::paste_cells(s, &frag)? {
+        super::column::clear_block(s)?;
         super::paste::insert(s, frag)?;
     }
     sel_result(s)
@@ -310,6 +311,7 @@ fn paste_merge(s: &mut Session, v: &Value) -> CmdResult {
     let mut frag = super::paste::paste_fragment(s, v)?;
     super::paste::merge_formatting(s, &mut frag);
     if !super::table::paste_cells(s, &frag)? {
+        super::column::clear_block(s)?;
         super::paste::insert(s, frag)?;
     }
     sel_result(s)

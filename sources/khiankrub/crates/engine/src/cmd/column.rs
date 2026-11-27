@@ -179,6 +179,9 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         }
         "format.changeCase" | "format.clear" | "format.resetChar" => per_row(s, run, v, &segs),
         "edit.pasteFormat" => paste_format(s, run, v, &segs),
+        // Paste over whole cells fills them (`table::paste_cells`); it clears the block itself
+        // when the paste isn't that (`clear_block`).
+        "edit.paste" | "edit.pasteMerge" if cells => run(s, v),
         _ if id.starts_with("format.") || id.starts_with("para.") || id == "select.column" => run(s, v),
         // Pasting formatting (the format painter) leaves the text alone.
         _ if mutates && (id.starts_with("text.") || (id.starts_with("edit.paste") && id != "edit.pasteFormat")) => {
@@ -220,6 +223,15 @@ fn copy(s: &mut Session, segs: &[(Pos, Pos)]) -> CmdResult {
     s.clipboard_text = rows.join("\n");
     s.clipboard = Some(Fragment { blocks, parts });
     Ok(super::edit::copy_result(s))
+}
+
+/// Delete the column block's pieces, if a block (not one run of the text) is selected, leaving
+/// the caret at its top-left corner; otherwise nothing changes.
+pub(in crate::cmd) fn clear_block(s: &mut Session) -> Result<(), CmdError> {
+    match s.column_segments().map(<[(Pos, Pos)]>::to_vec) {
+        Some(segs) => delete(s, &segs),
+        None => Ok(()),
+    }
 }
 
 /// Delete each row's piece (bottom up, so earlier positions stay valid) and leave the caret at

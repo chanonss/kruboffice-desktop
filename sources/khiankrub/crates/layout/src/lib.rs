@@ -451,6 +451,41 @@ pub struct Page {
     /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
     /// [`LayoutOptions::comment_balloons`]); 0 without one. The document page is `w - markup` wide.
     pub markup: f32,
+    /// The header and footer are turned for binding ([`turned_sheet`]): laid out on the portrait
+    /// sheet this landscape page is bound as, and turned onto it.
+    pub hf_turned: bool,
+}
+
+/// The custom document property that turns the header and footer of landscape pages for
+/// binding: `off` keeps them across the landscape page as Word does; anything else (or none)
+/// turns them.
+pub const TURN_HF_PROP: &str = "KrubOffice.TurnHeadersOnLandscapePages";
+
+/// Whether landscape pages' headers and footers are turned for binding (see [`TURN_HF_PROP`]).
+pub fn turns_landscape_headers(doc: &Document) -> bool {
+    doc.custom_prop(TURN_HF_PROP).is_none_or(|v| !v.trim().eq_ignore_ascii_case("off"))
+}
+
+/// Whether section `sect`'s header and footer turn for binding: it is landscape, the document
+/// has portrait pages too, and the setting is on (see [`turned_sheet`]).
+fn turns_on(doc: &Document, sect: &SectionProps) -> bool {
+    sect.page_w > sect.page_h + 1.0 && turns_landscape_headers(doc) && doc.sections().iter().any(|(_, s)| s.page_h > s.page_w + 1.0)
+}
+
+/// The portrait section whose sheet the landscape section `i` is bound as, when its header and
+/// footer turn for binding: a report printed on portrait paper turns a landscape page so its
+/// top faces the spine, and its page number belongs where every other page has it, reading the
+/// same way (owner, 2026-11-22). The nearest portrait section before it, else after it; `None`
+/// for a portrait page, a document with no portrait pages, or with the setting off.
+pub fn turned_sheet<'a>(doc: &Document, sections: &[(usize, &'a SectionProps)], i: usize) -> Option<&'a SectionProps> {
+    let (_, sect) = sections.get(i)?;
+    let landscape = |s: &SectionProps| s.page_w > s.page_h + 1.0;
+    let portrait = |s: &SectionProps| s.page_h > s.page_w + 1.0;
+    if !landscape(sect) || !turns_landscape_headers(doc) {
+        return None;
+    }
+    let before = sections.get(..i).unwrap_or(&[]).iter().rev().map(|(_, s)| *s).find(|s| portrait(s));
+    before.or_else(|| sections.get(i + 1..).unwrap_or(&[]).iter().map(|(_, s)| *s).find(|s| portrait(s)))
 }
 
 /// The whole layout.
@@ -2715,6 +2750,10 @@ fn with_pct_base<T>(ctx: &mut Ctx, base: Option<f32>, f: impl FnOnce(&mut Ctx) -
 
 /// Where body text starts: the top margin, or below the header if it's taller.
 fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 {
+    // A turned header runs along the page's side, not above the body.
+    if turns_on(ctx.doc, sect) {
+        return sect.margin_top;
+    }
     let Some(id) = header else { return sect.margin_top };
     let Some(part) = ctx.doc.parts.get(&id) else { return sect.margin_top };
     let blocks = part.blocks.clone();
@@ -2729,6 +2768,9 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
 
 /// Where the footer starts (as `headers_footers` places it), `f32::MAX` without one.
 fn foot_top_for(ctx: &mut Ctx, sect: &SectionProps, footer: Option<u32>) -> f32 {
+    if turns_on(ctx.doc, sect) {
+        return f32::MAX;
+    }
     let Some(part) = footer.and_then(|id| ctx.doc.parts.get(&id).map(|p| (id, p))) else { return f32::MAX };
     let (id, blocks) = (part.0, part.1.blocks.clone());
     // A page total in the footer is filled in after pagination, like the header's: it doesn't
@@ -4196,18 +4238,38 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             });
             (ix.clone(), ix.page_at(paths, page.first_block))
         });
-        let w = sect.text_width();
-        let x = sect.margin_left + sect.gutter;
+        // A landscape page bound in a portrait report: the header and footer go on the portrait
+        // sheet (its margins and distances), then turn a quarter clockwise onto the page, the
+        // sheet's top along the page's right edge.
+        let sheet = turned_sheet(ctx.doc, sections, page.section);
+        page.hf_turned = sheet.is_some();
+        let gs = sheet.unwrap_or(sect);
+        let sheet_h = if sheet.is_some() { sect.page_w } else { sect.page_h };
+        let turn_onto_page = |items: &mut Vec<Placed>| {
+            if sheet.is_some() {
+                for it in items.iter_mut() {
+                    it.turn(TextDirection::Down, sect.page_w, 0.0);
+                }
+            }
+        };
+        let w = gs.text_width();
+        let mut x = gs.margin_left + gs.gutter;
+        // Mirrored margins, on the sheet: an even page starts at the outside margin
+        // (`mirror_even_pages` leaves turned headers alone).
+        if sheet.is_some() && ctx.doc.settings.mirror_margins && page.number % 2 == 0 {
+            x += gs.margin_right - gs.margin_left - gs.gutter;
+        }
         if let Some(id) = hid
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
-            let frame = PageFrame { sect, origin: (x, sect.header), number: page.number, mirror: ctx.mirror };
+            let frame = PageFrame { sect: gs, origin: (x, gs.header), number: page.number, mirror: ctx.mirror };
             let base = defining_width(sections, page.section, |s| s.headers, hid);
             let mut items = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items);
             for it in &mut items {
-                it.translate(x, sect.header);
+                it.translate(x, gs.header);
             }
+            turn_onto_page(&mut items);
             page.header = items;
             page.header_story = Some(id);
         }
@@ -4218,11 +4280,13 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             let base = defining_width(sections, page.section, |s| s.footers, fid);
             // The footer's height fixes where it sits, which page-relative floats need.
             let h = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height);
-            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h), number: page.number, mirror: ctx.mirror };
+            let top = sheet_h - gs.footer - h;
+            let frame = PageFrame { sect: gs, origin: (x, top), number: page.number, mirror: ctx.mirror };
             let mut items = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items);
             for it in &mut items {
-                it.translate(x, sect.page_h - sect.footer - h);
+                it.translate(x, top);
             }
+            turn_onto_page(&mut items);
             page.footer = items;
             page.footer_story = Some(id);
         }
@@ -4241,7 +4305,9 @@ fn mirror_even_pages(pages: &mut [Page], sections: &[(usize, &SectionProps)]) {
             continue;
         }
         let borders = page_border_rules(s).len();
-        for it in page.items.iter_mut().skip(borders).chain(page.header.iter_mut()).chain(page.footer.iter_mut()) {
+        let turned = page.hf_turned;
+        let (header, footer) = if turned { (&mut [][..], &mut [][..]) } else { (&mut page.header[..], &mut page.footer[..]) };
+        for it in page.items.iter_mut().skip(borders).chain(header.iter_mut()).chain(footer.iter_mut()) {
             it.translate(dx, 0.0);
         }
         page.body.x += dx;

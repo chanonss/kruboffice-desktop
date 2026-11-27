@@ -13,7 +13,8 @@
 
 use std::sync::Arc;
 
-use wordcraft_doc::{Align, Document};
+use wordcraft_doc::props::{Border, BorderStyle, Borders};
+use wordcraft_doc::{Align, Document, Rgb};
 
 use crate::model::{
     self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo, Meta, Para, base64_encode, data_uri, make_img, mime_of, parse_color,
@@ -377,8 +378,270 @@ struct El {
 struct TableB {
     rows: Vec<Vec<Cell>>,
     row: Option<Vec<Cell>>,
+    /// The width each cell asked for (points), beside `rows` / `row`.
+    row_widths: Vec<Vec<Option<f32>>>,
+    row_w: Vec<Option<f32>>,
+    /// The widths `<col>` elements give, one per grid column.
+    col_widths: Vec<Option<f32>>,
+    /// The table's own borders (outer sides, and Word's inside lines).
+    borders: Option<Borders>,
     /// The table or one of its cells asks for borders.
     bordered: bool,
+}
+
+impl TableB {
+    fn new(attrs: &[(String, String)]) -> TableB {
+        TableB {
+            rows: Vec::new(),
+            row: None,
+            row_widths: Vec::new(),
+            row_w: Vec::new(),
+            col_widths: Vec::new(),
+            borders: attr(attrs, "style").and_then(css_table_borders),
+            bordered: declares_border(attrs, true),
+        }
+    }
+
+    /// End the open row, if any.
+    fn end_row(&mut self) {
+        if let Some(r) = self.row.take() {
+            self.rows.push(r);
+            self.row_widths.push(std::mem::take(&mut self.row_w));
+        }
+    }
+}
+
+/// Grid column widths in points from `<col>` widths, else from the first row whose cells each
+/// fill one column and all give a width (what Word's HTML gives); empty when neither. `shapes`
+/// is each row's cell count and whether none spans columns, beside `row_widths`.
+fn grid_widths(col_widths: &[Option<f32>], shapes: &[(usize, bool)], row_widths: &[Vec<Option<f32>>], cols: usize) -> Vec<f32> {
+    if col_widths.len() == cols && col_widths.iter().all(Option::is_some) {
+        return col_widths.iter().flatten().copied().collect();
+    }
+    for (&(n, simple), ws) in shapes.iter().zip(row_widths) {
+        if simple && n == cols && ws.len() == cols && ws.iter().all(Option::is_some) {
+            return ws.iter().flatten().copied().collect();
+        }
+    }
+    Vec::new()
+}
+
+/// A table's own borders (CSS on `<table>`) on the cell sides that declare none: the outer
+/// sides on the edge cells, Word's inside lines between them.
+fn table_borders_to_cells(ft: &mut FTable, tb: &Borders) {
+    let nrows = ft.rows.len();
+    let cols = ft.cols();
+    for (ri, row) in ft.rows.iter_mut().enumerate() {
+        let mut g = 0usize;
+        for c in row.iter_mut() {
+            let span = c.colspan.clamp(1, 63) as usize;
+            let last = ri + (c.rowspan.max(1) as usize) >= nrows;
+            let b = c.borders.get_or_insert_with(Borders::default);
+            b.top = b.top.or(if ri == 0 { tb.top } else { tb.between });
+            b.bottom = b.bottom.or(if last { tb.bottom } else { tb.between });
+            b.left = b.left.or(if g == 0 { tb.left } else { tb.inside_v });
+            g = g.saturating_add(span);
+            b.right = b.right.or(if g >= cols { tb.right } else { tb.inside_v });
+            if [b.top, b.left, b.bottom, b.right].iter().all(Option::is_none) {
+                c.borders = None;
+            }
+        }
+    }
+}
+
+/// Most `<col>` columns a table keeps.
+const MAX_COL_ELEMENTS: usize = 63;
+
+/// A table or cell width in points from its CSS `width`, else its `width` attribute (pixels).
+/// Only absolute lengths: a percentage or `auto` gives `None`.
+fn width_pt(attrs: &[(String, String)]) -> Option<f32> {
+    let one = |v: &str| {
+        let v = v.trim();
+        if v.ends_with('%') || v.is_empty() || v.eq_ignore_ascii_case("auto") {
+            return None;
+        }
+        css_len_pt(v).filter(|w| w.is_finite() && *w > 1.0 && *w <= 1584.0)
+    };
+    let css = attr(attrs, "style").and_then(|st| {
+        st.split(';').filter_map(|d| d.split_once(':')).filter(|(k, _)| k.trim().eq_ignore_ascii_case("width")).find_map(|(_, v)| one(v))
+    });
+    css.or_else(|| attr(attrs, "width").and_then(one))
+}
+
+/// What one CSS border declaration sets; unset parts keep the side's earlier values.
+#[derive(Clone, Copy, Default)]
+struct SidePart {
+    style: Option<BorderStyle>,
+    width: Option<f32>,
+    /// `Some(None)`: the automatic colour (`windowtext`, `currentcolor`).
+    color: Option<Option<Rgb>>,
+}
+
+impl SidePart {
+    fn border(self) -> Option<Border> {
+        let style = self.style?;
+        if style == BorderStyle::None {
+            return Some(Border { style, width: 0.0, color: None, space: 0.0 });
+        }
+        // CSS's default width is `medium` (3px).
+        let width = self.width.unwrap_or(2.25);
+        if width <= 0.0 {
+            return Some(Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 });
+        }
+        Some(Border { style, width: width.clamp(0.25, 12.0), color: self.color.flatten(), space: 0.0 })
+    }
+}
+
+fn border_style(t: &str) -> Option<BorderStyle> {
+    Some(match t {
+        "none" | "hidden" => BorderStyle::None,
+        "solid" | "groove" | "ridge" | "inset" | "outset" => BorderStyle::Single,
+        "double" => BorderStyle::Double,
+        "dotted" => BorderStyle::Dotted,
+        "dashed" => BorderStyle::Dashed,
+        _ => return None,
+    })
+}
+
+fn border_width(t: &str) -> Option<f32> {
+    match t {
+        "thin" => Some(0.75),
+        "medium" => Some(2.25),
+        "thick" => Some(3.75),
+        _ if t.starts_with(|c: char| c.is_ascii_digit() || c == '.') && !t.ends_with('%') => css_len_pt(t).filter(|w| w.is_finite() && *w >= 0.0),
+        _ => None,
+    }
+}
+
+fn border_color(t: &str) -> Option<Option<Rgb>> {
+    match t {
+        // Word's HTML names the automatic colour `windowtext`.
+        "windowtext" | "currentcolor" | "auto" => Some(None),
+        _ => parse_color(t).map(Some),
+    }
+}
+
+/// A CSS border shorthand (`solid #C00000 1.0pt`, `1px dashed red`, `none`) in any order. Unlike
+/// a longhand it resets what it leaves out, as in CSS.
+fn border_shorthand(v: &str) -> SidePart {
+    // `rgb(1, 2, 3)` is one token.
+    let mut flat = String::with_capacity(v.len());
+    let mut depth = 0u32;
+    for ch in v.chars().take(256) {
+        match ch {
+            '(' => depth = depth.saturating_add(1),
+            ')' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() && depth > 0 => continue,
+            _ => {}
+        }
+        flat.push(ch);
+    }
+    let mut part = SidePart::default();
+    for tok in flat.to_ascii_lowercase().split_whitespace().take(8) {
+        if let Some(s) = border_style(tok) {
+            part.style = Some(s);
+        } else if let Some(w) = border_width(tok) {
+            part.width = Some(w);
+        } else if let Some(c) = border_color(tok) {
+            part.color = Some(c);
+        }
+    }
+    part
+}
+
+/// The four sides' borders and Word's inside lines, read from CSS declarations.
+#[derive(Default)]
+struct CssBorders {
+    /// top, left, bottom, right, inside horizontal, inside vertical.
+    sides: [SidePart; 6],
+    /// Word's `mso-…-alt` borders: what Word keeps where its CSS says `none` for browsers.
+    alt: [Option<SidePart>; 6],
+}
+
+impl CssBorders {
+    fn read(style: &str) -> CssBorders {
+        let mut b = CssBorders::default();
+        let side = |s: &str| ["top", "left", "bottom", "right"].iter().position(|x| *x == s);
+        for decl in style.split(';').take(128) {
+            let Some((k, v)) = decl.split_once(':') else { continue };
+            let k = k.trim().to_ascii_lowercase();
+            let v = v.trim().trim_end_matches("!important").trim();
+            let lv = v.to_ascii_lowercase();
+            let all = [0usize, 1, 2, 3];
+            if k == "border" {
+                let p = border_shorthand(v);
+                all.iter().for_each(|&i| b.sides[i] = p);
+            } else if k == "mso-border-alt" {
+                let p = border_shorthand(v);
+                all.iter().for_each(|&i| b.alt[i] = Some(p));
+            } else if k == "mso-border-insideh" {
+                b.alt[4] = Some(border_shorthand(v));
+            } else if k == "mso-border-insidev" {
+                b.alt[5] = Some(border_shorthand(v));
+            } else if let Some(rest) = k.strip_prefix("mso-border-").and_then(|r| r.strip_suffix("-alt")) {
+                if let Some(i) = side(rest) {
+                    b.alt[i] = Some(border_shorthand(v));
+                }
+            } else if let Some(rest) = k.strip_prefix("border-") {
+                // `border-top`, `border-top-color`, `border-color` (one value) …
+                let (s, prop) = match rest.split_once('-') {
+                    Some((s, p)) if side(s).is_some() => (side(s), Some(p)),
+                    _ if side(rest).is_some() => (side(rest), None),
+                    _ => (None, Some(rest)),
+                };
+                let targets: Vec<usize> = match s {
+                    Some(i) => vec![i],
+                    None if lv.split_whitespace().count() == 1 => all.to_vec(),
+                    None => continue,
+                };
+                for i in targets {
+                    let Some(part) = b.sides.get_mut(i) else { continue };
+                    match prop {
+                        None => *part = border_shorthand(v),
+                        Some("style") => part.style = border_style(&lv).or(part.style),
+                        Some("width") => part.width = border_width(&lv).or(part.width),
+                        Some("color") => part.color = border_color(&lv).or(part.color),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        b
+    }
+
+    /// Side `i`'s border: Word's `-alt` one when given, else the CSS one.
+    fn side(&self, i: usize) -> Option<Border> {
+        self.alt.get(i).copied().flatten().and_then(SidePart::border).or_else(|| self.sides.get(i).and_then(|p| p.border()))
+    }
+
+    fn borders(&self) -> Option<Borders> {
+        let b = Borders {
+            top: self.side(0),
+            left: self.side(1),
+            bottom: self.side(2),
+            right: self.side(3),
+            between: self.alt[4].and_then(SidePart::border),
+            inside_v: self.alt[5].and_then(SidePart::border),
+        };
+        let any = [b.top, b.left, b.bottom, b.right, b.between, b.inside_v].iter().any(Option::is_some);
+        any.then_some(b)
+    }
+}
+
+/// A cell's own borders from its CSS (`border`, `border-top`, their longhands, and Word's
+/// `mso-border-…-alt`). `None` when it declares none, so the table's look applies.
+fn css_cell_borders(style: &str) -> Option<Borders> {
+    let mut b = CssBorders::read(style);
+    // Inside lines belong to tables.
+    b.alt[4] = None;
+    b.alt[5] = None;
+    b.borders()
+}
+
+/// A table's borders from its CSS: the outer sides, and Word's inside lines
+/// (`mso-border-insideh` / `-insidev`).
+fn css_table_borders(style: &str) -> Option<Borders> {
+    CssBorders::read(style).borders()
 }
 
 /// Whether an element's `border` attribute or `style` declares a visible border.
@@ -407,6 +670,8 @@ struct Builder<'r> {
     images: ImageLoader<'r>,
     containers: Vec<Vec<FBlock>>,
     cells: Vec<Cell>,
+    /// The width each open cell asked for, beside `cells`.
+    cell_widths: Vec<Option<f32>>,
     tables: Vec<TableB>,
     stack: Vec<El>,
     para: Option<Para>,
@@ -604,6 +869,7 @@ impl<'r> Builder<'r> {
             images,
             containers: vec![Vec::new()],
             cells: Vec::new(),
+            cell_widths: Vec::new(),
             tables: Vec::new(),
             stack: Vec::new(),
             para: None,
@@ -835,30 +1101,40 @@ impl<'r> Builder<'r> {
                 self.flush();
                 let blocks = if self.containers.len() > 1 { self.containers.pop().unwrap_or_default() } else { Vec::new() };
                 let mut cell = self.cells.pop().unwrap_or_default();
+                let width = self.cell_widths.pop().flatten();
                 cell.blocks = blocks;
                 if let Some(t) = self.tables.last_mut() {
+                    if t.row.is_none() {
+                        t.row_w.clear();
+                    }
                     t.row.get_or_insert_with(Vec::new).push(cell);
+                    t.row_w.push(width);
                 }
             }
             ElKind::Tr => {
-                if let Some(t) = self.tables.last_mut()
-                    && let Some(r) = t.row.take()
-                {
-                    t.rows.push(r);
+                if let Some(t) = self.tables.last_mut() {
+                    t.end_row();
                 }
             }
             ElKind::Table => {
                 if let Some(mut t) = self.tables.pop() {
-                    if let Some(r) = t.row.take() {
-                        t.rows.push(r);
-                    }
+                    t.end_row();
                     let borderless = !t.bordered;
                     // Keep at most MAX_ROWS rows (the model drops the rest anyway): bounds the
                     // O(rows × rowspan) work of `insert_covered` on a table of millions of `<tr>`.
-                    let rows: Vec<_> = t.rows.into_iter().filter(|r| !r.is_empty()).take(wordcraft_doc::table::MAX_ROWS).collect();
+                    let rows = std::mem::take(&mut t.rows);
+                    let widths = std::mem::take(&mut t.row_widths);
+                    let (rows, widths): (Vec<_>, Vec<_>) =
+                        rows.into_iter().zip(widths).filter(|(r, _)| !r.is_empty()).take(wordcraft_doc::table::MAX_ROWS).unzip();
+                    // Which rows have one cell per column, before covered cells are added.
+                    let shapes: Vec<(usize, bool)> = rows.iter().map(|r| (r.len(), r.iter().all(|c| c.colspan <= 1))).collect();
                     let mut ft = FTable { rows, widths: Vec::new(), borderless };
                     if !ft.rows.is_empty() {
                         ft.insert_covered();
+                        ft.widths = grid_widths(&t.col_widths, &shapes, &widths, ft.cols());
+                        if let Some(tb) = t.borders {
+                            table_borders_to_cells(&mut ft, &tb);
+                        }
                         self.container().push(FBlock::Table(ft));
                     }
                 }
@@ -1005,6 +1281,18 @@ impl<'r> Builder<'r> {
             }
             _ => {}
         }
+        if name == "col"
+            && let Some(t) = self.tables.last_mut()
+        {
+            let span = attr(attrs, "span").and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(1).clamp(1, MAX_COL_ELEMENTS);
+            let w = width_pt(attrs);
+            for _ in 0..span {
+                if t.col_widths.len() < MAX_COL_ELEMENTS {
+                    t.col_widths.push(w);
+                }
+            }
+            return;
+        }
         if is_void(name) || self_close && block_kind(name).is_none() && !matches!(name, "a" | "span") {
             return;
         }
@@ -1079,12 +1367,10 @@ impl<'r> Builder<'r> {
             preserve = true;
         }
         match kind {
-            ElKind::Table => self.tables.push(TableB { rows: Vec::new(), row: None, bordered: declares_border(attrs, true) }),
+            ElKind::Table => self.tables.push(TableB::new(attrs)),
             ElKind::Tr => {
-                if let Some(t) = self.tables.last_mut()
-                    && let Some(r) = t.row.take()
-                {
-                    t.rows.push(r);
+                if let Some(t) = self.tables.last_mut() {
+                    t.end_row();
                 }
             }
             ElKind::Cell => {
@@ -1096,9 +1382,7 @@ impl<'r> Builder<'r> {
                 }
                 if tb && let Some(t) = self.tables.last_mut() {
                     // A cell without a row: start one.
-                    if let Some(r) = t.row.take() {
-                        t.rows.push(r);
-                    }
+                    t.end_row();
                     t.row = Some(Vec::new());
                 }
                 let num = |k: &str| attr(attrs, k).and_then(|v| v.trim().parse::<u32>().ok()).map(|v| v.clamp(1, 63));
@@ -1110,8 +1394,9 @@ impl<'r> Builder<'r> {
                     covered: false,
                     header: name == "th",
                     shading,
-                    borders: None,
+                    borders: attr(attrs, "style").and_then(css_cell_borders),
                 });
+                self.cell_widths.push(width_pt(attrs));
                 fmt.background = None;
                 self.containers.push(Vec::new());
             }
@@ -1825,5 +2110,89 @@ mod tests {
             b => panic!("expected para, got {b:?}"),
         };
         assert_eq!(p.text(), "World");
+    }
+
+    fn first_table(html: &str) -> wordcraft_doc::Table {
+        let doc = crate::model::to_doc(&parse(html));
+        doc.body
+            .iter()
+            .find_map(|b| match &**b {
+                wordcraft_doc::Block::Table(t) => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    /// The shape of a table Word puts on the clipboard as HTML: widths in `width` and CSS on every
+    /// cell, borders spelt out per cell, the ones browsers would draw twice set to `none` with
+    /// Word's own border in `mso-border-…-alt`.
+    const WORD_LIKE_TABLE: &str = "<p class=MsoNormal><b><span style='font-size:16.0pt'>Table 2 Codes</span></b></p>\
+        <table class=MsoNormalTable border=1 cellspacing=0 cellpadding=0 width=640 style='border-collapse:collapse;border:none;\
+        mso-border-alt:solid #C00000 1.0pt;mso-border-insideh:1.0pt solid #C00000;mso-border-insidev:1.0pt solid #C00000'>\
+        <tr><td width=267 valign=top style='width:200.0pt;border:solid #C00000 1.0pt;background:#F79646'><p>Question</p></td>\
+        <td width=267 valign=top style='width:200.0pt;border:solid #C00000 1.0pt;border-left:none;mso-border-left-alt:solid #C00000 1.0pt;background:#F79646'><p>Choice</p></td>\
+        <td width=107 valign=top style='width:80.0pt;border:solid #C00000 1.0pt;border-left:none;mso-border-left-alt:solid #C00000 1.0pt;background:#F79646'><p>Code</p></td></tr>\
+        <tr><td width=267 style='width:200.0pt;border:solid #C00000 1.0pt;border-top:none;mso-border-top-alt:solid #C00000 1.0pt'><p>1. Sex</p></td>\
+        <td width=267 style='width:200.0pt;border-top:none;border-left:none;border-bottom:solid #C00000 1.0pt;border-right:solid #C00000 1.0pt;\
+        mso-border-top-alt:solid #C00000 1.0pt;mso-border-left-alt:solid #C00000 1.0pt'><p>a</p></td>\
+        <td width=107 style='width:80.0pt;border-top:none;border-left:none;border-bottom:solid #C00000 1.0pt;border-right:solid #C00000 1.0pt;\
+        mso-border-top-alt:solid #C00000 1.0pt;mso-border-left-alt:solid #C00000 1.0pt'><p>b</p></td></tr></table>";
+
+    #[test]
+    fn word_table_keeps_column_widths() {
+        let t = first_table(WORD_LIKE_TABLE);
+        assert_eq!(t.grid, vec![200.0, 200.0, 80.0]);
+        assert_eq!(t.rows[1].cells[2].props.width, Some(80.0));
+    }
+
+    #[test]
+    fn word_table_keeps_border_colours_and_widths() {
+        let t = first_table(WORD_LIKE_TABLE);
+        let red = Some(Rgb(0xC0, 0, 0));
+        for (ri, row) in t.rows.iter().enumerate() {
+            for (ci, c) in row.cells.iter().enumerate() {
+                let b = c.props.borders.unwrap();
+                // Every side, including the ones whose CSS says `none` for browsers.
+                for side in [b.top, b.left, b.bottom, b.right] {
+                    let side = side.unwrap();
+                    assert_eq!((side.style, side.width, side.color), (BorderStyle::Single, 1.0, red), "row {ri} cell {ci}");
+                }
+            }
+        }
+        assert_eq!(t.rows[0].cells[0].props.shading, Some(Rgb(0xF7, 0x96, 0x46)));
+    }
+
+    #[test]
+    fn word_table_title_paragraph_is_kept() {
+        let f = parse(WORD_LIKE_TABLE);
+        assert!(matches!(f.blocks.first(), Some(FBlock::Para(p)) if p.text() == "Table 2 Codes"));
+    }
+
+    #[test]
+    fn col_elements_give_widths_and_percentages_do_not() {
+        let t = first_table("<table><colgroup><col width=100><col style='width:2in'></colgroup><tr><td>a<td>b</table>");
+        assert_eq!(t.grid, vec![75.0, 144.0]);
+        let pct = first_table("<table><tr><td style='width:30%'>a<td style='width:70%'>b</table>");
+        assert!(pct.grid.iter().all(|w| (w - pct.grid[0]).abs() < 0.01), "{:?}", pct.grid);
+    }
+
+    #[test]
+    fn css_borders_in_any_order_and_longhands() {
+        let b = css_cell_borders("border:1px dashed rgb(0, 128, 0); border-left-style:none; border-top-color:windowtext").unwrap();
+        assert_eq!(b.right.map(|x| (x.style, x.width, x.color)), Some((BorderStyle::Dashed, 0.75, Some(Rgb(0, 128, 0)))));
+        assert_eq!(b.left.map(|x| x.style), Some(BorderStyle::None));
+        assert_eq!(b.top.and_then(|x| x.color), None);
+        // A colour alone draws nothing in CSS, so it leaves the table's look alone.
+        assert!(css_cell_borders("border-color:red").is_none());
+        assert!(css_cell_borders("padding:0").is_none());
+    }
+
+    #[test]
+    fn hostile_table_css_is_bounded() {
+        let wide = format!("<table>{}<tr><td style='border:{} solid #zz 99999pt'>x</table>", "<col width=10>".repeat(5000), "(".repeat(5000));
+        let _ = first_table(&wide);
+        let t = first_table("<table><tr><td style='border:solid red 99999pt'>x</table>");
+        assert_eq!(t.rows[0].cells[0].props.borders.unwrap().top.unwrap().width, 12.0);
+        let _ = first_table("<table style='mso-border-alt:solid;width:NaNpt'><tr><td width=-5 style='width:1e40pt'>x</table>");
     }
 }

@@ -87,15 +87,16 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut InsertDialog) -> bool {
 /// OK / Cancel (or another OK label); returns (ok, cancel). `ok_enabled` greys OK out.
 pub(crate) fn buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool) -> (bool, bool) {
     let mut r = (false, false);
-    ui.add_space(8.0);
+    // The shared button row (owner, 2026-11-24: one dialog look): OK at the far right.
+    krub_icons::dialog::footer(ui);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(tl!(cancel)).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                r.1 = true;
-            }
             let okb = ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!(ok)));
             if okb.clicked() || (ok_enabled && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 r.0 = true;
+            }
+            if ui.button(tl!(cancel)).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                r.1 = true;
             }
         });
     });
@@ -361,95 +362,101 @@ fn columns_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ColumnsForm) -> bool {
     let t = Tokens::get(ui.ctx());
     let unit = crate::options::unit();
     ui.set_width(420.0);
-    ui.label(egui::RichText::new(tl!("Presets")).font(semibold(12.5)));
-    let current = f.current_preset();
-    ui.horizontal(|ui| {
-        for (key, label, widths) in [
-            ("one", "One", &[1.0][..]),
-            ("two", "Two", &[1.0, 1.0][..]),
-            ("three", "Three", &[1.0, 1.0, 1.0][..]),
-            ("left", "Left", &[1.0, 2.0][..]),
-            ("right", "Right", &[2.0, 1.0][..]),
-        ] {
-            if preset_tile(ui, label, widths, current == Some(key), &t) {
-                f.preset(key);
-            }
-        }
-    });
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label(tl!("Number of columns:"));
-        let mut n = f.count;
-        if ui.add(crate::numfield::NumField::new(&mut n).range(1..=12)).changed() {
-            f.set_count(n);
-        }
-        ui.add_space(16.0);
-        ui.checkbox(&mut f.separator, tl!("Line between"));
-    });
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(tl!("Width and spacing")).font(semibold(12.5)));
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            let mut changed = None;
-            egui::ScrollArea::vertical().id_salt("columns_widths").max_height(130.0).show(ui, |ui| {
-                egui::Grid::new("columns_grid").num_columns(3).spacing(vec2(12.0, 4.0)).show(ui, |ui| {
-                    ui.label(tl!("Col #:"));
-                    ui.label(tl!("Width:"));
-                    ui.label(tl!("Spacing:"));
-                    ui.end_row();
-                    let n = f.cols.len();
-                    let max = f.text_width.max(0.1);
-                    for i in 0..n {
-                        let editable = i == 0 || !f.equal;
-                        ui.label(format!("{}:", i + 1));
-                        if let Some(c) = f.cols.get_mut(i) {
-                            let w =
-                                crate::numfield::NumField::new(&mut c.0).speed(0.01).range(ColumnsForm::min_w()..=max).measure(unit).max_decimals(2);
-                            if ui.add_enabled(editable, w).changed() {
-                                changed = Some(i);
-                            }
-                            if i + 1 < n {
-                                let s = crate::numfield::NumField::new(&mut c.1).speed(0.01).range(0.0..=max).measure(unit).max_decimals(2);
-                                if ui.add_enabled(editable, s).changed() {
-                                    changed = Some(i);
-                                }
-                            } else {
-                                ui.label("");
-                            }
-                        }
-                        ui.end_row();
-                    }
-                });
-            });
-            if let Some(i) = changed {
-                f.rebalance(i);
-            }
-            let mut equal = f.equal;
-            if ui.add_enabled(f.count > 1, egui::Checkbox::new(&mut equal, tl!("Equal column width"))).changed() {
-                f.equal = equal;
-                if equal {
-                    f.even_out();
+    // Sections on cards (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::section(ui, tl!("Presets"), |ui| {
+        let current = f.current_preset();
+        ui.horizontal(|ui| {
+            for (key, label, widths) in [
+                ("one", "One", &[1.0][..]),
+                ("two", "Two", &[1.0, 1.0][..]),
+                ("three", "Three", &[1.0, 1.0, 1.0][..]),
+                ("left", "Left", &[1.0, 2.0][..]),
+                ("right", "Right", &[2.0, 1.0][..]),
+            ] {
+                if preset_tile(ui, label, widths, current == Some(key), &t) {
+                    f.preset(key);
                 }
             }
         });
-        ui.add_space(8.0);
-        ui.vertical(|ui| {
-            ui.label(tl!("Preview"));
-            columns_preview(ui, f, &t);
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(tl!("Number of columns:"));
+            let mut n = f.count;
+            if ui.add(crate::numfield::NumField::new(&mut n).range(1..=12)).changed() {
+                f.set_count(n);
+            }
+            ui.add_space(16.0);
+            ui.checkbox(&mut f.separator, tl!("Line between"));
         });
     });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label(tl!("Apply to:"));
-        let mut options = vec![("document", "Whole document"), ("forward", "This point forward")];
-        if f.sections {
-            options.insert(0, ("section", "This section"));
-        }
-        let shown = options.iter().find(|(k, _)| *k == f.apply).map(|(_, l)| *l).unwrap_or("This section");
-        egui::ComboBox::from_id_salt("columns_apply").selected_text(tl!(shown)).width(180.0).show_ui(ui, |ui| {
-            for (k, l) in &options {
-                ui.steady_value(&mut f.apply, (*k).to_string(), tl!(l));
+    krub_icons::dialog::section(ui, tl!("Width and spacing"), |ui| {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                let mut changed = None;
+                egui::ScrollArea::vertical().id_salt("columns_widths").max_height(130.0).show(ui, |ui| {
+                    egui::Grid::new("columns_grid").num_columns(3).spacing(vec2(12.0, 4.0)).show(ui, |ui| {
+                        ui.label(tl!("Col #:"));
+                        ui.label(tl!("Width:"));
+                        ui.label(tl!("Spacing:"));
+                        ui.end_row();
+                        let n = f.cols.len();
+                        let max = f.text_width.max(0.1);
+                        for i in 0..n {
+                            let editable = i == 0 || !f.equal;
+                            ui.label(format!("{}:", i + 1));
+                            if let Some(c) = f.cols.get_mut(i) {
+                                let w = crate::numfield::NumField::new(&mut c.0)
+                                    .speed(0.01)
+                                    .range(ColumnsForm::min_w()..=max)
+                                    .measure(unit)
+                                    .max_decimals(2);
+                                if ui.add_enabled(editable, w).changed() {
+                                    changed = Some(i);
+                                }
+                                if i + 1 < n {
+                                    let s = crate::numfield::NumField::new(&mut c.1).speed(0.01).range(0.0..=max).measure(unit).max_decimals(2);
+                                    if ui.add_enabled(editable, s).changed() {
+                                        changed = Some(i);
+                                    }
+                                } else {
+                                    ui.label("");
+                                }
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if let Some(i) = changed {
+                    f.rebalance(i);
+                }
+                let mut equal = f.equal;
+                if ui.add_enabled(f.count > 1, egui::Checkbox::new(&mut equal, tl!("Equal column width"))).changed() {
+                    f.equal = equal;
+                    if equal {
+                        f.even_out();
+                    }
+                }
+            });
+            ui.add_space(8.0);
+            ui.vertical(|ui| {
+                ui.label(tl!("Preview"));
+                columns_preview(ui, f, &t);
+            });
+        });
+    });
+    krub_icons::dialog::section(ui, "", |ui| {
+        ui.horizontal(|ui| {
+            ui.label(tl!("Apply to:"));
+            let mut options = vec![("document", "Whole document"), ("forward", "This point forward")];
+            if f.sections {
+                options.insert(0, ("section", "This section"));
             }
+            let shown = options.iter().find(|(k, _)| *k == f.apply).map(|(_, l)| *l).unwrap_or("This section");
+            egui::ComboBox::from_id_salt("columns_apply").selected_text(tl!(shown)).width(180.0).show_ui(ui, |ui| {
+                for (k, l) in &options {
+                    ui.steady_value(&mut f.apply, (*k).to_string(), tl!(l));
+                }
+            });
         });
     });
     let (ok, cancel) = buttons(ui, "OK", "Cancel", true);

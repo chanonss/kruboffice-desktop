@@ -627,7 +627,7 @@ impl Writer<'_> {
                 let docpr = self.next_docpr();
                 let name = format!("Picture {docpr}");
                 self.drawing_open(w, float, *iw, *ih, &docpr, &name, alt);
-                w.empty("wp:cNvGraphicFramePr", &[]);
+                frame_locks(w, float.locked);
                 w.open("a:graphic", &[]);
                 w.open("a:graphicData", &[("uri", "http://schemas.openxmlformats.org/drawingml/2006/picture")]);
                 self.pic(w, o, &file, (0.0, 0.0), rels);
@@ -659,7 +659,7 @@ impl Writer<'_> {
                 }
                 let float = &float;
                 self.drawing_open(w, float, *sw, *sh, &docpr, &name, o.alt_text());
-                w.empty("wp:cNvGraphicFramePr", &[]);
+                frame_locks(w, float.locked);
                 w.open("a:graphic", &[]);
                 w.open("a:graphicData", &[("uri", "http://schemas.microsoft.com/office/word/2010/wordprocessingShape")]);
                 self.wsp(w, o, None, (0.0, 0.0), rels, depth);
@@ -678,7 +678,7 @@ impl Writer<'_> {
                 let docpr = self.next_docpr();
                 let name = format!("{} {docpr}", if canvas.is_some() { "Canvas" } else { "Group" });
                 self.drawing_open(w, float, *gw, *gh, &docpr, &name, o.alt_text());
-                w.empty("wp:cNvGraphicFramePr", &[]);
+                frame_locks(w, float.locked);
                 w.open("a:graphic", &[]);
                 let outer = match canvas {
                     Some(c) => {
@@ -934,7 +934,14 @@ impl Writer<'_> {
         w.open("pic:nvPicPr", &[]);
         nv_props(w, "pic:cNvPr", "0", file, alt, &float.alt, float.hidden);
         w.open("pic:cNvPicPr", &[]);
-        w.empty("a:picLocks", &[("noChangeAspect", "1"), ("noChangeArrowheads", "1")]);
+        if float.locked {
+            w.empty(
+                "a:picLocks",
+                &[("noChangeAspect", "1"), ("noChangeArrowheads", "1"), ("noRot", "1"), ("noMove", "1"), ("noResize", "1"), ("noCrop", "1")],
+            );
+        } else {
+            w.empty("a:picLocks", &[("noChangeAspect", "1"), ("noChangeArrowheads", "1")]);
+        }
         w.close("pic:cNvPicPr");
         w.close("pic:nvPicPr");
         w.open("pic:blipFill", &[]);
@@ -980,10 +987,15 @@ impl Writer<'_> {
             } else {
                 w.empty("wps:cNvCnPr", &[]);
             }
-        } else if *kind == ShapeKind::TextBox {
-            w.empty("wps:cNvSpPr", &[("txBox", "1")]);
         } else {
-            w.empty("wps:cNvSpPr", &[]);
+            let tb: &[(&str, &str)] = if *kind == ShapeKind::TextBox { &[("txBox", "1")] } else { &[] };
+            if float.locked {
+                w.open("wps:cNvSpPr", tb);
+                w.empty("a:spLocks", SHAPE_LOCKS);
+                w.close("wps:cNvSpPr");
+            } else {
+                w.empty("wps:cNvSpPr", tb);
+            }
         }
         w.open("wps:spPr", &[]);
         xfrm(w, off, *sw, *sh, float.spin());
@@ -1130,7 +1142,7 @@ impl Writer<'_> {
     fn graphic_frame(&mut self, w: &mut W, float: &Float, (gw, gh): (f32, f32), docpr: &str, name: &str, alt: &str, graphic: &crate::xml::El) {
         w.open("w:drawing", &[]);
         self.drawing_open(w, float, gw, gh, docpr, name, alt);
-        w.empty("wp:cNvGraphicFramePr", &[]);
+        frame_locks(w, float.locked);
         w.raw(&graphic.to_xml());
         w.close(if float.wrap == Wrap::Inline { "wp:inline" } else { "wp:anchor" });
         w.close("w:drawing");
@@ -1751,4 +1763,29 @@ fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
         .iter()
         .find(|s| s.kind == wordcraft_doc::styles::StyleKind::Character && s.name.eq_ignore_ascii_case("annotation reference"))
         .map_or("CommentReference", |s| s.id.as_str())
+}
+
+/// The `a:spLocks` of a locked shape (owner, 2026-11-23): the set PowerPoint writes for Lock, and
+/// its text with it.
+const SHAPE_LOCKS: &[(&str, &str)] = &[
+    ("noRot", "1"),
+    ("noMove", "1"),
+    ("noResize", "1"),
+    ("noEditPoints", "1"),
+    ("noAdjustHandles", "1"),
+    ("noChangeArrowheads", "1"),
+    ("noChangeShapeType", "1"),
+    ("noTextEdit", "1"),
+];
+
+/// A drawing's `wp:cNvGraphicFramePr`: with `a:graphicFrameLocks` forbidding moving and resizing
+/// when it is locked (Word has no Lock of its own; this is DrawingML's).
+fn frame_locks(w: &mut W, locked: bool) {
+    if locked {
+        w.open("wp:cNvGraphicFramePr", &[]);
+        w.empty("a:graphicFrameLocks", &[("noMove", "1"), ("noResize", "1"), ("noDrilldown", "1")]);
+        w.close("wp:cNvGraphicFramePr");
+    } else {
+        w.empty("wp:cNvGraphicFramePr", &[]);
+    }
 }

@@ -295,6 +295,10 @@
 	Insert Table of Authorities	แทรกสารบัญแหล่งอ้างอิงทางกฎหมาย
 	Insert Table of Figures	แทรกสารบัญภาพ
 	Insert Table of Tables	แทรกสารบัญตาราง
+	Thai Report: Contents	รายงานวิชาการ: สารบัญ
+	Thai Report: List of Figures	รายงานวิชาการ: สารบัญภาพ
+	Thai Report: List of Tables	รายงานวิชาการ: สารบัญตาราง
+	Thai report layout (หน้า, สารบัญ (ต่อ))	รูปแบบรายงานวิชาการ (หน้า, สารบัญ (ต่อ))
 	Insert a new equation (Alt+=)	แทรกสมการใหม่ (Alt+=)
 	Intense Emphasis	เน้นมาก
 	Intense Quote	คำพูดเน้นมาก
@@ -373,6 +377,21 @@
 	Options	ตัวเลือก
 	Orientation	แนวกระดาษ
 	Outline	เค้าร่าง
+	Outline Level	ระดับเค้าร่าง
+	Outlining	เค้าร่าง
+	Outline Tools	เครื่องมือเค้าร่าง
+	Promote to Heading 1	เลื่อนเป็นหัวเรื่อง 1
+	Demote to Body Text	ลดเป็นข้อความเนื้อหา
+	Body Text	ข้อความเนื้อหา
+	Level {n}	ระดับ {n}
+	All Levels	ทุกระดับ
+	Show Level	แสดงระดับ
+	Move Up	เลื่อนขึ้น
+	Move Down	เลื่อนลง
+	Collapse	ยุบ
+	Show Text Formatting	แสดงการจัดรูปแบบข้อความ
+	Show First Line Only	แสดงเฉพาะบรรทัดแรก
+	Close Outline\nView	ปิดมุมมอง\nเค้าร่าง
 	PDF document (*.pdf)	เอกสาร PDF (*.pdf)
 	Page\nBorders	เส้นขอบ\nหน้า
 	Page\nColor	สี\nหน้า
@@ -1052,6 +1071,7 @@ template	Temple accounts, form 3: balance report	บัญชีวัด แบ
 	Serbian (Latin)	เซอร์เบีย (ละติน)
 	Set As Default	ตั้งเป็นค่าเริ่มต้น
 	Setting:	การตั้งค่า:
+	Setting	การตั้งค่า
 	Shadow	เงา
 	Shortcut key:	แป้นพิมพ์ลัด:
 	Show KeyTips (Alt or F10)	แสดงคำแนะนำแป้น (Alt หรือ F10)
@@ -1169,6 +1189,8 @@ template	Temple accounts, form 3: balance report	บัญชีวัด แบ
 	Field	เขตข้อมูล
 	Footer from Bottom:	ท้ายกระดาษห่างจากขอบล่าง:
 	Header from Top:	หัวกระดาษห่างจากขอบบน:
+	Header from Top	หัวกระดาษห่างจากขอบบน
+	Footer from Bottom	ท้ายกระดาษห่างจากขอบล่าง
 	Go to\nFooter	ไปที่\nท้ายกระดาษ
 	Go to\nHeader	ไปที่\nหัวกระดาษ
 	Link to Previous	เชื่อมกับส่วนก่อนหน้า
@@ -1631,6 +1653,9 @@ crop side	B	ล
 	Line start	ต้นเส้น
 	Radius	รัศมี
 	Rotation	การหมุน
+	Corner radius:	รัศมีมุม:
+	Corner radius	รัศมีมุม
+	Corner Radius	รัศมีมุม
 	Send to Back	ส่งไปไว้ด้านหลังสุด
 	Width	ความกว้าง
 	Rectangle	สี่เหลี่ยมผืนผ้า
@@ -1947,3 +1972,93 @@ shapes	Lines	เส้น
 	Once they're gone, they're gone for good. This can't be undone. If there's anything you'd like to keep, download a copy first. Delete all your drafts now?	ลบแล้วหายไปเลยนะ กู้คืนไม่ได้แล้ว ถ้ามีงานไหนอยากเก็บไว้ ดาวน์โหลดสำเนาไว้ก่อนได้เลย จะลบฉบับร่างทั้งหมดตอนนี้เลยไหม?
 	Delete them all	ลบทั้งหมดเลย
 	All drafts deleted.	ลบฉบับร่างทั้งหมดแล้ว
+	Manage Table\nof Contents	จัดการ\nสารบัญ
+	Update All	อัปเดตทั้งหมด
+	In This Document	ในเอกสารนี้
+	Contents	สารบัญ
+	Figures	ภาพ
+	List of Figures	สารบัญภาพ
+	List of Tables	สารบัญตาราง
+	Thai Academic Report	รายงานวิชาการไทย
+	Settings	ตั้งค่า
+	Show levels	จำนวนระดับ
+	Label	ป้าย
+	Each line	แต่ละบรรทัด
+	Title only	ชื่ออย่างเดียว
+	Label and number	ป้ายและหมายเลข
+	Number only	เฉพาะหมายเลข
+	Neither	ไม่แสดงทั้งสองอย่าง
+	Column heading	หัวคอลัมน์
+	{label} over the numbers	{label} เหนือหมายเลข
+	Dots ……	จุด ……
+	Dashes ------	ขีด ------
+	Line ______	เส้น ______
+	Modify Style…	ปรับเปลี่ยนสไตล์…
+	Update	อัปเดต
+	Insert at Cursor	แทรกที่เคอร์เซอร์
+	Not inserted	ยังไม่มี
+	Table of Contents Settings	ตั้งค่าสารบัญ
+	Tables of Contents	สารบัญทั้งหมด
+	A centred heading, หน้า over the page numbers, and the heading again with (ต่อ) on each further page. TOC 2 is indented 1.27 cm.	หัวเรื่องกึ่งกลาง มี “หน้า” เหนือเลขหน้า และหัวเรื่องพร้อม (ต่อ) ในทุกหน้าถัดไป สารบัญระดับ 2 เยื้อง 1.27 ซม.
+	A centred heading, หน้า over the page numbers, and the heading again with (ต่อ) on each further page.	หัวเรื่องกึ่งกลาง มี “หน้า” เหนือเลขหน้า และหัวเรื่องพร้อม (ต่อ) ในทุกหน้าถัดไป
+	Turn on Landscape Pages	ตะแคงตามหน้าแนวนอน
+	On a landscape page in a portrait report, the header and footer turn with the page, so when the report is bound the page number sits and reads where it does on every other page	ในหน้าแนวนอนของรายงานแนวตั้ง หัวกระดาษและท้ายกระดาษจะตะแคงตามหน้า เมื่อเข้าเล่มแล้วเลขหน้าจะอยู่ตำแหน่งเดียวกันและอ่านได้แบบเดียวกับหน้าอื่น
+	Single pages	หน้าเดี่ยว
+pane tile	AutoFit	พอดีอัตโนมัติ
+	Lock	ล็อก
+	Unlock	ปลดล็อก
+	Locked. Unlock it from the right-click menu.	ล็อกอยู่ ปลดล็อกได้จากเมนูคลิกขวา
+	Locked: it can't be moved, resized or edited.	ล็อกอยู่ ย้าย ปรับขนาด และแก้ไขไม่ได้
+	Lists	รายการ
+	Line spacing	ระยะห่างบรรทัด
+	Before paragraph	ก่อนย่อหน้า
+	After paragraph	หลังย่อหน้า
+	Indents	การเยื้อง
+	Columns & Breaks	คอลัมน์และตัวแบ่ง
+	Different first page	หน้าแรกแยกต่างหาก
+	Page Setup…	ตั้งค่าหน้ากระดาษ…
+	Styles Pane	บานหน้าต่างสไตล์
+	This selection	สิ่งที่เลือกอยู่
+	The whole document	ทั้งเอกสาร
+	Choose what this panel shows	เลือกว่าแผงนี้จะแสดงอะไร
+	panel menu	เมนูของแผง
+	Hide Navigation Panel	ซ่อนแผงนำทาง
+	Show Navigation Panel	แสดงแผงนำทาง
+	Hide Side Panel	ซ่อนแผงด้านข้าง
+	Show Side Panel	แสดงแผงด้านข้าง
+	Everything on this tab	คำสั่งทั้งหมดของแท็บนี้
+	Style Set	ชุดสไตล์
+	Theme	ธีม
+	Page Borders	เส้นขอบหน้า
+	Manage Table of Contents	จัดการสารบัญ
+	Check Accessibility	ตรวจสอบการเข้าถึง
+	Immersive Reader	ตัวอ่านแบบเต็มตา
+	Insert Caption	แทรกคำอธิบาย
+	Mark Entry	ทำเครื่องหมายรายการ
+	Show Comments	แสดงข้อคิดเห็น
+	Spelling & Grammar	การสะกดและไวยากรณ์
+	Switch Modes	สลับโหมด
+	Track Changes	ติดตามการเปลี่ยนแปลง
+	TOC {n}	สารบัญ {n}
+	TOC Heading	หัวเรื่องสารบัญ
+	Hyperlink	ไฮเปอร์ลิงก์
+	Footnote Text	ข้อความเชิงอรรถ
+	Footnote Reference	เครื่องหมายเชิงอรรถ
+	Endnote Text	ข้อความอ้างอิงท้ายเรื่อง
+	Endnote Reference	เครื่องหมายอ้างอิงท้ายเรื่อง
+	Index {n}	ดัชนี {n}
+	Font Size	ขนาดฟอนต์
+	Other	อื่น ๆ
+	Add to the line	เพิ่มลงในแถบ
+	Remove from the line	นำออกจากแถบ
+	Every button on this tab; drag them to arrange the line	ปุ่มทั้งหมดของแท็บนี้ ลากเพื่อจัดแถบคำสั่ง
+	Drag a button onto the line to add it, along it to move it, or off it to remove it	ลากปุ่มขึ้นไปบนแถบเพื่อเพิ่ม ลากไปตามแถบเพื่อย้าย หรือลากออกจากแถบเพื่อนำออก
+	Put this tab's line back as it was	คืนแถบคำสั่งของแท็บนี้เป็นแบบเดิม
+	Comment by	ข้อคิดเห็นโดย
+	Paste Options:	ตัวเลือกการวาง:
+	Keep Source Formatting	คงการจัดรูปแบบต้นฉบับ
+	Drag the buttons you use onto the line…	ลากปุ่มที่ใช้บ่อยขึ้นไปวางบนแถบคำสั่ง…
+	Drag along the line to move a button, or off it to remove it	ลากไปตามแถบเพื่อย้ายปุ่ม หรือลากออกจากแถบเพื่อนำออก
+	Orientation:	แนวกระดาษ:
+	Margins and Orientation	ระยะขอบและแนวกระดาษ
+	Insert a symbol	แทรกสัญลักษณ์

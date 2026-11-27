@@ -301,10 +301,7 @@ pub fn style_name(style: &wordcraft_doc::Style) -> String {
 /// A built-in style's English name in the current language; numbered families go through one
 /// template each (`Heading {n}`), and names without a translation stay English.
 pub fn builtin_style_name(name: &str) -> String {
-    let direct = t(name);
-    if direct != name {
-        return direct.to_string();
-    }
+    // A numbered family goes straight to its template, so `Heading 7` needs no entry of its own.
     for (prefix, template) in [("Heading ", "Heading {n}"), ("TOC ", "TOC {n}"), ("Index ", "Index {n}")] {
         if let Some(n) = name.strip_prefix(prefix)
             && !n.is_empty()
@@ -313,7 +310,7 @@ pub fn builtin_style_name(name: &str) -> String {
             return fmt(t(template), &[("n", n)]);
         }
     }
-    name.to_string()
+    t(name).to_string()
 }
 
 /// A ribbon location (`Home › Font`) in the current language, segment by segment.

@@ -270,41 +270,49 @@ pub fn body(
     sample: &str,
     bullet: &mut Option<Box<crate::dialogs_bullet::DefineBulletForm>>,
 ) -> bool {
-    // A fixed area, so the window keeps its size from page to page.
-    const PAGE_H: f32 = 330.0;
-    ui.allocate_ui_with_layout(vec2(700.0, PAGE_H), egui::Layout::left_to_right(egui::Align::Min), |ui| {
-        ui.set_height(PAGE_H);
+    // The pages listed on the dialog's grey body, the open page on a card titled with its name,
+    // the preview on a card under them (owner, 2026-11-24: one dialog look). The page card has a
+    // fixed size, so the window keeps its size from page to page.
+    const PAGE_W: f32 = 560.0;
+    const PAGE_H: f32 = 300.0;
+    // The sidebar, the gap and the page card: the window is at least this wide.
+    ui.set_min_width(150.0 + ui.spacing().item_spacing.x + PAGE_W);
+    ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(150.0);
+            ui.add_space(4.0);
             for (id, name, icon) in PAGES {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::hover());
                     let t = Tokens::get(ui.ctx());
-                    crate::icons::paint(ui.painter(), r, icon, t.icon, t.accent);
+                    // Accent colours (owner, 2026-11-25: style A), as on the ribbon.
+                    krub_icons::tabler_colour::with_colour(ui.ctx(), true, || crate::icons::paint(ui.painter(), r, icon, t.icon, t.accent));
                     if ui.steady_label(f.page == id, tl!(name)).clicked() {
                         f.page = id.to_string();
                     }
                 });
             }
         });
-        let x = ui.cursor().min.x + 4.0;
-        let top = ui.cursor().min.y;
-        ui.painter().vline(x, top..=top + PAGE_H, ui.visuals().widgets.noninteractive.bg_stroke);
-        ui.add_space(12.0);
         ui.vertical(|ui| {
-            ui.set_width(530.0);
-            match f.page.as_str() {
-                "effects" => effects_page(app, ui, f),
-                "position" => position_page(ui, f),
-                "background" => background_page(app, ui, f),
-                "border" => border_page(app, ui, f),
-                _ => font_page(app, ui, f),
-            }
+            ui.set_width(PAGE_W);
+            let title = PAGES.iter().find(|p| p.0 == f.page).map_or("Font", |p| p.1);
+            krub_icons::dialog::section(ui, tl!(title), |ui| {
+                ui.set_min_height(PAGE_H);
+                // As wide on every page, so the card's edge doesn't move between pages.
+                ui.set_min_width(PAGE_W - 2.0 * krub_icons::dialog::CARD_PAD - 2.0);
+                match f.page.as_str() {
+                    "effects" => effects_page(app, ui, f),
+                    "position" => position_page(ui, f),
+                    "background" => background_page(app, ui, f),
+                    "border" => border_page(app, ui, f),
+                    _ => font_page(app, ui, f),
+                }
+            });
         });
     });
-    ui.separator();
-    preview(ui, f, sample);
-    ui.add_space(6.0);
+    krub_icons::dialog::section(ui, tl!("Preview"), |ui| preview(ui, f, sample));
+    // The shared button row (owner, 2026-11-24: one dialog look).
+    krub_icons::dialog::footer(ui);
     let mut reset = false;
     let mut out = (false, false);
     ui.horizontal(|ui| {

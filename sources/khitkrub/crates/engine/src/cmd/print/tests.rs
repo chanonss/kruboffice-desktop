@@ -751,6 +751,22 @@ fn charts_and_images_are_drawn() {
     }
 }
 
+/// A sheet holding only a picture (Chanon's Book1: one picture over A1:J32) prints it: the
+/// printout is the same PDF as the export, picture and all, on the one page the preview lists.
+#[test]
+fn print_carries_a_picture_only_sheet() {
+    let mut s = s();
+    let mut png = Vec::new();
+    let img = image::RgbaImage::from_pixel(64, 40, image::Rgba([24, 150, 110, 255]));
+    image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    s.execute("insert.picture", json!({"base64": crate::io::base64_encode(&png), "at": "A1", "width": 600, "height": 620})).unwrap();
+    let preview = s.execute("file.printPreview", json!({})).unwrap();
+    assert_eq!(preview["pages"], 1, "{preview}");
+    let r = s.execute("file.print", json!({})).unwrap();
+    let pdf = crate::io::base64_decode(r["base64"].as_str().unwrap()).unwrap();
+    assert!(contains(&pdf, "/Subtype /Image"));
+}
+
 #[test]
 fn page_setup_edits_settings() {
     let mut s = s();

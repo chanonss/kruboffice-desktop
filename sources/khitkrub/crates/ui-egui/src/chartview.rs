@@ -332,146 +332,7 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Arc<Wor
             continue;
         }
         let start = p.add(egui::Shape::Noop);
-        let mut label = true;
-        let f = &sp.format;
-        // Transparency (percent) as the colour's alpha.
-        let alpha = |c: Color32, t: f32| c.gamma_multiply((1.0 - t / 100.0).clamp(0.0, 1.0));
-        let base_fill = if f.no_fill {
-            Color32::TRANSPARENT
-        } else {
-            alpha(sp.fill.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::TRANSPARENT), f.fill_transparency)
-        };
-        // Soft edges fade the fill out towards the edge (painted in layers below), outline and all.
-        let soft = f.soft_edge > 0.0
-            && base_fill != Color32::TRANSPARENT
-            && matches!(sp.kind, ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::RoundedRectangle | ShapeKind::Ellipse | ShapeKind::Triangle);
-        let fill = if soft { Color32::TRANSPARENT } else { base_fill };
-        let line = if f.no_line || soft {
-            Color32::TRANSPARENT
-        } else {
-            alpha(sp.line.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::DARK_GRAY), f.line_transparency)
-        };
-        // Outline width: points to sheet pixels (96 to the inch), at the zoom; 1 px by default.
-        let lw = f.line_width.map_or(1.0, |w| w * 96.0 / 72.0 * geo.z);
-        let stroke = Stroke::new(lw, line);
-        // Flips mirror about the box's centre, then the rotation turns it clockwise.
-        let (c, (sin, cos)) = (r.center(), f.rotation.to_radians().sin_cos());
-        let place = |q: Pos2| {
-            let mut v = q - c;
-            if f.flip_h {
-                v.x = -v.x;
-            }
-            if f.flip_v {
-                v.y = -v.y;
-            }
-            c + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
-        };
-        let turned = f.rotation.rem_euclid(360.0) != 0.0;
-        let dashed = f.line_dash != gridcraft_engine::model::LineDash::Solid;
-        // An outline along `pts` (closed when `closed`), dashed when asked.
-        let outline = |p: &Painter, pts: &[Pos2], closed: bool| {
-            if line == Color32::TRANSPARENT || pts.len() < 2 {
-                return;
-            }
-            let mut path = pts.to_vec();
-            if closed {
-                path.push(pts[0]);
-            }
-            if dashed {
-                let (dash, gap) = dash_pattern(f.line_dash, lw.max(1.0));
-                p.extend(egui::Shape::dashed_line(&path, stroke, dash, gap));
-            } else {
-                p.add(PathShape::line(path, PathStroke::new(lw, line)));
-            }
-        };
-        let polygon = |p: &Painter, pts: Vec<Pos2>| {
-            let pts: Vec<Pos2> = pts.into_iter().map(place).collect();
-            p.add(PathShape::convex_polygon(pts.clone(), fill, Stroke::NONE));
-            outline(p, &pts, true);
-        };
-        // Effects: the shadow and glow go under the shape, which covers their inner part.
-        paint_effects(p, wb, sp, r, geo.z, base_fill, lw, soft, &place);
-        match sp.kind {
-            ShapeKind::Rectangle | ShapeKind::TextBox if turned || dashed || f.line_width.is_some() => {
-                polygon(p, vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()]);
-            }
-            // WordArt is only its text (no fill or outline of its own).
-            ShapeKind::WordArt => {}
-            ShapeKind::Rectangle | ShapeKind::TextBox => {
-                p.rect_filled(r, 0.0, fill);
-                p.rect_stroke(r, 0.0, Stroke::new(1.0, line), StrokeKind::Inside);
-            }
-            ShapeKind::RoundedRectangle if turned || dashed || f.line_width.is_some() => {
-                polygon(p, rounded_rect_points(r, 10.0 * geo.z));
-            }
-            ShapeKind::RoundedRectangle => {
-                p.rect_filled(r, 10.0 * geo.z, fill);
-                p.rect_stroke(r, 10.0 * geo.z, Stroke::new(1.0, line), StrokeKind::Inside);
-            }
-            ShapeKind::Ellipse => {
-                let pts: Vec<Pos2> = (0..64)
-                    .map(|i| {
-                        let a = i as f32 / 64.0 * std::f32::consts::TAU;
-                        pos2(r.center().x + r.width() / 2.0 * a.cos(), r.center().y + r.height() / 2.0 * a.sin())
-                    })
-                    .collect();
-                polygon(p, pts);
-            }
-            ShapeKind::Triangle => {
-                polygon(p, vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()]);
-            }
-            ShapeKind::Ink => {
-                let pt = gridcraft_engine::cmd::draw::ink_width(sp);
-                let w = pt * geo.z;
-                let pts: Vec<Pos2> =
-                    gridcraft_engine::cmd::draw::ink_points(sp).iter().map(|q| pos2(r.left() + q[0] * geo.z, r.top() + q[1] * geo.z)).collect();
-                if pts.len() >= 2 {
-                    let col = ink_color(line, pt);
-                    p.add(PathShape::line(pts, PathStroke::new(w, col)));
-                }
-                label = false;
-            }
-            ShapeKind::Icon => {
-                if let Some(icon) = crate::icons::from_name(&sp.text) {
-                    let t = Tokens::get(p.ctx());
-                    crate::icons::paint_on_sheet(p, r, icon, if fill == Color32::TRANSPARENT { t.cell_text } else { fill });
-                }
-                label = false;
-            }
-            ShapeKind::Equation => {
-                crate::equation::paint_shape(p, r, sp, wb, geo.z);
-                label = false;
-            }
-            // Any other standard shape (owner, 2026-11-19): the shared library's outlines, filled
-            // (concave ones too) and outlined like the others.
-            ShapeKind::Preset(id) => paint_preset(p, id, r, fill, &place, &outline),
-            ShapeKind::Line | ShapeKind::Arrow => {
-                let (a, b) = (place(r.left_top()), place(r.right_bottom()));
-                let w = f.line_width.map_or(2.0, |_| lw);
-                if dashed {
-                    let (dash, gap) = dash_pattern(f.line_dash, w.max(1.0));
-                    p.extend(egui::Shape::dashed_line(&[a, b], Stroke::new(w, line), dash, gap));
-                } else {
-                    p.line_segment([a, b], Stroke::new(w, line));
-                }
-                // A head at the start and at the end; an Arrow shape has one at its end of its own.
-                let head = |from: Pos2, tip: Pos2| {
-                    let d = (tip - from).normalized();
-                    let n = vec2(-d.y, d.x);
-                    let size = 10.0_f32.max(w * 3.0);
-                    p.add(PathShape::convex_polygon(vec![tip, tip - d * size + n * size / 2.0, tip - d * size - n * size / 2.0], line, Stroke::NONE));
-                };
-                if f.arrow_end || (sp.kind == ShapeKind::Arrow && !f.arrow_start) {
-                    head(a, b);
-                }
-                if f.arrow_start {
-                    head(b, a);
-                }
-            }
-        }
-        if label && !sp.text.is_empty() && !app.editing_text_box(sp.id) {
-            paint_shape_text(p, wb, sp, r, geo.z);
-        }
+        paint_shape(p, wb, sp, r, geo.z, !app.editing_text_box(sp.id));
         done(start, r);
     }
     for im in &sh.images {
@@ -519,6 +380,150 @@ pub(crate) fn paint_objects(app: &SheetApp, p: &Painter, geo: &Geo, wb: &Arc<Wor
         done(start, r);
     }
     painted
+}
+
+/// Paints shape `sp` in `r` at zoom `z` (sheet pixels to points): fill, outline, effects and,
+/// when `show_text`, its text. The sheet and the Print page's preview both draw shapes with it.
+pub(crate) fn paint_shape(p: &Painter, wb: &Workbook, sp: &gridcraft_engine::model::Shape, r: Rect, z: f32, show_text: bool) {
+    let mut label = true;
+    let f = &sp.format;
+    // Transparency (percent) as the colour's alpha.
+    let alpha = |c: Color32, t: f32| c.gamma_multiply((1.0 - t / 100.0).clamp(0.0, 1.0));
+    let base_fill = if f.no_fill {
+        Color32::TRANSPARENT
+    } else {
+        alpha(sp.fill.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::TRANSPARENT), f.fill_transparency)
+    };
+    // Soft edges fade the fill out towards the edge (painted in layers below), outline and all.
+    let soft = f.soft_edge > 0.0
+        && base_fill != Color32::TRANSPARENT
+        && matches!(sp.kind, ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::RoundedRectangle | ShapeKind::Ellipse | ShapeKind::Triangle);
+    let fill = if soft { Color32::TRANSPARENT } else { base_fill };
+    let line = if f.no_line || soft {
+        Color32::TRANSPARENT
+    } else {
+        alpha(sp.line.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::DARK_GRAY), f.line_transparency)
+    };
+    // Outline width: points to sheet pixels (96 to the inch), at the zoom; 1 px by default.
+    let lw = f.line_width.map_or(1.0, |w| w * 96.0 / 72.0 * z);
+    let stroke = Stroke::new(lw, line);
+    // Flips mirror about the box's centre, then the rotation turns it clockwise.
+    let (c, (sin, cos)) = (r.center(), f.rotation.to_radians().sin_cos());
+    let place = |q: Pos2| {
+        let mut v = q - c;
+        if f.flip_h {
+            v.x = -v.x;
+        }
+        if f.flip_v {
+            v.y = -v.y;
+        }
+        c + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
+    };
+    let turned = f.rotation.rem_euclid(360.0) != 0.0;
+    let dashed = f.line_dash != gridcraft_engine::model::LineDash::Solid;
+    // An outline along `pts` (closed when `closed`), dashed when asked.
+    let outline = |p: &Painter, pts: &[Pos2], closed: bool| {
+        if line == Color32::TRANSPARENT || pts.len() < 2 {
+            return;
+        }
+        let mut path = pts.to_vec();
+        if closed {
+            path.push(pts[0]);
+        }
+        if dashed {
+            let (dash, gap) = dash_pattern(f.line_dash, lw.max(1.0));
+            p.extend(egui::Shape::dashed_line(&path, stroke, dash, gap));
+        } else {
+            p.add(PathShape::line(path, PathStroke::new(lw, line)));
+        }
+    };
+    let polygon = |p: &Painter, pts: Vec<Pos2>| {
+        let pts: Vec<Pos2> = pts.into_iter().map(place).collect();
+        p.add(PathShape::convex_polygon(pts.clone(), fill, Stroke::NONE));
+        outline(p, &pts, true);
+    };
+    // Effects: the shadow and glow go under the shape, which covers their inner part.
+    paint_effects(p, wb, sp, r, z, base_fill, lw, soft, &place);
+    match sp.kind {
+        ShapeKind::Rectangle | ShapeKind::TextBox if turned || dashed || f.line_width.is_some() => {
+            polygon(p, vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()]);
+        }
+        // WordArt is only its text (no fill or outline of its own).
+        ShapeKind::WordArt => {}
+        ShapeKind::Rectangle | ShapeKind::TextBox => {
+            p.rect_filled(r, 0.0, fill);
+            p.rect_stroke(r, 0.0, Stroke::new(1.0, line), StrokeKind::Inside);
+        }
+        ShapeKind::RoundedRectangle if turned || dashed || f.line_width.is_some() => {
+            polygon(p, rounded_rect_points(r, 10.0 * z));
+        }
+        ShapeKind::RoundedRectangle => {
+            p.rect_filled(r, 10.0 * z, fill);
+            p.rect_stroke(r, 10.0 * z, Stroke::new(1.0, line), StrokeKind::Inside);
+        }
+        ShapeKind::Ellipse => {
+            let pts: Vec<Pos2> = (0..64)
+                .map(|i| {
+                    let a = i as f32 / 64.0 * std::f32::consts::TAU;
+                    pos2(r.center().x + r.width() / 2.0 * a.cos(), r.center().y + r.height() / 2.0 * a.sin())
+                })
+                .collect();
+            polygon(p, pts);
+        }
+        ShapeKind::Triangle => {
+            polygon(p, vec![pos2(r.center().x, r.top()), r.right_bottom(), r.left_bottom()]);
+        }
+        ShapeKind::Ink => {
+            let pt = gridcraft_engine::cmd::draw::ink_width(sp);
+            let w = pt * z;
+            let pts: Vec<Pos2> = gridcraft_engine::cmd::draw::ink_points(sp).iter().map(|q| pos2(r.left() + q[0] * z, r.top() + q[1] * z)).collect();
+            if pts.len() >= 2 {
+                let col = ink_color(line, pt);
+                p.add(PathShape::line(pts, PathStroke::new(w, col)));
+            }
+            label = false;
+        }
+        ShapeKind::Icon => {
+            if let Some(icon) = crate::icons::from_name(&sp.text) {
+                let t = Tokens::get(p.ctx());
+                crate::icons::paint_on_sheet(p, r, icon, if fill == Color32::TRANSPARENT { t.cell_text } else { fill });
+            }
+            label = false;
+        }
+        ShapeKind::Equation => {
+            crate::equation::paint_shape(p, r, sp, wb, z);
+            label = false;
+        }
+        // Any other standard shape (owner, 2026-11-19): the shared library's outlines, filled
+        // (concave ones too) and outlined like the others.
+        ShapeKind::Preset(id) => paint_preset(p, id, r, fill, &place, &outline),
+        ShapeKind::Line | ShapeKind::Arrow => {
+            let (a, b) = (place(r.left_top()), place(r.right_bottom()));
+            let w = f.line_width.map_or(2.0, |_| lw);
+            if dashed {
+                let (dash, gap) = dash_pattern(f.line_dash, w.max(1.0));
+                p.extend(egui::Shape::dashed_line(&[a, b], Stroke::new(w, line), dash, gap));
+            } else {
+                p.line_segment([a, b], Stroke::new(w, line));
+            }
+            // A head at the start and at the end; an Arrow shape has one at its end of its own.
+            let head = |from: Pos2, tip: Pos2| {
+                let d = (tip - from).normalized();
+                let n = vec2(-d.y, d.x);
+                let size = 10.0_f32.max(w * 3.0);
+                p.add(PathShape::convex_polygon(vec![tip, tip - d * size + n * size / 2.0, tip - d * size - n * size / 2.0], line, Stroke::NONE));
+            };
+            if f.arrow_end || (sp.kind == ShapeKind::Arrow && !f.arrow_start) {
+                head(a, b);
+            }
+            if f.arrow_start {
+                head(b, a);
+            }
+        }
+    }
+    if label && show_text && !sp.text.is_empty() {
+        paint_shape_text(p, wb, sp, r, z);
+    }
 }
 
 /// Geometry of a slicer's parts within its screen rect.

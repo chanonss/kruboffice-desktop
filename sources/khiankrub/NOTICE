@@ -17,8 +17,9 @@ list (author, source, license) is in ATTRIBUTION.md.
 
 - Tabler Icons 3.50.0 (https://tabler.io/icons) — MIT License, Copyright (c) 2020-2026 Paweł Kuna. Most
   ribbon, toolbar and menu icons are drawn from its outline icons, converted into Rust geometry
-  (crates/krub-icons/src/tabler.rs). See crates/krub-icons/LICENSE-tabler.txt; the apps also show it
-  in Help › About.
+  (crates/krub-icons/src/tabler.rs). Some icons are modified by KrubOffice: accent colours on parts of
+  the outlines (crates/krub-icons/src/tabler_colour.rs). See crates/krub-icons/LICENSE-tabler.txt; the
+  apps also show it in Help › About.
 - Source Sans 3 and Source Serif 4 (assets/fonts/Source*) — SIL Open Font License 1.1. See assets/fonts/OFL-SourceSans3.txt, OFL-SourceSerif4.txt.
 - Inter (assets/fonts/Inter-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-Inter.txt.
 - JetBrains Mono (assets/fonts/JetBrainsMono-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-JetBrainsMono.txt.

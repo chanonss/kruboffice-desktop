@@ -80,7 +80,7 @@ pub(super) fn print(app: &mut SheetApp, ui: &mut Ui, bs: &mut Backstage, out: &m
             p.rect_filled(rect, 2.0, t.grid_bg);
             p.rect_stroke(rect, 2.0, Stroke::new(1.0, t.ribbon_border), StrokeKind::Inside);
             if let Some(d) = app.session.active() {
-                paint_page(p, rect, w, page, &d.wb, &t);
+                paint_page(p, rect, w, page, &d.wb, d.uid, &t);
             }
             let sheet = page.get("sheet").and_then(Json::as_str).unwrap_or("");
             let range = page.get("range").and_then(Json::as_str).unwrap_or("");
@@ -109,11 +109,14 @@ const PREVIEW_ROWS: u32 = 200;
 
 const PREVIEW_COLS: u32 = 60;
 
-/// Draws one printed page in miniature: the cells' displayed text at the page's print scale,
-/// inside the sheet's margins. `paper_w` is the page width in points.
-fn paint_page(p: &egui::Painter, rect: Rect, paper_w: f32, page: &Json, wb: &gridcraft_engine::model::Workbook, t: &Tokens) {
+/// Draws one printed page in miniature: the cells' displayed text and the floating pictures,
+/// shapes and charts over them, at the page's print scale, inside the sheet's margins. `paper_w`
+/// is the page width in points; `doc` is the workbook's id (its pictures' textures are kept
+/// under it).
+fn paint_page(p: &egui::Painter, rect: Rect, paper_w: f32, page: &Json, wb: &gridcraft_engine::model::Workbook, doc: u64, t: &Tokens) {
     let Some(range) = page.get("range").and_then(Json::as_str).and_then(gridcraft_engine::core::RangeRef::parse) else { return };
-    let Some(sh) = page.get("sheet").and_then(Json::as_str).and_then(|n| wb.sheet_index(n)).and_then(|i| wb.sheets.get(i)) else { return };
+    let Some(si) = page.get("sheet").and_then(Json::as_str).and_then(|n| wb.sheet_index(n)) else { return };
+    let Some(sh) = wb.sheets.get(si) else { return };
     // Preview pixels per point, and per sheet pixel (sheet geometry is 96 dpi: 0.75 pt per pixel).
     let per_pt = rect.width() / paper_w;
     let print_scale =
@@ -170,5 +173,49 @@ fn paint_page(p: &egui::Painter, rect: Rect, paper_w: f32, page: &Json, wb: &gri
             x += w;
         }
         y += h;
+    }
+    paint_objects(&p.with_clip_rect(body), body.min, per_px, range, wb, si, sh, doc);
+}
+
+/// Draws the floating objects that overlap the page's `range`, as the printed page has them:
+/// pictures, shapes and charts at their anchors, `per_px` preview pixels per sheet pixel from
+/// `origin` (the range's top-left corner), clipped to the range.
+#[allow(clippy::too_many_arguments)]
+fn paint_objects(
+    p: &egui::Painter,
+    origin: egui::Pos2,
+    per_px: f32,
+    range: gridcraft_engine::core::RangeRef,
+    wb: &gridcraft_engine::model::Workbook,
+    si: usize,
+    sh: &gridcraft_engine::model::Sheet,
+    doc: u64,
+) {
+    let (x0, y0) = (sh.col_left(range.start.col), sh.row_top(range.start.row));
+    let (x1, y1) = (sh.col_left(range.end.col.saturating_add(1)), sh.row_top(range.end.row.saturating_add(1)));
+    let page = Rect::from_min_max(origin, origin + vec2(((x1 - x0) as f32) * per_px, ((y1 - y0) as f32) * per_px));
+    let p = p.with_clip_rect(page.intersect(p.clip_rect()));
+    let place = |a: &gridcraft_engine::model::Anchor| {
+        let x = (sh.col_left(a.cell.col) - x0) as f32 + a.dx;
+        let y = (sh.row_top(a.cell.row) - y0) as f32 + a.dy;
+        let r = Rect::from_min_size(origin + vec2(x * per_px, y * per_px), vec2(a.width.max(0.0) * per_px, a.height.max(0.0) * per_px));
+        (r.is_finite() && r.is_positive() && r.intersects(page)).then_some(r)
+    };
+    for sp in &sh.shapes {
+        if let Some(r) = place(&sp.anchor) {
+            crate::chartview::paint_shape(&p, wb, sp, r, per_px, true);
+        }
+    }
+    for im in &sh.images {
+        if let Some(r) = place(&im.anchor)
+            && let Some(tex) = crate::floating_pictures::texture(p.ctx(), doc, im, r)
+        {
+            p.image(tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+        }
+    }
+    for ch in &sh.charts {
+        if let Some(r) = place(&ch.anchor) {
+            crate::chartview::paint_chart(&p, r, wb, si, ch);
+        }
     }
 }

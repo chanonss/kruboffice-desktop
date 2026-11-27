@@ -8,6 +8,7 @@ use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{CharProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::{Block, Document, Paragraph, Path, Pos, Source, StoryRef};
 
+use super::continued;
 use super::{delete_selection, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
@@ -318,10 +319,22 @@ pub fn specs() -> Vec<CommandSpec> {
             let (kind, thai_label, english_label) = if table { ("table", THAI_TABLE, "Table") } else { ("figure", THAI_FIGURE, "Figure") };
             let thai = || ref_targets(s, kind).iter().any(|(t, _)| t.starts_with(thai_label));
             let label = p::str(v, "label").map(str::to_string).unwrap_or_else(|| if thai() { thai_label } else { english_label }.to_string());
-            generated_list(s, &format!("TOC \\c \"{label}\""), "")?;
+            let instr = format!("TOC \\c \"{label}\"");
+            match super::references::report_label(v) {
+                // The Thai academic report layout: a สารบัญภาพ / สารบัญตาราง heading, "หน้า" over
+                // the page numbers and the heading again with "(ต่อ)" on each further page.
+                Some(page_label) => {
+                    let named = if table { "สารบัญตาราง" } else { "สารบัญภาพ" };
+                    let title: String = p::str(v, "title").unwrap_or(named).chars().take(MAX_LIST_TITLE).collect();
+                    report_list(s, &instr, &title, &page_label)?;
+                }
+                None => generated_list(s, &instr, "")?,
+            }
             sel_result(s)
         })
-        .params(r#"{"label"?: "Figure|Table|Equation|ภาพที่|ตารางที่"}"#),
+        .params(
+            r#"{"label"?: "Figure|Table|Equation|ภาพที่|ตารางที่", "kind"?: "figure|table", "continued"?: bool (Thai academic report layout: a centred สารบัญภาพ/สารบัญตาราง heading, the page label over the page numbers, the heading with "(ต่อ)" on each further page), "pageLabel"?: string (default หน้า), "title"?: string (with continued)}"#,
+        ),
         CommandSpec::new("references.updateFigures", "Update Table", "References › Captions", |s, v| {
             // `kind` figure or table: only the tables of figures (Figure, ภาพที่) or of tables
             // (Table, ตารางที่); without it, every generated list.
@@ -713,7 +726,33 @@ pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Resul
     update_generated(s)
 }
 
-fn list_kind(p: &Paragraph) -> Option<String> {
+/// A list heading is one line of text.
+const MAX_LIST_TITLE: usize = 1024;
+
+/// A table of figures or tables in the Thai academic report layout (see `continued`): a heading
+/// in the report look holding the field, then the page label and the entries, which
+/// [`update_generated`] lays out with the continued headings.
+pub(crate) fn report_list(s: &mut Session, instr: &str, title: &str, label: &str) -> Result<(), CmdError> {
+    let at = delete_selection(s)?;
+    if at.story != StoryRef::Body || at.path.depth() > 0 {
+        return Err(CmdError::Failed("lists go in the main text".into()));
+    }
+    let (para, chr) = continued::heading_look(s);
+    let mut head = Paragraph::with_text(title, chr.clone());
+    head.mark = chr.clone();
+    head.props = wordcraft_doc::ParaProps { style: Some("TOCHeading".into()), ..para };
+    let end = head.len();
+    let field =
+        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() };
+    head.insert_object(end, field, &chr)?;
+    let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };
+    s.doc.insert_block(StoryRef::Body, &Path::top(i), Block::Para(head))?;
+    continued::add_styles(s, continued::LIST);
+    continued::insert_label(s, i, label, continued::LIST)?;
+    update_generated(s)
+}
+
+pub(crate) fn list_kind(p: &Paragraph) -> Option<String> {
     p.objects.iter().find_map(|o| match o {
         InlineObject::Field { instr, .. } => {
             let t = instr.trim_start();
@@ -723,11 +762,11 @@ fn list_kind(p: &Paragraph) -> Option<String> {
     })
 }
 
-const ENTRY_STYLE: &str = "ListEntry";
+pub(crate) const ENTRY_STYLE: &str = "ListEntry";
 
 /// True when `kind` (a generated list's field code) is a table of figures for one of `labels`
 /// (`TOC \c "ภาพที่"`).
-fn caption_list_of(kind: &str, labels: &[&str]) -> bool {
+pub(crate) fn caption_list_of(kind: &str, labels: &[&str]) -> bool {
     kind.strip_prefix("TOC \\c").is_some_and(|rest| {
         let label = rest.trim().trim_start_matches('"');
         let label = label.split('"').next().unwrap_or("").trim();
@@ -741,7 +780,7 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
 }
 
 /// Rebuild the generated lists whose field code `wanted` accepts.
-fn update_generated_where(s: &mut Session, wanted: impl Fn(&str) -> bool) -> Result<(), CmdError> {
+pub(crate) fn update_generated_where(s: &mut Session, wanted: impl Fn(&str) -> bool) -> Result<(), CmdError> {
     let mut i = 0;
     while i < s.doc.body.len() {
         let kind = s.doc.body.get(i).and_then(|b| b.as_para()).and_then(list_kind).filter(|k| wanted(k));
@@ -755,27 +794,154 @@ fn update_generated_where(s: &mut Session, wanted: impl Fn(&str) -> bool) -> Res
             i += 1;
             continue;
         }
+        // The list's blocks after its heading: its entries, and in the report layout its page
+        // labels and continued headings.
+        let in_list = |p: &Paragraph| p.props.style.as_deref() == Some(ENTRY_STYLE) || continued::is_part(p, continued::LIST);
+        let mut last = i;
+        while s.doc.body.get(last + 1).and_then(|b| b.as_para()).is_some_and(in_list) {
+            last += 1;
+        }
+        let report = if kind.starts_with("TOC \\c") { continued::label_in(s, i + 1, last, continued::LIST) } else { None };
+        // The leader the entries had (set in the side panel, or by hand): an update keeps it.
+        let kept = (i + 1..=last).filter_map(|k| s.doc.body.get(k)?.as_para()).find_map(entry_leader);
         // Remove old entries.
-        while s.doc.body.get(i + 1).and_then(|b| b.as_para()).is_some_and(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)) {
-            s.doc.remove_block(StoryRef::Body, &Path::top(i + 1))?;
+        for k in (i + 1..=last).rev() {
+            s.doc.remove_block(StoryRef::Body, &Path::top(k))?;
+        }
+        let mut added = 0;
+        if let Some(label) = &report {
+            continued::add_styles(s, continued::LIST);
+            added = continued::insert_label(s, i, label, continued::LIST)?;
         }
         let lines = entries_for(s, &kind);
         let width = super::page::sect(s).text_width();
-        for (k, (text, hanging)) in lines.into_iter().enumerate() {
-            let mut para = Paragraph::with_text(&text, CharProps::default()).styled(ENTRY_STYLE);
+        // The report guides print page numbers without a leader, single spaced.
+        let leader = kept.unwrap_or(if report.is_some() { TabLeader::None } else { TabLeader::Dot });
+        let entry_para = |text: &str, hanging: bool| {
+            let mut para = Paragraph::with_text(text, CharProps::default()).styled(ENTRY_STYLE);
             if hanging {
                 para.props.indent_left = Some(36.0);
                 para.props.indent_first = Some(-36.0);
             }
             if text.contains('\t') {
-                para.props.tabs = Some(vec![TabStop { pos: width - 0.5, align: TabAlign::Right, leader: TabLeader::Dot }]);
+                para.props.tabs = Some(vec![TabStop { pos: width - 0.5, align: TabAlign::Right, leader }]);
             }
-            s.doc.insert_block(StoryRef::Body, &Path::top(i + 1 + k), Block::Para(para))?;
+            if report.is_some() {
+                para.props.space_after = Some(0.0);
+            }
+            para
+        };
+        let n = lines.len();
+        for (k, (text, hanging)) in lines.into_iter().enumerate() {
+            s.doc.insert_block(StoryRef::Body, &Path::top(i + 1 + added + k), Block::Para(entry_para(&text, hanging)))?;
+        }
+        if let Some(label) = &report {
+            // Continued headings on the list's further pages, then the page numbers again: the
+            // list's own length (and the headings) move the captions after it.
+            let end = continued::paginate(s, i, i + added + n, label, continued::LIST)?;
+            let slots: Vec<usize> = (i + 1..=end)
+                .filter(|k| s.doc.body.get(*k).and_then(|b| b.as_para()).is_some_and(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)))
+                .collect();
+            for ((text, hanging), k) in entries_for(s, &kind).into_iter().zip(slots) {
+                s.doc.remove_block(StoryRef::Body, &Path::top(k))?;
+                s.doc.insert_block(StoryRef::Body, &Path::top(k), Block::Para(entry_para(&text, hanging)))?;
+            }
         }
         i += 1;
     }
     s.touch();
     Ok(())
+}
+
+/// The leader of a generated list entry's page-number tab, if `p` is an entry with one.
+pub(crate) fn entry_leader(p: &Paragraph) -> Option<TabLeader> {
+    if p.props.style.as_deref() != Some(ENTRY_STYLE) {
+        return None;
+    }
+    p.props.tabs.as_ref()?.iter().find(|t| t.align == TabAlign::Right).map(|t| t.leader)
+}
+
+/// How a table of figures or tables shows each caption's label and number (the side panel's
+/// "Each line"): `ภาพที่ 1.1 ชื่อภาพ`, `1.1 ชื่อภาพ` (Thai report guides), or `ชื่อภาพ`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabelMode {
+    Full,
+    Number,
+    None,
+}
+
+impl LabelMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            LabelMode::Full => "full",
+            LabelMode::Number => "number",
+            LabelMode::None => "none",
+        }
+    }
+    pub fn from_name(n: &str) -> Option<LabelMode> {
+        match n {
+            "full" => Some(LabelMode::Full),
+            "number" => Some(LabelMode::Number),
+            "none" => Some(LabelMode::None),
+            _ => None,
+        }
+    }
+}
+
+/// Where the label modes other than [`LabelMode::Full`] are kept: a custom document property
+/// (saved in the .docx) listing `label=mode` pairs. Word's TOC field has no switch for "the
+/// number without the label", so the field stays `TOC \c "label"` and Word, updating the list
+/// itself, shows the labels again.
+pub const LABEL_MODE_PROP: &str = "KrubOffice.CaptionListLabels";
+
+/// The label mode of the tables of figures for caption `label`.
+pub fn label_mode(doc: &Document, label: &str) -> LabelMode {
+    doc.custom_prop(LABEL_MODE_PROP)
+        .and_then(|v| {
+            v.split(';').find_map(|pair| pair.split_once('=').filter(|(l, _)| l.trim() == label).and_then(|(_, m)| LabelMode::from_name(m.trim())))
+        })
+        .unwrap_or(LabelMode::Full)
+}
+
+/// Set the label mode for caption `label`'s tables of figures.
+pub(crate) fn set_label_mode(doc: &mut Document, label: &str, mode: LabelMode) {
+    let label: String = label.chars().filter(|c| !matches!(c, ';' | '=') && !c.is_control()).take(64).collect();
+    let label = label.trim();
+    if label.is_empty() {
+        return;
+    }
+    let mut pairs: Vec<(String, String)> = doc
+        .custom_prop(LABEL_MODE_PROP)
+        .map(|v| v.split(';').filter_map(|p| p.split_once('=')).map(|(l, m)| (l.trim().to_string(), m.trim().to_string())).collect())
+        .unwrap_or_default();
+    pairs.retain(|(l, _)| l != label && !l.is_empty());
+    if mode != LabelMode::Full {
+        pairs.push((label.to_string(), mode.name().to_string()));
+    }
+    pairs.truncate(64);
+    if pairs.is_empty() {
+        doc.remove_custom_prop(LABEL_MODE_PROP);
+    } else {
+        doc.set_custom_prop(LABEL_MODE_PROP, &pairs.iter().map(|(l, m)| format!("{l}={m}")).collect::<Vec<_>>().join(";"));
+    }
+}
+
+/// A caption's text as a table of figures lists it in `mode`: `ภาพที่ 1.1 ชื่อ` whole, `1.1 ชื่อ`
+/// without the label, or `ชื่อ` without the label and number (and the `:`, `.` or dash after
+/// the number).
+pub(crate) fn caption_entry(text: &str, label: &str, mode: LabelMode) -> String {
+    let rest = match text.strip_prefix(label) {
+        Some(r) if mode != LabelMode::Full => r.trim_start(),
+        _ => return text.to_string(),
+    };
+    match mode {
+        LabelMode::Number => rest.to_string(),
+        _ => {
+            // The number runs to the first space (`1.1`, `1.1:`); what follows is the title.
+            let after = rest.find(char::is_whitespace).map_or("", |k| rest.get(k..).unwrap_or(""));
+            after.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '.' | '-' | '–' | '—')).to_string()
+        }
+    }
 }
 
 /// Add the style generated list entries take, if the document doesn't have it yet. Only when a
@@ -865,7 +1031,8 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
         }
     }
     if kind.starts_with("TOC \\c") {
-        return with_pages.into_iter().map(|(t, p)| (format!("{t}\t{}", p.1), false)).collect();
+        let mode = label_mode(&s.doc, &caption_label);
+        return with_pages.into_iter().map(|(t, p)| (format!("{}\t{}", caption_entry(&t, &caption_label, mode), p.1), false)).collect();
     }
     // Index / TOA: group by entry, sort, list pages.
     let lang = super::default_lang(s);

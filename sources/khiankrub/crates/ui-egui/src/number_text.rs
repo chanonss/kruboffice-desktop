@@ -43,6 +43,59 @@ pub fn to_text(pieces: &[Piece]) -> String {
         .collect()
 }
 
+/// A stretch of the box: plain text laid out (and shaped) as one, or a level's number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Run {
+    /// The text of `pieces[start..start + text.chars().count()]`.
+    Text { start: usize, text: String },
+    /// The level number at `pieces[at]`.
+    Level { at: usize, level: u8 },
+}
+
+/// `pieces` as runs: each stretch of text between level numbers is one run, so a Thai consonant
+/// and its vowel and tone marks are shaped together (one character at a time they float, each on
+/// a dotted circle).
+pub fn runs(pieces: &[Piece]) -> Vec<Run> {
+    let mut out: Vec<Run> = Vec::new();
+    for (i, p) in pieces.iter().enumerate() {
+        match p {
+            Piece::Level(l) => out.push(Run::Level { at: i, level: *l }),
+            Piece::Text(c) => match out.last_mut() {
+                Some(Run::Text { text, .. }) => text.push(*c),
+                _ => out.push(Run::Text { start: i, text: c.to_string() }),
+            },
+        }
+    }
+    out
+}
+
+/// Where the cursor may stop, as indices into `pieces`: before and after every level number, and
+/// between the clusters of text ([`wordcraft_doc::cluster`], as in the document), never between a
+/// consonant and its marks. Sorted, from 0 to `pieces.len()`.
+pub fn stops(pieces: &[Piece]) -> Vec<usize> {
+    let mut out = vec![0];
+    for run in runs(pieces) {
+        match run {
+            Run::Level { at, .. } => out.extend([at, at + 1]),
+            Run::Text { start, text } => {
+                for b in wordcraft_doc::cluster::cluster_starts(&text) {
+                    out.push(start + text.get(..b).map_or(0, |t| t.chars().count()));
+                }
+                out.push(start + text.chars().count());
+            }
+        }
+    }
+    out.push(pieces.len());
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// `cursor` moved back to the stop at or before it.
+fn snap(pieces: &[Piece], cursor: usize) -> usize {
+    stops(pieces).into_iter().rfind(|s| *s <= cursor).unwrap_or(0)
+}
+
 /// Type `s` at `cursor`. `%` is left out: followed by a digit it would turn the text into a level's
 /// number, which only Include level number from adds. Line breaks and other controls too.
 pub fn type_text(pieces: &mut Vec<Piece>, cursor: &mut usize, s: &str) -> bool {
@@ -58,31 +111,42 @@ pub fn type_text(pieces: &mut Vec<Piece>, cursor: &mut usize, s: &str) -> bool {
 
 /// Put level `level`'s number at `cursor`.
 pub fn insert_level(pieces: &mut Vec<Piece>, cursor: &mut usize, level: u8) {
-    let at = (*cursor).min(pieces.len());
+    let at = snap(pieces, *cursor);
     pieces.insert(at, Piece::Level(level.clamp(1, 9)));
     *cursor = at + 1;
 }
 
-/// One key: Backspace and Delete take away the piece before or after the cursor (a whole chip);
-/// the arrows, Home and End move it. Whether the text changed.
+/// One key: Backspace and Delete take away the cluster before or after the cursor (a whole chip;
+/// Backspace after a Thai or other Brahmic letter takes only its last character, a tone mark or
+/// vowel, as in the document); the arrows, Home and End move it a cluster at a time. Whether the
+/// text changed.
 pub fn key(pieces: &mut Vec<Piece>, cursor: &mut usize, k: Key) -> bool {
-    *cursor = (*cursor).min(pieces.len());
+    *cursor = snap(pieces, (*cursor).min(pieces.len()));
+    let stops = stops(pieces);
+    let prev = stops.iter().rev().find(|s| **s < *cursor).copied();
+    let next = stops.iter().find(|s| **s > *cursor).copied();
     match k {
-        Key::Backspace if *cursor > 0 => {
-            *cursor -= 1;
-            pieces.remove(*cursor);
+        Key::Backspace => {
+            let Some(p) = prev else { return false };
+            let from = match cursor.checked_sub(1).and_then(|i| pieces.get(i)) {
+                Some(Piece::Text(c)) if wordcraft_doc::cluster::backspaces_by_char(*c) => *cursor - 1,
+                _ => p,
+            };
+            pieces.drain(from..*cursor);
+            *cursor = from;
             true
         }
-        Key::Delete if *cursor < pieces.len() => {
-            pieces.remove(*cursor);
+        Key::Delete => {
+            let Some(n) = next else { return false };
+            pieces.drain(*cursor..n);
             true
         }
         Key::ArrowLeft => {
-            *cursor = cursor.saturating_sub(1);
+            *cursor = prev.unwrap_or(0);
             false
         }
         Key::ArrowRight => {
-            *cursor = (*cursor + 1).min(pieces.len());
+            *cursor = next.unwrap_or(*cursor);
             false
         }
         Key::Home => {
@@ -104,7 +168,7 @@ fn cursor_id(id: egui::Id) -> egui::Id {
 /// Put level `level`'s number where the cursor of the box `id` is (at the end if it has none yet).
 pub fn insert_level_at_cursor(ui: &Ui, id: egui::Id, text: &mut String, level: u8) {
     let mut pieces = parse(text);
-    let mut cursor = ui.data(|d| d.get_temp::<usize>(cursor_id(id))).unwrap_or(pieces.len());
+    let mut cursor = ui.data(|d| d.get_temp::<usize>(cursor_id(id))).unwrap_or(pieces.len()).min(pieces.len());
     insert_level(&mut pieces, &mut cursor, level);
     ui.data_mut(|d| d.insert_temp(cursor_id(id), cursor));
     *text = to_text(&pieces);
@@ -140,42 +204,55 @@ pub fn show(ui: &mut Ui, id: egui::Id, label: &str, text: &mut String, width: f3
         });
     }
     let mut pieces = parse(text);
-    let mut cursor = ui.data(|d| d.get_temp::<usize>(cursor_id(id))).unwrap_or(pieces.len()).min(pieces.len());
+    let stored = ui.data(|d| d.get_temp::<usize>(cursor_id(id))).unwrap_or(pieces.len());
+    let mut cursor = snap(&pieces, stored.min(pieces.len()));
 
-    // Lay the pieces out: the x where each one starts, then the end.
+    // Lay the runs out: each stretch of text as one galley, so its clusters are shaped whole;
+    // then the x of every cursor stop.
     let pad = 6.0;
     let gap = 2.0;
     let ink = ui.visuals().text_color();
-    let chips: Vec<Option<std::sync::Arc<egui::Galley>>> = pieces
-        .iter()
-        .map(|p| match p {
-            Piece::Level(l) => Some(ui.painter().layout_no_wrap(chip(*l), font.clone(), ink)),
-            Piece::Text(_) => None,
-        })
-        .collect();
-    let texts: Vec<Option<std::sync::Arc<egui::Galley>>> = pieces
-        .iter()
-        .map(|p| match p {
-            Piece::Text(c) => Some(ui.painter().layout_no_wrap(c.to_string(), font.clone(), ink)),
-            Piece::Level(_) => None,
-        })
-        .collect();
-    let mut xs = Vec::with_capacity(pieces.len() + 1);
-    let mut x = rect.left() + pad;
-    for (i, p) in pieces.iter().enumerate() {
-        xs.push(x);
-        x += match p {
-            Piece::Level(_) => chips[i].as_ref().map_or(0.0, |g| g.size().x) + 8.0 + gap,
-            Piece::Text(_) => texts[i].as_ref().map_or(0.0, |g| g.size().x),
-        };
-    }
-    xs.push(x);
+    let laid: Vec<(Run, std::sync::Arc<egui::Galley>, f32)> = {
+        let mut x = rect.left() + pad;
+        runs(&pieces)
+            .into_iter()
+            .map(|r| {
+                let g = match &r {
+                    Run::Level { level, .. } => ui.painter().layout_no_wrap(chip(*level), font.clone(), ink),
+                    Run::Text { text, .. } => ui.painter().layout_no_wrap(text.clone(), font.clone(), ink),
+                };
+                let x0 = x;
+                x += match &r {
+                    Run::Level { .. } => g.size().x + 8.0 + gap,
+                    Run::Text { .. } => g.size().x,
+                };
+                (r, g, x0)
+            })
+            .collect()
+    };
+    let end_x = laid.last().map_or(rect.left() + pad, |(r, g, x0)| match r {
+        Run::Level { .. } => x0 + g.size().x + 8.0 + gap,
+        Run::Text { .. } => x0 + g.size().x,
+    });
+    let x_of = |stop: usize| -> f32 {
+        for (r, g, x0) in &laid {
+            match r {
+                Run::Level { at, .. } if *at == stop => return *x0,
+                Run::Text { start, text } if stop >= *start && stop < start + text.chars().count() => {
+                    return x0 + g.pos_from_cursor(egui::text::CCursor::new(stop - start)).min.x;
+                }
+                _ => {}
+            }
+        }
+        end_x
+    };
+    let xs: Vec<(usize, f32)> = stops(&pieces).into_iter().map(|s| (s, x_of(s))).collect();
 
-    // A click puts the cursor at the nearest boundary.
+    // A click puts the cursor at the nearest stop.
     if resp.clicked()
         && let Some(at) = resp.interact_pointer_pos()
     {
-        cursor = xs.iter().enumerate().min_by(|a, b| (a.1 - at.x).abs().total_cmp(&(b.1 - at.x).abs())).map_or(pieces.len(), |(i, _)| i);
+        cursor = xs.iter().min_by(|a, b| (a.1 - at.x).abs().total_cmp(&(b.1 - at.x).abs())).map_or(pieces.len(), |(s, _)| *s);
     }
 
     // Keys and typing while focused.
@@ -206,24 +283,17 @@ pub fn show(ui: &mut Ui, id: egui::Id, label: &str, text: &mut String, width: f3
     if !changed {
         let mid = rect.center().y;
         let chip_fill = if v.dark_mode { egui::Color32::from_gray(80) } else { egui::Color32::from_gray(218) };
-        for (i, piece) in pieces.iter().enumerate() {
-            let x0 = xs[i];
-            match piece {
-                Piece::Level(_) => {
-                    if let Some(g) = &chips[i] {
-                        let r = egui::Rect::from_min_size(egui::pos2(x0, mid - g.size().y / 2.0 - 1.0), vec2(g.size().x + 8.0, g.size().y + 2.0));
-                        p.rect_filled(r, 3.0, chip_fill);
-                        p.galley(egui::pos2(x0 + 4.0, mid - g.size().y / 2.0), g.clone(), ink);
-                    }
+        for (r, g, x0) in &laid {
+            match r {
+                Run::Level { .. } => {
+                    let r = egui::Rect::from_min_size(egui::pos2(*x0, mid - g.size().y / 2.0 - 1.0), vec2(g.size().x + 8.0, g.size().y + 2.0));
+                    p.rect_filled(r, 3.0, chip_fill);
+                    p.galley(egui::pos2(x0 + 4.0, mid - g.size().y / 2.0), g.clone(), ink);
                 }
-                Piece::Text(_) => {
-                    if let Some(g) = &texts[i] {
-                        p.galley(egui::pos2(x0, mid - g.size().y / 2.0), g.clone(), ink);
-                    }
-                }
+                Run::Text { .. } => p.galley(egui::pos2(*x0, mid - g.size().y / 2.0), g.clone(), ink),
             }
         }
-        if focused && let Some(cx) = xs.get(cursor) {
+        if focused && let Some((_, cx)) = xs.iter().rfind(|(s, _)| *s <= cursor) {
             let h = font.size + 2.0;
             p.line_segment([egui::pos2(*cx, mid - h / 2.0), egui::pos2(*cx, mid + h / 2.0)], egui::Stroke::new(1.5, ink));
         }
@@ -266,5 +336,57 @@ mod tests {
         let mut c = 99;
         assert!(!key(&mut p, &mut c, Key::ArrowRight));
         assert_eq!(c, p.len(), "a stale cursor is kept inside the text");
+    }
+
+    /// "บทที่ %1" (the owner's thesis chapters): the vowel and tone marks of ที่ stay with their
+    /// consonant in one run, the space is kept, and the text goes back to the file unchanged.
+    #[test]
+    fn thai_marks_and_the_space_stay_in_one_run() {
+        let p = parse("บทที่ %1");
+        assert_eq!(to_text(&p), "บทที่ %1");
+        assert_eq!(runs(&p), [Run::Text { start: 0, text: "บทที่ ".into() }, Run::Level { at: 6, level: 1 }]);
+        // บ | ท | ที่ | space | chip: never between ท and ี or ี and ่.
+        assert_eq!(stops(&p), [0, 1, 2, 5, 6, 7]);
+        for t in ["ข้อ %1.%2", "%1 ก้", "é%1", "\u{928}\u{94D}\u{926}\u{940} %1"] {
+            assert_eq!(to_text(&parse(t)), t, "{t}");
+        }
+    }
+
+    /// The arrows step over a whole cluster; Backspace after Thai takes its last mark (as in the
+    /// document); Delete takes the whole cluster; a stale cursor inside a cluster moves back.
+    #[test]
+    fn the_cursor_moves_and_deletes_by_cluster() {
+        let mut p = parse("บทที่ %1");
+        let mut c = 0;
+        for want in [1, 2, 5, 6, 7, 7] {
+            key(&mut p, &mut c, Key::ArrowRight);
+            assert_eq!(c, want);
+        }
+        for want in [6, 5, 2] {
+            key(&mut p, &mut c, Key::ArrowLeft);
+            assert_eq!(c, want);
+        }
+        let mut c = 5;
+        assert!(key(&mut p, &mut c, Key::Backspace));
+        assert_eq!((to_text(&p).as_str(), c), ("บทที %1", 4), "Backspace took the tone mark");
+        let mut c = 2;
+        assert!(key(&mut p, &mut c, Key::Delete));
+        assert_eq!((to_text(&p).as_str(), c), ("บท %1", 2), "Delete took ที whole");
+        let mut c = 3;
+        type_text(&mut p, &mut c, "x");
+        assert_eq!(to_text(&p), "บท x%1");
+        let mut p = parse("ที่%1");
+        let mut c = 2;
+        insert_level(&mut p, &mut c, 2);
+        assert_eq!(to_text(&p), "%2ที่%1", "a chip never goes between a consonant and its marks");
+        let mut c = 1;
+        key(&mut p, &mut c, Key::ArrowRight);
+        assert_eq!(c, 4);
+        // A mark typed straight after a chip has no consonant: it is its own stop.
+        let mut p = parse("%1\u{0E48}");
+        assert_eq!(stops(&p), [0, 1, 2]);
+        let mut c = 2;
+        assert!(key(&mut p, &mut c, Key::Backspace));
+        assert_eq!(to_text(&p), "%1");
     }
 }

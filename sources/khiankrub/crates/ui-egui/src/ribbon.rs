@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::colors::{Remember, Target};
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, medium, semibold};
-use crate::widgets::{CONTENT_H, big, big_toggle, combo, group, menu_button, small, small_labeled, split};
+use crate::widgets::{CONTENT_H, big, big_toggle, combo, group, menu_button, small, split};
 use crate::{WordApp, icons};
 
 pub use wordcraft_engine::ribbon::TABS;
@@ -155,7 +155,14 @@ pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
 }
 
+/// The tab strip (the one bar) and the ribbon under it.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
+    show_tabs(app, ui);
+    show_body(app, ui);
+}
+
+/// The one bar: the title bar and the tab strip in one row, across the whole window.
+pub fn show_tabs(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     if app.session.view.read_mode {
         reading_toolbar(app, ui, t);
@@ -247,6 +254,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         // The tabs that don't fit go into a » menu at the end of the strip. File, the
                         // active tab and the contextual tabs (appended last) stay on the strip (#897).
+                        // UI experiment: the left panel's button opens the bar.
+                        if crate::panes::panel_toggle(ui, app, false) {
+                            app.session.view.nav_pane = !app.session.view.nav_pane;
+                        }
+                        ui.add_space(4.0);
                         let labels: Vec<&str> = tabs.iter().map(|(tab, custom)| if *custom { tab.as_str() } else { tl!(tab) }).collect();
                         let gap = ui.spacing().item_spacing.x;
                         let show_numbers = app.ui.show_ribbon_tab_numbers;
@@ -281,7 +293,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let file_width = widths.first().map_or(0.0, |(width, _)| *width);
                         let tab_width = (occupied(&fits) - file_width).max(0.0);
                         let first_tab_x = ui.cursor().min.x + file_width + qat_w;
-                        let desired_start = strip.center().x - tab_width / 2.0;
+                        // UI experiment: centred on the document column between the side panels.
+                        let (left_w, right_w) = crate::panes::panel_widths(app, ui.ctx());
+                        let doc_centre = strip.min.x + (left_w + strip.width() - right_w) / 2.0;
+                        let desired_start = doc_centre - tab_width / 2.0;
                         // Centred, KrubOffice's signature (kept on the owner's second look); off
                         // (File › Options › General) the tabs start right after the toolbar.
                         let offset = if app.ui.ribbon_tabs_centered {
@@ -400,12 +415,244 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 });
             });
         });
-    if app.ui.ribbon_collapsed {
+}
+
+/// What the one-line ribbon keeps of each tab (UI experiment, branch `ui-pages-layout`,
+/// 2026-11-23): command ids or icon names; the rest of the tab is in the line's More menu and,
+/// for settings, in the side panel. `*` keeps a tab whole (drawn small, on one line).
+pub(crate) fn line_keys(tab: &str) -> &'static [&'static str] {
+    match tab {
+        "Home" => &[
+            "edit.paste",
+            "edit.formatPainter",
+            "font",
+            "size",
+            "format.bold",
+            "format.italic",
+            "format.underline",
+            "format.highlight",
+            "format.color",
+            "para.bullets",
+            "para.numbering",
+            "para.alignLeft",
+            "para.alignCenter",
+            "para.alignRight",
+            "para.thaiDistribute",
+            "edit.copy",
+            "view.marks",
+            "format.growFont",
+            "format.superscript",
+            "format.border",
+            // With the ribbon full width (owner, 2026-11-24) these come back when there is room.
+            "para.justify",
+            "format.strikethrough",
+            "para.lineSpacing",
+            "format.clear",
+            "para.outdent",
+            "para.indent",
+            "para_style_box",
+        ],
+        "Insert" => &[
+            "insert.coverPage",
+            "insert.pageBreak",
+            "insert.table",
+            "insert.picture",
+            "insert.shape",
+            "insert.icon",
+            "insert.chart",
+            "insert.smartArt",
+            "link",
+            "bookmark",
+            "review.newComment",
+            "insert.header",
+            "insert.footer",
+            "insert.pageNumber",
+            "insert.textBox",
+            "wordArt",
+            "insert.dropCap",
+            "insert.dateTime",
+            "insert.equation",
+            "insert.symbol",
+        ],
+        "Draw" => {
+            &["draw.select", "draw.lasso", "draw.pen", "draw.pencil", "draw.highlighter", "draw.eraser", "addPen", "draw.inkToShape", "insert.canvas"]
+        }
+        "Design" => &[
+            "design.themes",
+            "design.themeColors",
+            "design.themeFonts",
+            "design.paragraphSpacing",
+            "design.effects",
+            "design.setDefault",
+            "design.watermark",
+            "design.pageColor",
+            "design.pageBorders",
+        ],
+        "Layout" => &[
+            "layout.textDirection",
+            "layout.margins",
+            "layout.orientation",
+            "layout.size",
+            "layout.columns",
+            "layout.break",
+            "layout.lineNumbers",
+            "arrange.position",
+            "arrange.bringForward",
+            "arrange.sendBackward",
+            "arrange.selectionPane",
+            "arrange.align",
+        ],
+        "References" => &[
+            "toc",
+            "references.updateLists",
+            "references.addText",
+            "references.footnote",
+            "references.endnote",
+            "references.nextFootnote",
+            "references.notes",
+            "citation",
+            "references.sources",
+            "references.citationStyle",
+            "references.bibliography",
+            "references.caption",
+            "insert.crossReference",
+            "references.markEntry",
+            "references.index",
+        ],
+        // The Equation tab on one line (owner, 2026-11-24, draft A): the tools, Symbols (a
+        // panel), the structures as small picture buttons, then the equation's options.
+        "Equation" => &[
+            "eq.builtin",
+            "equation.inputFormat",
+            "equation.convert",
+            "equation.normalText",
+            "eq.symbols",
+            "eq.fraction",
+            "eq.script",
+            "eq.radical",
+            "eq.integral",
+            "eq.largeOperator",
+            "eq.bracket",
+            "eq.function",
+            "eq.accent",
+            "eq.limitLog",
+            "eq.operator",
+            "eq.matrix",
+            "equation.display",
+            "equation.number",
+            "equation.justify",
+            "equation.exit",
+        ],
+        // The Outlining tab (Outline view) on one line: each control once, in the tab's order.
+        "Outlining" => &[
+            "outline.promoteToHeading1",
+            "outline.promote",
+            "outlineLevel",
+            "outline.demote",
+            "outline.demoteToBody",
+            "outline.moveUp",
+            "outline.moveDown",
+            "outline.expand",
+            "outline.collapse",
+            "outlineShowLevel",
+            "outline.showFormatting",
+            "outline.firstLineOnly",
+            "outline.close",
+        ],
+        "Mailings" => &["mailings.start", "mailings.recipients", "mailings.insertField", "mailings.preview", "mailings.finish"],
+        "Review" => &[
+            "review.spelling",
+            "review.thesaurus",
+            "wordCount",
+            "review.readAloud",
+            "file.accessibility",
+            "review.newComment",
+            "review.deleteComment",
+            "review.previousComment",
+            "review.nextComment",
+            "view.commentsPane",
+            "review.trackChanges",
+            "review.accept",
+            "review.reject",
+            "review.previousChange",
+            "review.nextChange",
+            "review.compare",
+            "review.restrict",
+        ],
+        "View" => &[
+            "view.readMode",
+            "view.printLayout",
+            "view.webLayout",
+            "view.outline",
+            "view.focus",
+            "view.immersive",
+            "view.navigationPane",
+            "view.ruler",
+            "view.gridlines",
+            "view.textBoundaries",
+            "zoom",
+            "view.zoomOut",
+            "view.zoomIn",
+            "view.onePage",
+            "view.multiplePages",
+            "view.pageWidth",
+            "view.darkMode",
+        ],
+        _ => &["*"],
+    }
+}
+
+/// Draw the current tab's groups (and the custom groups the user added to it).
+fn draw_tab(app: &mut WordApp, ui: &mut Ui, entry: Option<&wordcraft_engine::ribbon::TabEntry>) {
+    match entry {
+        // Every tab hidden: nothing to show.
+        Some(e) if e.hidden => return,
+        Some(e) if e.custom => return custom_groups(app, ui, &e.groups),
+        _ => {}
+    }
+    // Accent colours (owner, 2026-11-24: style A), tab by tab as each is approved.
+    let ctx = ui.ctx().clone();
+    // Every built-in tab is coloured now (2026-11-25: Draw, Mailings, Developer, Zotero, Help,
+    // Outlining and Equation were the last).
+    krub_icons::tabler_colour::with_colour(&ctx, true, || draw_tab_body(app, ui));
+    if let Some(e) = entry {
+        custom_groups(app, ui, &e.groups);
+    }
+}
+
+fn draw_tab_body(app: &mut WordApp, ui: &mut Ui) {
+    match app.ui.tab.as_str() {
+        "Home" => home(app, ui),
+        "Insert" => insert(app, ui),
+        "Draw" => draw(app, ui),
+        "Design" => design(app, ui),
+        "Layout" => layout(app, ui),
+        "References" => references(app, ui),
+        "Mailings" => mailings(app, ui),
+        "Review" => review(app, ui),
+        "View" => view(app, ui),
+        "Developer" => developer(app, ui),
+        "Zotero" => zotero(app, ui),
+        "Help" => help(app, ui),
+        "Equation" if app.session.math.is_some() => crate::equation_tab::show(app, ui),
+        "Outlining" => outlining(app, ui),
+        _ => home(app, ui),
+    }
+}
+
+/// The ribbon (UI experiment, branch `ui-pages-layout`): one line of the tab's essentials
+/// ([`line_keys`]), centred over the document as the tabs are (KrubOffice's signature), then
+/// More, which opens the whole tab as the two-row ribbon draws it.
+pub fn show_body(app: &mut WordApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    if app.session.view.read_mode || app.ui.ribbon_collapsed {
         return;
     }
+    let mut user_tabs = app.session.ribbon.tabs().into_owned();
+    user_tabs.retain(|t| !cfg!(target_arch = "wasm32") || t.name != "Zotero");
     egui::Panel::top("ribbon")
-        // The KrubOffice ribbon height (`krub_icons::chrome`), the same in all three apps.
-        .exact_size(krub_icons::chrome::RIBBON_H + crate::widgets::label_strip_h(app))
+        // One line of small buttons with the ribbon's padding above and below.
+        .exact_size(crate::widgets::line_button().0 + 10.0)
         .frame(
             // No outline: its top edge drew a grey line between the active tab and the ribbon. The
             // panel's own divider still separates the ribbon from the ruler below.
@@ -421,37 +668,87 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let bg = ui.interact(ui.max_rect(), ui.id().with("ribbon_background"), Sense::click());
             bg.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
             let entry = user_tabs.iter().find(|e| e.name == app.ui.tab);
+            let view_w = ui.available_width();
             let scroll = egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                 let ribbon_row = egui::UiBuilder::new()
                     .layout(egui::Layout::left_to_right(egui::Align::Center).with_cross_align(egui::Align::Min))
                     .ui_stack_info(egui::UiStackInfo::default().with_tag(crate::widgets::RIBBON_CONTROL_TAG));
                 ui.scope_builder(ribbon_row, |ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                    match entry {
-                        // Every tab hidden: nothing to show.
-                        Some(e) if e.hidden => return,
-                        Some(e) if e.custom => return custom_groups(app, ui, &e.groups),
-                        _ => {}
+                    // Centred: the line's width from the last frame sets the space before it.
+                    let wid = egui::Id::new("ribbon_line_width");
+                    let last: Option<f32> = ui.data(|d| d.get_temp(wid));
+                    if app.ui.ribbon_tabs_centered {
+                        ui.add_space(((view_w - last.unwrap_or(view_w)) / 2.0).max(0.0).floor());
                     }
-                    match app.ui.tab.as_str() {
-                        "Home" => home(app, ui),
-                        "Insert" => insert(app, ui),
-                        "Draw" => draw(app, ui),
-                        "Design" => design(app, ui),
-                        "Layout" => layout(app, ui),
-                        "References" => references(app, ui),
-                        "Mailings" => mailings(app, ui),
-                        "Review" => review(app, ui),
-                        "View" => view(app, ui),
-                        "Developer" => developer(app, ui),
-                        "Zotero" => zotero(app, ui),
-                        "Help" => help(app, ui),
-                        "Equation" if app.session.math.is_some() => crate::equation_tab::show(app, ui),
-                        "Outlining" => outlining(app, ui),
-                        _ => home(app, ui),
+                    let start = ui.cursor().min.x;
+                    let ctx = ui.ctx().clone();
+                    crate::widgets::set_compact(&ctx, true);
+                    // Every control the tab has on the line, then the order to draw them in:
+                    // the user's (owner, 2026-11-24: drag them in More), else the tab's own.
+                    let items = line_census(app, ui, entry);
+                    let (order, priority) = line_order(app, &app.ui.tab, &items);
+                    let customizable = !items.is_empty();
+                    // More's footprint (with the space before it) as drawn on the last frame.
+                    let more_id = egui::Id::new("ribbon_line_more_w");
+                    let more_room = if customizable { ui.data(|d| d.get_temp::<f32>(more_id)).unwrap_or(110.0) + 10.0 } else { 0.0 };
+                    // Measured from where the line starts, so the centring gap never changes what fits.
+                    crate::widgets::set_line_limit(&ctx, Some(start + view_w - more_room));
+                    // What fits, most important first: the tab's own order of importance, or the
+                    // user's order (the last ones go to More first), from each button's width as
+                    // drawn on earlier frames.
+                    let widths_id = egui::Id::new(("ribbon_line_widths", app.ui.tab.clone()));
+                    let mut widths: std::collections::HashMap<String, f32> = ui.data(|d| d.get_temp(widths_id)).unwrap_or_default();
+                    let budget = view_w - more_room + 4.0;
+                    let mut used = 0.0;
+                    let mut included: Vec<&str> = Vec::new();
+                    for key in &priority {
+                        let est = items.iter().find(|i| &i.key == key).map_or(48.0, |i| i.est);
+                        let w = widths.get(key).copied().unwrap_or(est);
+                        if used + w <= budget {
+                            used += w;
+                            included.push(key);
+                        }
                     }
-                    if let Some(e) = entry {
-                        custom_groups(app, ui, &e.groups);
+                    // One button at a time, in order, with a divider where the group changes.
+                    crate::widgets::set_no_group_dividers(&ctx, true);
+                    let top = ui.cursor().min.y;
+                    let h = crate::widgets::line_button().0;
+                    let mut drawn: Vec<(String, Rect)> = Vec::new();
+                    let mut last_group: Option<&str> = None;
+                    for key in order.iter().filter(|k| included.contains(&k.as_str())) {
+                        let group = items.iter().find(|i| &i.key == key).map_or("", |i| i.group.as_str());
+                        let x0 = ui.cursor().min.x;
+                        if last_group.is_some_and(|g| g != group) {
+                            ui.add_space(2.0);
+                            let x = ui.cursor().min.x;
+                            ui.painter().line_segment([pos2(x, top + 5.0), pos2(x, top + h - 5.0)], egui::Stroke::new(1.0, t.border));
+                            ui.add_space(3.0);
+                        }
+                        if let Some(r) = draw_one(app, ui, entry, key, top, h) {
+                            widths.insert(key.clone(), r.max.x - x0 + 2.0);
+                            drawn.push((key.clone(), r));
+                            last_group = Some(group);
+                        }
+                    }
+                    ui.data_mut(|d| d.insert_temp(widths_id, widths));
+                    crate::widgets::set_no_group_dividers(&ctx, false);
+                    crate::widgets::set_line_limit(&ctx, None);
+                    crate::widgets::set_line(&ctx, None);
+                    crate::widgets::set_compact(&ctx, false);
+                    let mut tray = None;
+                    if customizable {
+                        let before = ui.cursor().min.x;
+                        tray = Some(more_button(app, ui, entry, &items, &order));
+                        let more_w = ui.cursor().min.x - before;
+                        ui.data_mut(|d| d.insert_temp(more_id, more_w));
+                    }
+                    let line_rect = Rect::from_min_max(pos2(ui.max_rect().min.x, top - 5.0), pos2(ui.max_rect().max.x, top + h + 5.0));
+                    line_drag(app, ui, line_rect, &drawn, &items, &order, tray.unwrap_or_default());
+                    let w = ui.cursor().min.x - start;
+                    if last.is_none_or(|l| (l - w).abs() > 0.5) {
+                        ui.data_mut(|d| d.insert_temp(wid, w));
+                        ui.ctx().request_discard("ribbon line width");
                     }
                 });
             });
@@ -480,6 +777,392 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 state.store(ui.ctx(), scroll.id);
             }
         });
+}
+
+/// The selection's formatting (`format.state`), worked out once a frame: the one-line ribbon draws
+/// Home once per button.
+fn format_state(app: &mut WordApp, ctx: &egui::Context) -> Value {
+    let id = egui::Id::new("krub_format_state_frame");
+    let key = (ctx.cumulative_pass_nr(), app.session.rev());
+    if let Some((k, v)) = ctx.data(|d| d.get_temp::<((u64, u64), Value)>(id))
+        && k == key
+    {
+        return v;
+    }
+    let v = app.session.run("format.state", &json!({})).unwrap_or_default();
+    ctx.data_mut(|d| d.insert_temp(id, (key, v.clone())));
+    v
+}
+
+/// Every control the one-line ribbon can show for the tab, in its drawing order: the tab is drawn
+/// once out of sight with the census on ([`crate::widgets::set_census`]).
+fn line_census(app: &mut WordApp, ui: &mut Ui, entry: Option<&wordcraft_engine::ribbon::TabEntry>) -> Vec<crate::widgets::LineItem> {
+    let ctx = ui.ctx().clone();
+    crate::widgets::set_line(&ctx, Some(vec!["*".into()]));
+    crate::widgets::set_census(&ctx, true);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(ui.max_rect()).invisible().layout(egui::Layout::left_to_right(egui::Align::Center)));
+    draw_tab(app, &mut child, entry);
+    crate::widgets::set_census(&ctx, false);
+    crate::widgets::set_line(&ctx, None);
+    crate::widgets::census(&ctx)
+}
+
+/// The order the line draws `items` in and the order they get room in: the user's arrangement of
+/// `tab` (both the same: the last go to More first), else the tab's own list (drawn in the tab's
+/// order, room by its importance), else, for a tab without a list, everything.
+pub(crate) fn line_order(app: &WordApp, tab: &str, items: &[crate::widgets::LineItem]) -> (Vec<String>, Vec<String>) {
+    let key_of = |k: &str| items.iter().find(|i| i.is(k)).map(|i| i.key.clone());
+    let dedup = |v: Vec<String>| {
+        let mut out: Vec<String> = Vec::new();
+        for k in v {
+            if !out.contains(&k) {
+                out.push(k);
+            }
+        }
+        out
+    };
+    if let Some(custom) = app.ui.ribbon_line.get(tab) {
+        let order = dedup(custom.iter().filter_map(|k| key_of(k)).collect());
+        return (order.clone(), order);
+    }
+    let defaults = line_keys(tab);
+    if defaults == ["*"] {
+        let all: Vec<String> = items.iter().map(|i| i.key.clone()).collect();
+        return (all.clone(), all);
+    }
+    let order = items.iter().filter(|i| defaults.iter().any(|k| i.is(k))).map(|i| i.key.clone()).collect();
+    let priority = dedup(defaults.iter().filter_map(|k| key_of(k)).collect());
+    (order, priority)
+}
+
+/// Draw only the control keyed `key` of the tab at the cursor, `h` high from `top`, and take its
+/// width: the tab draws in a child shifted so the control lands at the cursor (the tab's own
+/// spacing before it, measured on the last frame, falls left of it, out of sight). Its rect,
+/// or `None` when the tab doesn't draw it.
+fn draw_one(app: &mut WordApp, ui: &mut Ui, entry: Option<&wordcraft_engine::ribbon::TabEntry>, key: &str, top: f32, h: f32) -> Option<Rect> {
+    let ctx = ui.ctx().clone();
+    // Per place (the line, a tray tile): their spacing differs.
+    let off_id = ui.id().with(("ribbon_line_offset", key.to_string()));
+    let off: f32 = ui.data(|d| d.get_temp(off_id)).unwrap_or(0.0);
+    let x = ui.cursor().min.x;
+    let max = Rect::from_min_size(pos2(x - off, top), vec2(ui.available_width() + off, h));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(max).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    child.spacing_mut().item_spacing = ui.spacing().item_spacing;
+    crate::widgets::take_kept_at(&ctx);
+    crate::widgets::take_kept_end(&ctx);
+    crate::widgets::set_line(&ctx, Some(vec![key.to_string()]));
+    draw_tab(app, &mut child, entry);
+    let start = crate::widgets::take_kept_at(&ctx)?;
+    let new_off = start - max.min.x;
+    if (new_off - off).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(off_id, new_off));
+        ctx.request_discard("ribbon line offset");
+    }
+    // The control's own right edge (not the tab's spacing after it).
+    let end = crate::widgets::take_kept_end(&ctx).unwrap_or_else(|| child.min_rect().max.x);
+    let w = (end - start).max(0.0);
+    let r = Rect::from_min_max(pos2(x, top), pos2(x + w, top + h));
+    ui.allocate_rect(r, Sense::hover());
+    Some(r)
+}
+
+/// What More's tray showed this frame: whether it is open, and each tile with its key.
+#[derive(Clone, Default)]
+struct Tray {
+    open: bool,
+    tiles: Vec<(String, Rect)>,
+}
+
+/// The one-line ribbon's More (owner, 2026-11-24): a tray of every button the tab has, in its
+/// groups. A tile works as the button does; dragging tiles onto the line, and the line's buttons
+/// along it or off it, arranges the line ([`line_drag`]).
+fn more_button(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    entry: Option<&wordcraft_engine::ribbon::TabEntry>,
+    items: &[crate::widgets::LineItem],
+    order: &[String],
+) -> Tray {
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(6.0);
+    let label = tl!("More");
+    let galley = ui.painter().layout_no_wrap(label.to_string(), crate::theme::regular(12.0), t.text);
+    let w = galley.size().x + crate::widgets::DROPDOWN + 18.0;
+    // The line's buttons' height and face, so More reads as one of them (owner, 2026-11-23). A
+    // fixed id: its tray stays open while the buttons before it change.
+    let (r, _) = ui.allocate_exact_size(vec2(w, crate::widgets::line_button().0), Sense::hover());
+    let resp = ui.interact(r, egui::Id::new("krub_ribbon_line_more"), Sense::click());
+    crate::widgets::ribbon_control_bg(ui, r, &resp, false, &t);
+    let gs = galley.size();
+    ui.painter().galley(pos2(r.min.x + 8.0, r.center().y - gs.y / 2.0), galley, t.text);
+    crate::icons::paint(
+        ui.painter(),
+        Rect::from_center_size(
+            pos2(r.max.x - 6.0 - crate::widgets::DROPDOWN / 2.0, r.center().y),
+            vec2(crate::widgets::DROPDOWN, crate::widgets::DROPDOWN),
+        ),
+        "dropdown",
+        t.icon,
+        t.icon,
+    );
+    let resp = resp.on_hover_text(tl!("Every button on this tab; drag them to arrange the line"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("More")));
+    // A drag from the tray keeps it open until the drop (the pointer leaves it on the way).
+    let dragging = ui.ctx().data(|d| d.get_temp::<LineDrag>(egui::Id::new(DRAG_ID))).is_some();
+    // So does a press on the line itself (it may start dragging one of its buttons).
+    let band = r.y_range().expand(8.0);
+    let on_line = ui.ctx().input(|i| i.pointer.any_down() && i.pointer.press_origin().is_some_and(|p| band.contains(p.y) && p.x < r.min.x));
+    let close = if dragging || on_line { egui::PopupCloseBehavior::IgnoreClicks } else { egui::PopupCloseBehavior::CloseOnClickOutside };
+    let max_w = (r.max.x - ui.ctx().content_rect().min.x - 16.0).clamp(240.0, 760.0);
+    let mut tray = Tray::default();
+    let tab = app.ui.tab.clone();
+    let shown = egui::Popup::menu(&resp).align(egui::RectAlign::BOTTOM_END).close_behavior(close).show(|ui| {
+        // A menu's style draws widgets without outlines; the tab's font and size boxes need the
+        // ribbon's, so the tray draws in the app's normal style.
+        *ui.style_mut() = (*ui.ctx().global_style()).clone();
+        ui.set_min_width(max_w);
+        ui.set_max_width(max_w);
+        // What the tray is for, first (as a toolbar's customize sheet says it).
+        ui.label(egui::RichText::new(tl!("Drag the buttons you use onto the line…")).size(13.0).color(t.text));
+        ui.add_space(4.0);
+        // As tall as the window allows under the line (it was a fixed 560 pt, so Review's Protect
+        // and Ink groups sat out of sight), with a scroll bar that shows whenever it scrolls.
+        let max_h = (ui.ctx().content_rect().bottom() - r.max.y - 96.0).max(240.0);
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
+            let mut groups: Vec<&str> = Vec::new();
+            for i in items {
+                if !groups.contains(&i.group.as_str()) {
+                    groups.push(&i.group);
+                }
+            }
+            // Tile widths from the last frame, so the rows wrap before the tray's edge.
+            let widths_id = egui::Id::new(("ribbon_tray_widths", tab.clone()));
+            let mut widths: std::collections::HashMap<String, f32> = ui.data(|d| d.get_temp(widths_id)).unwrap_or_default();
+            let row_w = ui.available_width();
+            for group in groups {
+                let heading = if group.is_empty() { tl!("Other") } else { tl!(group) };
+                ui.label(egui::RichText::new(heading).size(12.0).strong().color(t.text_dim));
+                let members: Vec<&crate::widgets::LineItem> = items.iter().filter(|i| i.group == group).collect();
+                let mut rows: Vec<Vec<&crate::widgets::LineItem>> = vec![Vec::new()];
+                let mut used = 0.0;
+                for item in members {
+                    let w = widths.get(&item.key).copied().unwrap_or(150.0) + 6.0;
+                    if used + w > row_w && rows.last().is_some_and(|r| !r.is_empty()) {
+                        rows.push(Vec::new());
+                        used = 0.0;
+                    }
+                    used += w;
+                    if let Some(r) = rows.last_mut() {
+                        r.push(item);
+                    }
+                }
+                for row in rows {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                        for item in row {
+                            let rect = tray_tile(app, ui, entry, item, order, &tab);
+                            widths.insert(item.key.clone(), rect.width());
+                            tray.tiles.push((item.key.clone(), rect));
+                        }
+                    });
+                }
+                ui.add_space(6.0);
+            }
+            ui.data_mut(|d| d.insert_temp(widths_id, widths));
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tl!("Drag along the line to move a button, or off it to remove it")).small().color(t.text_dim));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let custom = app.ui.ribbon_line.contains_key(&tab);
+                if ui.add_enabled(custom, egui::Button::new(tl!("Reset"))).on_hover_text(tl!("Put this tab's line back as it was")).clicked() {
+                    app.ui.ribbon_line.remove(&tab);
+                }
+            });
+        });
+    });
+    tray.open = shown.is_some();
+    tray
+}
+
+/// One tile of More's tray: the button itself, as on the line, then its name (whose right-click
+/// adds it to the line or takes it off); a dot when it is on the line. Its rect.
+fn tray_tile(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    entry: Option<&wordcraft_engine::ribbon::TabEntry>,
+    item: &crate::widgets::LineItem,
+    order: &[String],
+    tab: &str,
+) -> Rect {
+    let t = Tokens::get(ui.ctx());
+    let ctx = ui.ctx().clone();
+    let on_line = order.contains(&item.key);
+    let fill = if on_line { t.accent.gamma_multiply(0.08) } else { t.menu };
+    let frame = egui::Frame::new().fill(fill).stroke(egui::Stroke::new(1.0, t.border)).corner_radius(6).inner_margin(egui::Margin {
+        left: 2,
+        right: 10,
+        top: 2,
+        bottom: 2,
+    });
+    let tile = frame.show(ui, |ui| {
+        let row = egui::UiBuilder::new()
+            .layout(egui::Layout::left_to_right(egui::Align::Center))
+            .ui_stack_info(egui::UiStackInfo::default().with_tag(crate::widgets::RIBBON_CONTROL_TAG));
+        ui.scope_builder(row, |ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+            crate::widgets::set_compact(&ctx, true);
+            crate::widgets::set_no_group_dividers(&ctx, true);
+            let top = ui.cursor().min.y;
+            draw_one(app, ui, entry, &item.key, top, crate::widgets::line_button().0);
+            crate::widgets::set_line(&ctx, None);
+            crate::widgets::set_no_group_dividers(&ctx, false);
+            crate::widgets::set_compact(&ctx, false);
+            if !item.named {
+                let name = if item.name.is_empty() { item.key.clone() } else { tl!(&item.name).replace('\n', " ") };
+                ui.add(egui::Label::new(egui::RichText::new(name).size(12.5)).selectable(false).extend());
+            }
+            // The keyboard's way to arrange the line (and the mouse's, without dragging): + adds
+            // the button at the line's end, − takes it off.
+            let (icon, tip) = if on_line { ("minus", tl!("Remove from the line")) } else { ("plus", tl!("Add to the line")) };
+            // Accent colours (owner, 2026-11-25): the green plus and the orange minus.
+            if krub_icons::tabler_colour::with_colour(&ctx, true, || crate::widgets::icon_button(ui, icon, tip)).clicked() {
+                let mut o: Vec<String> = order.iter().filter(|k| **k != item.key).cloned().collect();
+                if !on_line {
+                    o.push(item.key.clone());
+                }
+                set_line_order(app, tab, o);
+            }
+        });
+    });
+    let rect = tile.response.rect;
+    if on_line {
+        ui.painter().circle_filled(pos2(rect.max.x - 5.0, rect.min.y + 5.0), 3.0, t.accent);
+    }
+    rect
+}
+
+/// Save `order` as the user's arrangement of `tab`'s line.
+fn set_line_order(app: &mut WordApp, tab: &str, order: Vec<String>) {
+    app.ui.ribbon_line.insert(tab.to_string(), order);
+}
+
+const DRAG_ID: &str = "krub_ribbon_line_drag";
+
+/// A button being dragged to arrange the line: its key, and whether it came from the line.
+#[derive(Clone)]
+struct LineDrag {
+    key: String,
+    from_line: bool,
+}
+
+/// Dragging to arrange the line (owner, 2026-11-24): a tile from More's tray onto the line adds
+/// it where it is dropped; a button on the line (while the tray is open, so a click on the line
+/// never moves anything) moves along it, or comes off it when dropped elsewhere. A drag starts
+/// once the pointer has moved 6 pt with the button down, so clicks stay clicks.
+fn line_drag(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    line_rect: Rect,
+    drawn: &[(String, Rect)],
+    items: &[crate::widgets::LineItem],
+    order: &[String],
+    tray: Tray,
+) {
+    let ctx = ui.ctx().clone();
+    let id = egui::Id::new(DRAG_ID);
+    let (down, origin, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.press_origin(), i.pointer.latest_pos()));
+    let mut drag: Option<LineDrag> = ctx.data(|d| d.get_temp(id));
+    if drag.is_none()
+        && down
+        && let (Some(o), Some(p)) = (origin, pos)
+        && o.distance(p) > 6.0
+    {
+        let started = ctx.data(|d| d.get_temp::<bool>(id.with("press_seen"))).unwrap_or(false);
+        if !started {
+            ctx.data_mut(|d| d.insert_temp(id.with("press_seen"), true));
+            if let Some((k, _)) = tray.tiles.iter().find(|(_, r)| r.contains(o)) {
+                drag = Some(LineDrag { key: k.clone(), from_line: false });
+            } else if tray.open
+                && let Some((k, _)) = drawn.iter().find(|(_, r)| r.contains(o))
+            {
+                drag = Some(LineDrag { key: k.clone(), from_line: true });
+            }
+        }
+    }
+    if !down {
+        ctx.data_mut(|d| d.remove::<bool>(id.with("press_seen")));
+    }
+    let t = Tokens::get(&ctx);
+    // While the tray is open the line is being arranged: its buttons are outlined, and an open
+    // hand over anything that can be dragged says so.
+    if tray.open && drag.is_none() {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, id.with("outline")));
+        for (_, r) in drawn {
+            painter.rect_stroke(r.expand(1.0), 5.0, egui::Stroke::new(1.0, t.accent.gamma_multiply(0.55)), egui::StrokeKind::Outside);
+        }
+        if pos.is_some_and(|p| tray.tiles.iter().chain(drawn).any(|(_, r)| r.contains(p))) && !down {
+            ctx.set_cursor_icon(egui::CursorIcon::Grab);
+        }
+    }
+    let Some(d) = drag else { return };
+    // Where it would go: before the first button whose middle is right of the pointer.
+    let at = pos.unwrap_or(line_rect.center());
+    let over_line = line_rect.expand2(vec2(0.0, 10.0)).contains(at);
+    let index = drawn.iter().position(|(_, r)| r.center().x > at.x).unwrap_or(drawn.len());
+    if down {
+        ctx.data_mut(|m| m.insert_temp(id, d.clone()));
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, id.with("ghost")));
+        if over_line {
+            let x = match (drawn.get(index), index.checked_sub(1).and_then(|i| drawn.get(i))) {
+                (Some((_, r)), _) => r.min.x - 2.0,
+                (None, Some((_, r))) => r.max.x + 2.0,
+                (None, None) => line_rect.min.x + 8.0,
+            };
+            let gold = egui::Color32::from_rgb(0xE9, 0xB3, 0x08);
+            painter.rect_filled(Rect::from_min_max(pos2(x - 1.5, line_rect.min.y + 6.0), pos2(x + 1.5, line_rect.max.y - 6.0)), 1.5, gold);
+        }
+        // The button's icon and name under the pointer; a − when it would come off the line.
+        let item = items.iter().find(|i| i.key == d.key);
+        let name = item.map_or(d.key.clone(), |i| tl!(&i.name).replace('\n', " "));
+        // The boxes (font, size, style) have no icon of their own.
+        let icon = item.map(|i| i.icon.clone()).filter(|i| !i.is_empty() && !matches!(i.as_str(), "font" | "size" | "para_style_box"));
+        let galley = painter.layout_no_wrap(name, crate::theme::regular(12.0), t.text);
+        let icon_w = if icon.is_some() { 26.0 } else { 0.0 };
+        let r = Rect::from_min_size(at + vec2(10.0, 10.0), galley.size() + vec2(16.0 + icon_w, 12.0));
+        painter.rect(r, 6.0, t.menu, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+        if let Some(icon) = &icon {
+            let ir = Rect::from_center_size(pos2(r.min.x + 8.0 + 10.0, r.center().y), vec2(20.0, 20.0));
+            crate::icons::paint(&painter, ir, icon, t.icon, t.accent);
+        }
+        painter.galley(pos2(r.min.x + 8.0 + icon_w, r.center().y - galley.size().y / 2.0), galley, t.text);
+        if d.from_line && !over_line {
+            let c = pos2(r.max.x, r.min.y);
+            painter.circle_filled(c, 8.0, egui::Color32::from_rgb(0xC2, 0x41, 0x0C));
+            painter.line_segment([c - vec2(4.0, 0.0), c + vec2(4.0, 0.0)], egui::Stroke::new(2.0, egui::Color32::WHITE));
+        }
+        ctx.request_repaint();
+        return;
+    }
+    // Dropped.
+    ctx.data_mut(|m| m.remove::<LineDrag>(id));
+    let tab = app.ui.tab.clone();
+    let mut new: Vec<String> = order.iter().filter(|k| **k != d.key).cloned().collect();
+    if over_line {
+        let pos = match drawn.get(index) {
+            Some((k, _)) if *k == d.key => drawn.get(index + 1).and_then(|(n, _)| new.iter().position(|x| x == n)).unwrap_or(new.len()),
+            Some((k, _)) => new.iter().position(|x| x == k).unwrap_or(new.len()),
+            None => drawn.last().and_then(|(k, _)| new.iter().position(|x| x == k)).map_or(new.len(), |p| p + 1),
+        };
+        new.insert(pos.min(new.len()), d.key);
+    } else if !d.from_line {
+        return;
+    }
+    if new != order {
+        set_line_order(app, &tab, new);
+    }
 }
 
 /// Header, Footer and Page Number: on Insert and on the Header & Footer tab.
@@ -577,6 +1260,11 @@ fn edge_cue(ui: &mut Ui, rect: Rect, glyph: &str, hint: &str, t: &Tokens) -> boo
 /// the middle, three fill it). The centring uses the column's height from the last frame; a frame
 /// whose height changed is redrawn before it is shown.
 pub(crate) fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    if crate::widgets::compact(ui) {
+        // One-line ribbon (UI experiment): the column's rows go straight into the line, so every
+        // button sits on its centre.
+        return add(ui);
+    }
     let id = ui.next_auto_id().with("stack_height");
     // Only a column standing in a group's full height is centred, not one nested in a row.
     let room = ui.available_height();
@@ -615,7 +1303,7 @@ pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
 }
 
 /// A row of the Underline menu: the style drawn as a line (a contributed patch). Clicking applies it.
-fn underline_sample(ui: &mut Ui, app: &mut WordApp, label: &str, style: &str) {
+pub(crate) fn underline_sample(ui: &mut Ui, app: &mut WordApp, label: &str, style: &str) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 24.0), Sense::click());
     if resp.hovered() {
@@ -638,7 +1326,7 @@ pub(crate) fn mi(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: 
 /// Home › Multilevel List › My Lists: the lists saved by name (Define New Multilevel List), each
 /// with how it numbers; one picked numbers the selected paragraphs with it. Remove from My Lists
 /// takes one out of the settings (lists already in documents stay).
-fn saved_list_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn saved_list_items(ui: &mut Ui, app: &mut WordApp) {
     if app.ui.saved_lists.is_empty() {
         return;
     }
@@ -756,7 +1444,7 @@ pub(crate) fn menu_icon_button(ui: &mut Ui, icon: &str, label: &str, shortcut: &
     result.response
 }
 
-fn mi_icon(ui: &mut Ui, app: &mut WordApp, label: &str, icon: &str, id: &str, params: Value) {
+pub(crate) fn mi_icon(ui: &mut Ui, app: &mut WordApp, label: &str, icon: &str, id: &str, params: Value) {
     let shortcut = crate::widgets::shortcut_text(app, id);
     let enabled = crate::widgets::enabled(app, id);
     if menu_icon_button(ui, icon, tl!(label), &shortcut, enabled, false).clicked() {
@@ -768,7 +1456,7 @@ fn mi_icon(ui: &mut Ui, app: &mut WordApp, label: &str, icon: &str, id: &str, pa
 /// Change List Level › and Define New Bullet… at the foot of the Bullets drop-down (#2786, ported
 /// from WordCraft 83f18db1). Change List Level is for a paragraph in a list of its own numbering,
 /// the one `para.listLevel` changes (a style's numbering it leaves alone).
-fn bullet_list_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn bullet_list_items(ui: &mut Ui, app: &mut WordApp) {
     ui.separator();
     let in_list = app.session.doc.para_at(&app.session.sel.focus).and_then(|p| p.props.numbering).is_some_and(|n| n.num != 0);
     ui.add_enabled_ui(in_list, |ui| {
@@ -783,7 +1471,7 @@ fn bullet_list_items(ui: &mut Ui, app: &mut WordApp) {
 }
 
 /// A menu item whose text is already in the interface language.
-fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) {
+pub(crate) fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) {
     let sc = crate::widgets::shortcut_text(app, id);
     let enabled = crate::widgets::enabled(app, id);
     let resp = ui.add_enabled(enabled, egui::Button::new(text).shortcut_text(sc).min_size(vec2(200.0, 0.0)));
@@ -1035,13 +1723,16 @@ pub(crate) fn wrap_text_items(ui: &mut Ui, app: &mut WordApp) {
 
 /// A quiet divider between related paragraph controls, sized to one small-button row.
 fn paragraph_separator(ui: &mut Ui) {
+    if crate::widgets::line(ui).is_some() {
+        return;
+    }
     let (r, _) = ui.allocate_exact_size(vec2(7.0, crate::widgets::SMALL_H), Sense::hover());
     let color = Tokens::get(ui.ctx()).border_strong;
     ui.painter().line_segment([pos2(r.center().x, r.top() + 4.0), pos2(r.center().x, r.bottom() - 4.0)], Stroke::new(1.0, color));
 }
 
 fn home(app: &mut WordApp, ui: &mut Ui) {
-    let st = app.session.run("format.state", &json!({})).unwrap_or_default();
+    let st = format_state(app, ui.ctx());
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
     group(ui, "Clipboard", app, |ui, app| {
         crate::widgets::big_split(ui, app, "paste", "Paste", "Paste", "edit.paste", json!({}), |ui, app| {
@@ -1069,12 +1760,16 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Font", app, |ui, app| {
         stack(ui, |ui| {
             crate::widgets::row(ui, |ui| {
-                let font = st.get("font").and_then(Value::as_str).unwrap_or("").to_string();
-                let warning = app.font_box_warning(&font);
-                let font = app.previews.font_shown(&font);
-                let fams = app.previews.families();
-                let prev = app.previews.font_preview_fn();
-                if let Some(f) = crate::widgets::font_combo_warned(ui, "font", 150.0, &font, &fams, Some(&*prev), warning.as_deref()) {
+                // The font list only on the pass that draws the box (the line draws one control a pass).
+                let font_box = crate::widgets::wants(ui, "font").then(|| {
+                    let font = st.get("font").and_then(Value::as_str).unwrap_or("").to_string();
+                    let warning = app.font_box_warning(&font);
+                    (app.previews.font_shown(&font), app.previews.families(), app.previews.font_preview_fn(), warning)
+                });
+                let font_w = if crate::widgets::line(ui).is_some() { 104.0 } else { 150.0 };
+                if let Some((font, fams, prev, warning)) = font_box
+                    && let Some(f) = crate::widgets::font_combo_warned(ui, "font", font_w, &font, &fams, Some(&*prev), warning.as_deref())
+                {
                     let _ = if f == crate::widgets::ADD_FONT {
                         app.run("font.add", json!({}))
                     } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -1091,14 +1786,25 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     .unwrap_or_default();
                 let sizes: Vec<String> =
                     wordcraft_engine::cmd::format::SIZES.iter().map(|s| if s.fract() == 0.0 { format!("{s:.0}") } else { s.to_string() }).collect();
-                if let Some(v) = combo(ui, "size", 52.0, &size, &sizes, None)
+                let size_w = if crate::widgets::line(ui).is_some() { 40.0 } else { 52.0 };
+                if let Some(v) = combo(ui, "size", size_w, &size, &sizes, None)
                     && let Ok(x) = v.trim().parse::<f64>()
                 {
                     let _ = app.run("format.size", json!({"size": x}));
                 }
                 ui.add_space(3.0);
-                small(ui, app, "grow", None, "Increase Font Size", "format.growFont", json!({}), false);
-                small(ui, app, "shrink", None, "Decrease Font Size", "format.shrinkFont", json!({}), false);
+                // One-line ribbon (owner, 2026-11-23): the pair in one split button, the other in
+                // its small menu.
+                if crate::widgets::line(ui).is_some() {
+                    split(ui, app, "grow", "Increase Font Size", "format.growFont", json!({}), false, None, |ui, app| {
+                        mi_icon(ui, app, "Increase Font Size", "grow", "format.growFont", json!({}));
+                        mi_icon(ui, app, "Decrease Font Size", "shrink", "format.shrinkFont", json!({}));
+                    });
+                }
+                if crate::widgets::line(ui).is_none() {
+                    small(ui, app, "grow", None, "Increase Font Size", "format.growFont", json!({}), false);
+                    small(ui, app, "shrink", None, "Decrease Font Size", "format.shrinkFont", json!({}), false);
+                }
                 menu_button(ui, app, "case", None, "Change Case", false, "format.changeCase", |ui, app| {
                     mi(ui, app, "Sentence case.", "format.changeCase", json!({"mode": "sentence"}));
                     mi(ui, app, "lowercase", "format.changeCase", json!({"mode": "lower"}));
@@ -1107,35 +1813,58 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "tOGGLE cASE", "format.changeCase", json!({"mode": "toggle"}));
                 });
                 small(ui, app, "clear", None, "Clear All Formatting", "format.clear", json!({}), false);
-                small(ui, app, "phonetic", None, "Phonetic Guide", "format.phonetic", json!({}), false);
+                // No Phonetic Guide or Enclose Characters (owner, 2026-11-25): KrubOffice has no
+                // East Asian (CJK) support; the commands stay for documents and agents.
             });
             ui.add_space(crate::widgets::ROW_GAP);
             crate::widgets::row(ui, |ui| {
                 small(ui, app, "bold", None, "Bold", "format.bold", json!({}), flag("bold"));
                 small(ui, app, "italic", None, "Italic", "format.italic", json!({}), flag("italic"));
-                split(ui, app, "underline", "Underline", "format.underline", json!({}), flag("underline"), None, |ui, app| {
-                    // Each style is drawn as a sample line, as in Word (a contributed patch); the name is its tooltip.
-                    for (l, s) in [
-                        ("Single", "single"),
-                        ("Double", "double"),
-                        ("Thick", "thick"),
-                        ("Dotted", "dotted"),
-                        ("Dashed", "dash"),
-                        ("Dot-dash", "dotDash"),
-                        ("Dot-dot-dash", "dotDotDash"),
-                        ("Wave", "wave"),
-                    ] {
-                        underline_sample(ui, app, l, s);
-                    }
-                    mi(ui, app, "Words only", "format.underline", json!({"style": "words"}));
-                    ui.separator();
-                    mi(ui, app, "More Underlines…", "format.fontDialog", json!({}));
-                });
+                // Underline keeps its menu on the line again now that the ribbon runs the full
+                // width (owner, 2026-11-24).
+                {
+                    split(ui, app, "underline", "Underline", "format.underline", json!({}), flag("underline"), None, |ui, app| {
+                        // Each style is drawn as a sample line, as in Word (a contributed patch); the name is its tooltip.
+                        for (l, s) in [
+                            ("Single", "single"),
+                            ("Double", "double"),
+                            ("Thick", "thick"),
+                            ("Dotted", "dotted"),
+                            ("Dashed", "dash"),
+                            ("Dot-dash", "dotDash"),
+                            ("Dot-dot-dash", "dotDotDash"),
+                            ("Wave", "wave"),
+                        ] {
+                            underline_sample(ui, app, l, s);
+                        }
+                        mi(ui, app, "Words only", "format.underline", json!({"style": "words"}));
+                        ui.separator();
+                        mi(ui, app, "More Underlines…", "format.fontDialog", json!({}));
+                    });
+                }
                 small(ui, app, "strike", None, "Strikethrough", "format.strikethrough", json!({}), flag("strike"));
-                small(ui, app, "subscript", None, "Subscript", "format.subscript", json!({}), flag("subscript"));
-                small(ui, app, "superscript", None, "Superscript", "format.superscript", json!({}), flag("superscript"));
-                small(ui, app, "charborder", None, "Character Border", "format.border", json!({}), flag("border"));
-                small(ui, app, "enclose", None, "Enclose Characters", "format.enclose", json!({}), false);
+                if crate::widgets::line(ui).is_some() {
+                    split(
+                        ui,
+                        app,
+                        "superscript",
+                        "Superscript",
+                        "format.superscript",
+                        json!({}),
+                        flag("superscript") || flag("subscript"),
+                        None,
+                        |ui, app| {
+                            mi_icon(ui, app, "Superscript", "superscript", "format.superscript", json!({}));
+                            mi_icon(ui, app, "Subscript", "subscript", "format.subscript", json!({}));
+                        },
+                    );
+                    small(ui, app, "charborder", None, "Character Border", "format.border", json!({}), flag("border"));
+                }
+                if crate::widgets::line(ui).is_none() {
+                    small(ui, app, "subscript", None, "Subscript", "format.subscript", json!({}), flag("subscript"));
+                    small(ui, app, "superscript", None, "Superscript", "format.superscript", json!({}), flag("superscript"));
+                    small(ui, app, "charborder", None, "Character Border", "format.border", json!({}), flag("border"));
+                }
                 // A contributed patch: Character Spacing on the ribbon (the Font dialog's Spacing box).
                 menu_button(ui, app, "char-spacing", None, "Character Spacing", false, "", |ui, app| {
                     for (label, points) in [("Very Tight", -1.5), ("Tight", -0.5), ("Normal", 0.0), ("Loose", 1.0), ("Very Loose", 3.0)] {
@@ -1199,7 +1928,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
             crate::widgets::row(ui, |ui| {
                 split(ui, app, "bullets", "Bullets", "para.bullets", json!({}), lists.bullets, None, |ui, app| {
                     ui.label(egui::RichText::new(tl!("Bullet Library")).small().weak());
-                    ui.horizontal(|ui| {
+                    crate::widgets::hrow(ui, |ui| {
                         for c in ["•", "○", "▪", "◆", "➢", "✓", "–"] {
                             // The interface fonts have no ➢, so its tile draws the arrowhead.
                             let label = if c == "➢" { " " } else { c };
@@ -1295,7 +2024,11 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Styles", app, |ui, app| {
-        crate::previews::style_gallery(app, ui, &st);
+        if crate::widgets::line(ui).is_some() {
+            style_box(app, ui, &st);
+        } else {
+            crate::previews::style_gallery(app, ui, &st);
+        }
     });
     group(ui, "Editing", app, |ui, app| {
         // Two rows: Find, then Replace and Select.
@@ -1322,6 +2055,37 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Editor", app, |ui, app| {
         big(ui, app, "editor", "Editor", "review.spelling", json!({}), false);
     });
+}
+
+/// The one-line ribbon's style box (UI experiment, first drawn on `ui-rail-panel`): Normal, the
+/// headings and the quick styles, then Styles Pane.
+pub(crate) fn style_box(app: &mut WordApp, ui: &mut Ui, st: &Value) {
+    let current = st.get("style").and_then(Value::as_str).unwrap_or("Normal").to_string();
+    let sheet = &app.session.doc.styles;
+    let mut ids: Vec<String> = sheet
+        .styles
+        .iter()
+        .filter(|s| {
+            s.kind == wordcraft_doc::StyleKind::Paragraph && (s.quick || crate::previews::GALLERY_STYLES.contains(&s.id.as_str())) && !s.hidden
+        })
+        .map(|s| s.id.clone())
+        .collect();
+    if !ids.contains(&current) {
+        ids.insert(0, current.clone());
+    }
+    let names: Vec<String> = ids.iter().map(|id| sheet.get(id).map(crate::i18n::style_name).unwrap_or_else(|| id.clone())).collect();
+    let shown = sheet.get(&current).map(crate::i18n::style_name).unwrap_or_else(|| current.clone());
+    let mut items = names.clone();
+    items.push(tl!("Styles Pane").to_string());
+    if let Some(pick) = combo(ui, "para_style_box", 120.0, &shown, &items, None) {
+        if pick == tl!("Styles Pane") {
+            let _ = app.run("view.stylesPane", json!({"value": true}));
+        } else if let Some(i) = names.iter().position(|n| *n == pick)
+            && let Some(id) = ids.get(i)
+        {
+            let _ = app.run("para.style", json!({"style": id}));
+        }
+    }
 }
 
 fn insert(app: &mut WordApp, ui: &mut Ui) {
@@ -1495,7 +2259,9 @@ fn draw(app: &mut WordApp, ui: &mut Ui) {
         // Pens added with Add Pen; right-click one to remove it.
         let pens = app.session.view.draw.pens.clone();
         for (i, pen) in pens.iter().enumerate() {
-            gallery_pen(ui, app, i, *pen, custom == Some(i));
+            if crate::widgets::line(ui).is_none() {
+                gallery_pen(ui, app, i, *pen, custom == Some(i));
+            }
         }
         menu_button(ui, app, "addPen", Some("Add\nPen"), "Add Pen", true, "", |ui, app| {
             for (label, kind) in [("Pen", InkTool::Pen), ("Pencil", InkTool::Pencil), ("Highlighter", InkTool::Highlighter)] {
@@ -1610,7 +2376,7 @@ fn gallery_pen(ui: &mut Ui, app: &mut WordApp, i: usize, pen: wordcraft_engine::
 /// The Design tab's style set gallery in a box of its own, sized from its thumbnails and clipped
 /// to it, with a gap on each side: the Colors and Fonts column can't be drawn over, or cut by,
 /// the thumbnails (#638). Returns the box and the space the thumbnails used.
-fn style_set_box(app: &mut WordApp, ui: &mut Ui) -> (Rect, Rect) {
+pub(crate) fn style_set_box(app: &mut WordApp, ui: &mut Ui) -> (Rect, Rect) {
     ui.add_space(4.0);
     let (gallery, _) = ui.allocate_exact_size(vec2(crate::previews::STYLE_SET_GALLERY_W, CONTENT_H), Sense::hover());
     let mut gui = ui.new_child(egui::UiBuilder::new().max_rect(gallery).layout(egui::Layout::left_to_right(egui::Align::Min)));
@@ -1621,7 +2387,7 @@ fn style_set_box(app: &mut WordApp, ui: &mut Ui) -> (Rect, Rect) {
     (gallery, gui.min_rect())
 }
 
-fn design(app: &mut WordApp, ui: &mut Ui) {
+pub(crate) fn design(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Themes", app, |ui, app| {
         menu_button(ui, app, "themes", Some("Themes"), "Themes", true, "design.themes", |ui, app| {
             for (name, ..) in wordcraft_engine::cmd::design::THEMES {
@@ -1630,7 +2396,9 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Document Formatting", app, |ui, app| {
-        style_set_box(app, ui);
+        if crate::widgets::line(ui).is_none() {
+            style_set_box(app, ui);
+        }
         stack(ui, |ui| {
             menu_button(ui, app, "colors", Some("Colors"), "Theme Colors", false, "design.themeColors", |ui, app| {
                 for (name, ..) in wordcraft_engine::cmd::design::THEMES {
@@ -1686,7 +2454,7 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
 
 // Layout › Margins, Orientation, Size and Columns: the caret section's setting has a check
 // mark, as Text Direction's does (#1206).
-fn margins_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn margins_items(ui: &mut Ui, app: &mut WordApp) {
     let current = wordcraft_engine::cmd::page::margins_preset_at(&app.session);
     // The two uniform presets name their margin in the measurement unit (`2,54 cm`, #838).
     for (l, k, uniform) in [
@@ -1708,13 +2476,13 @@ fn margins_items(ui: &mut Ui, app: &mut WordApp) {
     pic_item(ui, app, "Custom Margins…", None, "mg_custom", "ui.dialog", json!({"name": "pageSetup"}));
 }
 
-fn orientation_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn orientation_items(ui: &mut Ui, app: &mut WordApp) {
     let land = wordcraft_engine::cmd::page::sect(&app.session).landscape;
     pic_item(ui, app, "Portrait", Some(!land), "portrait", "layout.orientation", json!({"value": "portrait"}));
     pic_item(ui, app, "Landscape", Some(land), "landscape", "layout.orientation", json!({"value": "landscape"}));
 }
 
-fn columns_items(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn columns_items(ui: &mut Ui, app: &mut WordApp) {
     let current = wordcraft_engine::cmd::page::columns_preset_at(&app.session);
     for (l, k, params) in [
         ("One", "one", json!({"count": 1})),
@@ -1780,6 +2548,10 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Paragraph", app, |ui, app| {
+        // One-line ribbon: indents and spacing are in the side panel's Paragraph tab.
+        if crate::widgets::line(ui).is_some() {
+            return;
+        }
         let rp = app.session.doc.para_at(&app.session.sel.focus).map(|p| app.session.doc.styles.resolve_para(&p.props));
         let Some(rp) = rp else { return };
         // Two rows of fields, as the two-size ribbon's two rows; each label names what it sets
@@ -1789,7 +2561,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
         // The gap before the Spacing column sits inside its cells: `add_space` in a grid moves the
         // next cell in release builds but trips a debug assertion.
         let spaced = |ui: &mut Ui, text: egui::RichText| {
-            ui.horizontal(|ui| {
+            crate::widgets::hrow(ui, |ui| {
                 ui.add_space(8.0);
                 ui.label(text);
             });
@@ -1924,22 +2696,19 @@ fn group_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
 }
 
 fn references(app: &mut WordApp, ui: &mut Ui) {
+    // One group for the table of contents and the lists of figures and tables (owner,
+    // 2026-11-22): Manage Table of Contents opens the Table of Contents pane, where each is
+    // chosen, inserted and set up; Update All brings all three up to date.
     group(ui, "Table of Contents", app, |ui, app| {
-        menu_button(ui, app, "toc", Some("Table of\nContents"), "Table of Contents", true, "references.toc", |ui, app| {
-            mi(ui, app, "Automatic Table 1 (3 levels)", "references.toc", json!({"levels": 3}));
-            mi(ui, app, "Automatic Table 2 (2 levels)", "references.toc", json!({"levels": 2, "title": "Table of Contents"}));
-            ui.separator();
-            mi(ui, app, "Custom Table of Contents…", "ui.dialog", json!({"name": "toc"}));
-            mi(ui, app, "Remove Table of Contents", "references.removeToc", json!({}));
-        });
+        big(ui, app, "toc", "Manage Table\nof Contents", "ui.listsPane", json!({}), false);
         stack(ui, |ui| {
+            small(ui, app, "updateTable", Some("Update All"), "Update All", "references.updateLists", json!({}), false);
             menu_button(ui, app, "addText", Some("Add Text"), "Add Text", false, "references.addText", |ui, app| {
                 mi(ui, app, "Do Not Show in TOC", "references.addText", json!({"level": 0}));
                 for l in 1..=3u64 {
                     mi(ui, app, &format!("Level {l}"), "references.addText", json!({"level": l}));
                 }
             });
-            small(ui, app, "updateTable", Some("Update Table"), "Update Table", "references.updateToc", json!({}), false);
         });
     });
     group(ui, "Footnotes", app, |ui, app| {
@@ -1992,19 +2761,6 @@ fn references(app: &mut WordApp, ui: &mut Ui) {
     });
     group(ui, "Captions", app, |ui, app| {
         big(ui, app, "caption", "Insert\nCaption", "references.caption", json!({}), false);
-        // Each insert, named beside its icon, with its own update button on the same row.
-        let w = crate::widgets::small_labeled_width(ui, &["Insert Table of Figures", "Insert Table of Tables"]);
-        stack(ui, |ui| {
-            crate::widgets::row(ui, |ui| {
-                small_labeled(ui, app, "tableOfFigures", "Insert Table of Figures", "references.tableOfFigures", json!({}), w);
-                small(ui, app, "update", None, "Update Table of Figures", "references.updateFigures", json!({"kind": "figure"}), false);
-            });
-            ui.add_space(crate::widgets::ROW_GAP);
-            crate::widgets::row(ui, |ui| {
-                small_labeled(ui, app, "tableOfTables", "Insert Table of Tables", "references.tableOfFigures", json!({"kind": "table"}), w);
-                small(ui, app, "update", None, "Update Table of Tables", "references.updateFigures", json!({"kind": "table"}), false);
-            });
-        });
         stack(ui, |ui| {
             small(ui, app, "crossRef", Some("Cross-reference"), "Cross-reference", "insert.crossReference", json!({}), false);
         });
@@ -2255,12 +3011,12 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
     });
     group(ui, "Show", app, |ui, app| {
         stack(ui, |ui| {
-            ui.horizontal(|ui| {
+            crate::widgets::hrow(ui, |ui| {
                 small(ui, app, "ruler", Some("Ruler"), "Ruler", "view.ruler", json!({}), v.ruler);
                 small(ui, app, "gridlines", Some("Gridlines"), "Gridlines", "view.gridlines", json!({}), v.gridlines);
             });
             ui.add_space(crate::widgets::ROW_GAP);
-            ui.horizontal(|ui| {
+            crate::widgets::hrow(ui, |ui| {
                 small(ui, app, "textBoundaries", Some("Text Boundaries"), "Text Boundaries", "view.textBoundaries", json!({}), v.text_boundaries);
                 let available = crate::canvas::can_hide_white_space(app);
                 ui.add_enabled_ui(available, |ui| {
@@ -2283,14 +3039,14 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Zoom", app, |ui, app| {
         big(ui, app, "printPreview", "Print\nPreview", "ui.printPreview", json!({}), false);
         stack(ui, |ui| {
-            ui.horizontal(|ui| {
+            crate::widgets::hrow(ui, |ui| {
                 small(ui, app, "zoom", Some("Zoom"), "Zoom", "ui.dialog", json!({"name": "zoom"}), false);
                 paragraph_separator(ui);
                 small(ui, app, "zoomOut", None, "Zoom Out", "view.zoomOut", json!({}), false);
                 small(ui, app, "zoom100", Some("100%"), "100%", "view.zoom100", json!({}), false);
                 small(ui, app, "zoomIn", None, "Zoom In", "view.zoomIn", json!({}), false);
             });
-            ui.horizontal(|ui| {
+            crate::widgets::hrow(ui, |ui| {
                 small(ui, app, "onePage", Some("One Page"), "One Page", "view.onePage", json!({}), v.fit == "onePage");
                 small(ui, app, "multiplePages", Some("Multiple Pages"), "Multiple Pages", "view.multiplePages", json!({}), v.multi_page);
             });
@@ -2351,8 +3107,13 @@ fn outlining(app: &mut WordApp, ui: &mut Ui) {
                 small(ui, app, "outlineDown", None, "Move Down", "outline.moveDown", json!({}), false);
                 small(ui, app, "outlineExpand", None, "Expand", "outline.expand", json!({}), false);
                 small(ui, app, "outlineCollapse", None, "Collapse", "outline.collapse", json!({}), false);
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new(tl!("Show Level")).size(11.5));
+                // On the one-line ribbon the label belongs to the Show Level box's key, so it is
+                // drawn once, with the box.
+                if crate::widgets::kept_named(ui, "outlineShowLevel", 150.0, "Show Level") {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(tl!("Show Level")).size(11.5));
+                    ui.add_space(4.0);
+                }
                 let mut shown: Vec<String> = vec![tl!("All Levels").to_string()];
                 shown.extend((1..BODY).map(name));
                 let current = shown.get(usize::from(o.show_level)).cloned().unwrap_or_default();
@@ -2365,11 +3126,15 @@ fn outlining(app: &mut WordApp, ui: &mut Ui) {
             });
             crate::widgets::row(ui, |ui| {
                 let mut f = !o.hide_formatting;
-                if ui.checkbox(&mut f, tl!("Show Text Formatting")).changed() {
+                if crate::widgets::kept_named(ui, "outline.showFormatting", 170.0, "Show Text Formatting")
+                    && ui.checkbox(&mut f, tl!("Show Text Formatting")).changed()
+                {
                     let _ = app.run("outline.showFormatting", json!({ "value": f }));
                 }
                 let mut first = o.first_line_only;
-                if ui.checkbox(&mut first, tl!("Show First Line Only")).changed() {
+                if crate::widgets::kept_named(ui, "outline.firstLineOnly", 160.0, "Show First Line Only")
+                    && ui.checkbox(&mut first, tl!("Show First Line Only")).changed()
+                {
                     let _ = app.run("outline.firstLineOnly", json!({ "value": first }));
                 }
             });
@@ -2520,10 +3285,12 @@ pub(crate) fn table_style_gallery(
 /// Table pane › Cell Size: the caret cell's row height and column width, in inches. They show
 /// the size on the page (a row without a set height shows the height its text gives it) and
 /// editing runs `table.rowHeight` / `table.columnWidth`; dragging one is a single Undo.
-pub(crate) fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
+/// The caret's cell size in points, as the boxes show it: the row's height, the cell's width, and
+/// whether the height is exact (not "at least"). `None` outside a table.
+pub(crate) fn cell_size_now(app: &mut WordApp) -> Option<(f32, f32, bool)> {
     let story = app.session.sel.focus.story;
-    let Some((tp, r, c)) = app.session.sel.focus.path.cell() else { return };
-    let Some(t) = app.session.doc.table(story, &tp) else { return };
+    let (tp, r, c) = app.session.sel.focus.path.cell()?;
+    let t = app.session.doc.table(story, &tp)?;
     let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
     let stored_w = t.grid.get(t.grid_col(r, c)).copied();
     let laid = app.session.layout().pages.iter().flat_map(|pg| pg.items.iter()).find_map(|it| match it {
@@ -2545,40 +3312,9 @@ pub(crate) fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
             _ => None,
         })
         .reduce(f32::min);
-    let unit = crate::options::unit();
-    let k = unit.pt_per_unit();
     let h0 = row.height.or(row_h).unwrap_or(0.0);
     let w0 = laid.map(|x| x.w).or(stored_w).unwrap_or(0.0);
-    let exact = row.height_rule == wordcraft_doc::props::HeightRule::Exact;
-    // The edited value in points, and whether it continues a drag (joins the previous Undo step).
-    let boxed = |ui: &mut Ui, label: &str, pt: f32| -> Option<(f32, bool)> {
-        let mut out = None;
-        crate::widgets::row(ui, |ui| {
-            ui.add_sized(vec2(48.0, 18.0), egui::Label::new(egui::RichText::new(tl!(label)).small()));
-            let mut v = pt / k;
-            let r =
-                ui.add_sized(vec2(72.0, 18.0), crate::numfield::NumField::new(&mut v).speed(0.01).range(0.02..=22.0).measure(unit).max_decimals(2));
-            if r.changed() {
-                out = Some((v * k, r.dragged() && !r.drag_started()));
-            }
-        });
-        ui.add_space(2.0);
-        out
-    };
-    stack(ui, |ui| {
-        if let Some((h, join)) = boxed(ui, "Height:", h0) {
-            if join {
-                app.session.join_next_undo();
-            }
-            let _ = app.run("table.rowHeight", json!({"height": h, "rule": if exact { "exact" } else { "atLeast" }}));
-        }
-        if let Some((w, join)) = boxed(ui, "Width:", w0) {
-            if join {
-                app.session.join_next_undo();
-            }
-            let _ = app.run("table.columnWidth", json!({"width": w}));
-        }
-    });
+    Some((h0, w0, row.height_rule == wordcraft_doc::props::HeightRule::Exact))
 }
 
 #[cfg(test)]
@@ -2628,13 +3364,44 @@ mod tests {
         assert_eq!(text(&h), "Hello!");
     }
 
-    /// Home › Paste is the KrubOffice split button: the icon and label make one target that
-    /// pastes, and only the drop-down strip at the end of the label row opens the Paste menu.
+    /// Opens the one-line ribbon's More (`label`, "More" in English), which draws the whole tab as
+    /// the two-row ribbon; that copy of a button is the lowest one with its label.
+    fn open_more(h: &mut egui_kittest::Harness<WordApp>, label: &str) {
+        use egui_kittest::kittest::Queryable;
+        let more = h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.min.y.total_cmp(&b.min.y)).expect("the line has More");
+        click_at(h, more.center());
+        h.run_steps(4);
+    }
+
+    /// A primary click at `pos` (window points).
+    fn click_at(h: &mut egui_kittest::Harness<WordApp>, pos: egui::Pos2) {
+        h.hover_at(pos);
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+    }
+
+    /// The lowest button labelled `label`: in More's two-row drawing when it is open.
+    fn lowest(h: &egui_kittest::Harness<WordApp>, label: &str) -> egui::Rect {
+        use egui_kittest::kittest::Queryable;
+        h.get_all_by_label(label).map(|n| n.rect()).max_by(|a, b| a.min.y.total_cmp(&b.min.y)).unwrap_or_else(|| panic!("no {label}"))
+    }
+
+    /// The highest button labelled `label`: the one on the line.
+    fn highest(h: &egui_kittest::Harness<WordApp>, label: &str) -> egui::Rect {
+        use egui_kittest::kittest::Queryable;
+        h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.min.y.total_cmp(&b.min.y)).unwrap_or_else(|| panic!("no {label}"))
+    }
+
+    /// Home › Paste on the line is a split button: the icon pastes, and the strip beside it opens
+    /// the Paste menu.
     #[test]
     fn paste_is_a_split_button_whose_strip_opens_the_menu() {
         use egui_kittest::kittest::Queryable;
         let app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -2642,17 +3409,14 @@ mod tests {
             },
             app,
         );
-        h.run_steps(4);
-        let main = h.get_by_role_and_label(egui::accesskit::Role::Button, "Paste").rect();
-        let arrow = h.get_by_label("Paste options").rect();
-        assert!(main.contains_rect(arrow), "the strip is part of the button: {arrow:?} in {main:?}");
-        assert!((arrow.max.x - main.max.x).abs() < 0.5 && (arrow.max.y - main.max.y).abs() < 0.5, "bottom-right corner");
-        assert!((arrow.width() - crate::widgets::SPLIT_ARROW_W).abs() < 0.5);
-        assert!(arrow.min.y > main.min.y + main.height() / 3.0, "the strip is in the label row, below the icon");
+        h.run_steps(6);
+        let main = highest(&h, "Paste");
+        let arrow = highest(&h, "Paste options");
+        assert!(arrow.min.x >= main.max.x - 0.5 && (arrow.center().y - main.center().y).abs() < 1.0, "the strip is beside it: {arrow:?} {main:?}");
         assert!(h.query_by_label("Keep Text Only").is_none(), "the menu starts closed");
-        h.get_by_label("Paste options").click();
+        click_at(&mut h, arrow.center());
         h.run_steps(4);
-        assert!(h.query_by_label("Keep Text Only").is_some(), "the strip opens the Paste menu");
+        assert!(h.query_by_label("Keep Text Only").is_some(), "the line's strip opens the Paste menu");
     }
 
     /// The one bar (owner, 2026-11-18) ends with the user icon alone: no search box, Share, Report
@@ -2678,9 +3442,16 @@ mod tests {
         }
         h.get_by_label("Account").click();
         h.run_steps(4);
-        for item in ["Search commands and help", "Comments", "Editing — edit the document directly"] {
+        for item in ["Search commands and help", "Editing — edit the document directly"] {
             assert!(h.query_by_label(item).is_some(), "the user menu has {item}");
         }
+        assert!(h.query_by_label("Comments").is_none(), "Comments moved to the file name's menu (owner, 2026-11-23)");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        let stem = h.state().title_stem();
+        h.get_by_label_contains(&format!("{stem} — ")).click();
+        h.run_steps(4);
+        assert!(h.query_by_label("Comments").is_some(), "the file name's menu has Comments");
         h.key_press(egui::Key::Escape);
         h.run_steps(2);
         h.state_mut().ui.tab = "Help".into();
@@ -2692,14 +3463,13 @@ mod tests {
         assert!(h.state_mut().run("ui.discord", json!({})).is_err(), "ui.discord is no longer a command");
     }
 
-    /// The View tab's Show group has a Text Boundaries toggle, on by default; clicking it turns the
-    /// outline around the page's text area off and on again.
+    /// The View tab's Show buttons are in More's tray, side by side in their group, and Text
+    /// Boundaries (on by default) turns the outline around the text area off and on from the line.
     #[test]
     fn view_tab_has_a_text_boundaries_toggle() {
-        use egui_kittest::kittest::Queryable;
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         app.run("ui.tab", json!({"tab": "View"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -2707,40 +3477,27 @@ mod tests {
             },
             app,
         );
-        h.run_steps(4);
-        let ribbon_button = |label: &str| h.get_all_by_label(label).map(|node| node.rect()).min_by(|a, b| a.min.y.total_cmp(&b.min.y)).unwrap();
-        let ruler = ribbon_button("Ruler");
-        let gridlines = ribbon_button("Gridlines");
-        let hide_white_space = ribbon_button("Hide White Space");
-        let text_boundaries = ribbon_button("Text Boundaries");
-        let navigation = ribbon_button("Navigation Pane");
-        let zoom_in = ribbon_button("Zoom In");
-        let zoom_out = ribbon_button("Zoom Out");
-        let one_page = ribbon_button("One Page");
-        let multiple_pages = ribbon_button("Multiple Pages");
-        let page_width = ribbon_button("Page Width");
-
-        // Show, in the two-size ribbon's two rows: Ruler and Gridlines, then Text Boundaries and
-        // Hide White Space, left-aligned.
-        assert!((gridlines.min.y - ruler.min.y).abs() < 0.5);
-        assert!((gridlines.min.x - ruler.max.x).abs() <= 2.0, "the first row has no column-sized gap");
-        assert!(text_boundaries.min.y > ruler.max.y - 1.0 && (hide_white_space.min.y - text_boundaries.min.y).abs() < 0.5, "two rows");
-        assert!((text_boundaries.min.x - ruler.min.x).abs() < 0.5 && hide_white_space.min.x >= text_boundaries.max.x - 1.0);
-        assert!(navigation.min.x >= gridlines.max.x && navigation.min.x >= hide_white_space.max.x && navigation.height() > ruler.height() * 2.0);
-        assert!((zoom_in.min.y - zoom_out.min.y).abs() < 0.5);
-        assert!((one_page.min.y - multiple_pages.min.y).abs() < 0.5);
-        assert!(one_page.min.y > zoom_in.min.y);
-        assert!(page_width.min.x >= multiple_pages.max.x && page_width.height() > one_page.height() * 2.0);
+        h.run_steps(6);
+        open_more(&mut h, "More");
+        let tile = |label: &str| lowest(&h, label);
+        let (ruler, gridlines, boundaries) = (tile("Ruler"), tile("Gridlines"), tile("Text Boundaries"));
+        assert!(ruler.min.y > 100.0, "in the tray, under the line: {ruler:?}");
+        assert!((gridlines.center().y - ruler.center().y).abs() < 1.0 || gridlines.min.y > ruler.max.y, "Show's buttons together");
+        assert!(boundaries.min.y >= ruler.min.y - 0.5);
         assert!(h.state().session.view.text_boundaries, "on by default");
-        h.get_by_label("Text Boundaries").click();
+        h.key_press(egui::Key::Escape);
         h.run_steps(3);
-        assert!(!h.state().session.view.text_boundaries, "the button turns it off");
-        h.get_by_label("Text Boundaries").click();
+        let at = highest(&h, "Text Boundaries").center();
+        click_at(&mut h, at);
+        h.run_steps(3);
+        assert!(!h.state().session.view.text_boundaries, "the line's button turns it off");
+        let at = highest(&h, "Text Boundaries").center();
+        click_at(&mut h, at);
         h.run_steps(3);
         assert!(h.state().session.view.text_boundaries, "and on again");
     }
 
-    /// Table Design › Table Styles: "More" opens a panel of every style in groups, with New,
+    /// Table Styles (the gallery in the right panel's Table pane): "More" opens a panel of every style in groups, with New,
     /// Modify, Delete and Clear below; picking a tile styles the caret's table.
     #[test]
     fn table_styles_more_panel_lists_groups_and_applies_a_style() {
@@ -2757,7 +3514,9 @@ mod tests {
             app,
         );
         h.run_steps(4);
-        h.get_by_label("More").click();
+        // The gallery's More, in the right panel's Table pane (the line's More is above it).
+        let at = lowest(&h, "More").center();
+        click_at(&mut h, at);
         h.run_steps(4);
         for group in ["Plain Tables", "Grid Tables", "List Tables"] {
             assert!(h.query_by_label(group).is_some(), "{group} group");
@@ -2785,13 +3544,13 @@ mod tests {
         assert_eq!(style.as_deref(), Some("TableNormal"));
     }
 
+    /// In Thai, More's tray names View's Show buttons in Thai, in one group.
     #[test]
     fn show_group_rows_share_edges_in_thai() {
-        use egui_kittest::kittest::Queryable;
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         app.ui.language = "th".into();
         app.run("ui.tab", json!({"tab": "View"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -2799,27 +3558,22 @@ mod tests {
             },
             app,
         );
-        h.run_steps(4);
-        let rect = |label: &str| h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.min.y.total_cmp(&b.min.y)).unwrap();
-        let ruler = rect("ไม้บรรทัด");
-        let white_space = rect("ซ่อนพื้นที่ว่าง");
-        let grid = rect("เส้นตาราง");
-        let boundaries = rect("ขอบเขตข้อความ");
-        let nav = rect("บานหน้าต่างนำทาง");
-        assert!((grid.min.y - ruler.min.y).abs() < 0.5 && (grid.min.x - ruler.max.x).abs() <= 2.0);
-        assert!(boundaries.min.y > ruler.max.y - 1.0 && (white_space.min.y - boundaries.min.y).abs() < 0.5, "two rows");
-        assert!((boundaries.min.x - ruler.min.x).abs() < 0.5 && white_space.min.x >= boundaries.max.x - 1.0);
-        assert!(nav.min.x >= grid.max.x && nav.min.x >= white_space.max.x && nav.height() > ruler.height() * 2.0);
+        h.run_steps(6);
+        open_more(&mut h, "เพิ่มเติม");
+        let rect = |label: &str| lowest(&h, label);
+        let (ruler, grid, boundaries, white) = (rect("ไม้บรรทัด"), rect("เส้นตาราง"), rect("ขอบเขตข้อความ"), rect("ซ่อนพื้นที่ว่าง"));
+        for r in [grid, boundaries, white] {
+            assert!(r.min.y > 100.0 && (r.min.y - ruler.min.y).abs() < 200.0, "the Show group's tiles together: {ruler:?} {r:?}");
+        }
     }
 
-    /// The Home tab's Paragraph group has a Thai Distribution button after Justify (and it sets
-    /// that alignment, which lays Thai out with its extra space shared between characters).
+    /// Home's line has Thai Distribution right after Justify (and it sets that alignment, which lays
+    /// Thai out with its extra space shared between characters).
     #[test]
     fn home_tab_has_a_thai_distribution_button_after_justify() {
-        use egui_kittest::kittest::Queryable;
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         app.run("text.insert", json!({"text": "สวัสดีครับ"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 300.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -2827,22 +3581,143 @@ mod tests {
             },
             app,
         );
-        h.run_steps(4);
-        let justify = h.get_by_label("Justify").rect();
-        let thai = h.get_by_label("Thai Distribution").rect();
-        let sort = h.get_by_label("Sort").rect();
+        h.run_steps(6);
+        let justify = highest(&h, "Justify");
+        let thai = highest(&h, "Thai Distribution");
         assert!(thai.min.x > justify.max.x - 1.0 && (thai.center().y - justify.center().y).abs() < 1.0, "{justify:?} {thai:?}");
-        let outdent = h.get_by_label("Decrease Indent").rect();
-        let spacing = h.get_by_label("Line and Paragraph Spacing").rect();
-        assert!((sort.center().y - outdent.center().y).abs() < 1.0, "sort and indent share the first row: {sort:?} {outdent:?}");
-        assert!(
-            (spacing.center().y - justify.center().y).abs() < 1.0 && justify.min.y > sort.max.y,
-            "alignment and spacing share the second row: {justify:?} {spacing:?} {sort:?}"
-        );
-        h.get_by_label("Thai Distribution").click();
+        click_at(&mut h, thai.center());
         h.run_steps(4);
         let align = h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).and_then(|p| p.props.align);
         assert_eq!(align, Some(wordcraft_doc::Align::ThaiDistribute));
+    }
+
+    /// A primary-button drag from `a` to `b`, a frame per step.
+    fn drag(h: &mut egui_kittest::Harness<WordApp>, a: egui::Pos2, b: egui::Pos2) {
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        h.hover_at(a);
+        h.step();
+        h.event(button(a, true));
+        h.step();
+        for i in 1..=10 {
+            h.hover_at(a + (b - a) * (i as f32 / 10.0));
+            h.step();
+        }
+        h.event(button(b, false));
+        h.run_steps(4);
+    }
+
+    fn line_window() -> egui_kittest::Harness<'static, WordApp> {
+        let app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(6);
+        h
+    }
+
+    /// Owner, 2026-11-24: More's tray lists every button of the tab; a tile dragged onto the line
+    /// goes where it is dropped, and the arrangement is the tab's own.
+    #[test]
+    fn a_tile_dragged_onto_the_line_goes_where_it_is_dropped() {
+        let mut h = line_window();
+        assert!(h.state().ui.ribbon_line.is_empty(), "the tab's own line to start with");
+        open_more(&mut h, "More");
+        let cut = lowest(&h, "Cut");
+        assert!(cut.min.y > 100.0, "Cut is in the tray: {cut:?}");
+        let (bold, italic) = (highest(&h, "Bold"), highest(&h, "Italic"));
+        let drop = pos2((bold.max.x + italic.min.x) / 2.0, bold.center().y);
+        drag(&mut h, cut.center(), drop);
+        let order = h.state().ui.ribbon_line.get("Home").cloned().expect("Home is arranged now");
+        let at = |k: &str| order.iter().position(|x| x == k);
+        assert_eq!(at("edit.cut"), at("format.bold").map(|i| i + 1), "between Bold and Italic: {order:?}");
+        let on_line = highest(&h, "Cut");
+        assert!(on_line.min.y < 100.0 && on_line.min.x > bold.min.x, "on the line now: {on_line:?}");
+        assert!(!h.state().ui.ribbon_line.contains_key("Insert"), "the other tabs keep theirs");
+    }
+
+    /// With the tray open, a button dragged off the line comes off it; Reset brings the tab's own
+    /// line back. A click on the line with the tray closed never moves anything.
+    #[test]
+    fn a_button_dragged_off_the_line_comes_off_and_reset_brings_it_back() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = line_window();
+        let bold = highest(&h, "Bold");
+        drag(&mut h, bold.center(), bold.center() + vec2(0.0, 400.0));
+        assert!(h.state().ui.ribbon_line.is_empty(), "the tray is closed: the line stays as it is");
+        open_more(&mut h, "More");
+        let bold = highest(&h, "Bold");
+        drag(&mut h, bold.center(), bold.center() + vec2(0.0, 400.0));
+        let order = h.state().ui.ribbon_line.get("Home").cloned().unwrap_or_default();
+        assert!(!order.is_empty() && !order.iter().any(|k| k == "format.bold"), "Bold is off the line: {order:?}");
+        assert!(highest(&h, "Bold").min.y > 100.0, "only its tile is left, in the tray");
+        h.get_by_label("Reset").click();
+        h.run_steps(4);
+        assert!(h.state().ui.ribbon_line.is_empty());
+        assert!(highest(&h, "Bold").min.y < 100.0, "back on the line");
+    }
+
+    /// A tile's + adds its button at the line's end and − takes it off (also from the keyboard), and
+    /// the arrangement is kept with the other settings.
+    #[test]
+    fn the_tile_menu_arranges_the_line_and_it_is_kept() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = line_window();
+        open_more(&mut h, "More");
+        let cut = lowest(&h, "Cut");
+        assert!(cut.min.y > 100.0);
+        // The tile's + adds it at the line's end.
+        let add =
+            h.get_all_by_label("Add to the line").map(|n| n.rect()).find(|r| (r.center().y - cut.center().y).abs() < 12.0 && r.min.x > cut.min.x);
+        click_at(&mut h, add.expect("Cut's tile has +").center());
+        h.run_steps(3);
+        let order = h.state().ui.ribbon_line.get("Home").cloned().unwrap();
+        assert_eq!(order.last().map(String::as_str), Some("edit.cut"), "added at the end: {order:?}");
+        let saved = serde_json::to_string(&h.state().prefs()).unwrap();
+        let mut b = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert_eq!(b.ui.ribbon_line.get("Home"), Some(&order), "kept between runs");
+    }
+
+    /// The Outlining tab fits the one-line ribbon: each control is drawn once on the line (the
+    /// check boxes and the Show Level label used to be drawn in every pass, on top of each other),
+    /// and More's tray doesn't repeat the names those controls show themselves.
+    #[test]
+    fn outlining_draws_each_control_once_on_the_line() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = line_window();
+        h.state_mut().run("view.outline", json!({})).unwrap();
+        h.run_steps(8);
+        assert_eq!(h.state().ui.tab, "Outlining");
+        let on_line = |h: &egui_kittest::Harness<WordApp>, label: &str| h.get_all_by_label(label).filter(|n| n.rect().min.y < 100.0).count();
+        for label in ["Show Text Formatting", "Show First Line Only", "Promote", "Move Up"] {
+            assert_eq!(on_line(&h, label), 1, "{label} once on the line");
+        }
+        open_more(&mut h, "More");
+        let tray = |h: &egui_kittest::Harness<WordApp>, label: &str| h.get_all_by_label(label).filter(|n| n.rect().min.y > 100.0).count();
+        assert_eq!(tray(&h, "Show First Line Only"), 1, "its tile shows the check box's own name only");
+        assert_eq!(tray(&h, "Promote"), 2, "a button's tile: the button, then its name");
+    }
+
+    /// Owner, 2026-11-25: More's tray on Review showed no Protect or Ink group. They were there,
+    /// below a fixed 560 pt scroll height whose bar only showed on hover. The tray now takes the
+    /// window's height and its last group shows in a 900 pt window.
+    #[test]
+    fn the_review_tray_shows_its_last_groups() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = line_window();
+        h.state_mut().ui.tab = "Review".into();
+        h.run_steps(6);
+        open_more(&mut h, "More");
+        h.run_steps(8);
+        let reset = h.get_by_label("Reset").rect();
+        let ink = lowest(&h, "Hide Ink");
+        assert!(ink.max.y < reset.min.y, "Hide Ink {ink:?} shows above the tray's footer {reset:?}");
+        assert!(h.get_all_by_label("Restrict Editing").any(|n| n.rect().max.y < reset.min.y));
     }
 
     /// The style set gallery fills exactly its own box and the next control starts after a gap,
@@ -3246,11 +4121,27 @@ mod tests {
         let dock = egui::PanelState::load(&h.ctx, egui::Id::new("right_dock")).map(|p| p.outer_rect).unwrap();
         assert!(dock.right() <= 1440.5, "the pane stays in the window: {dock:?}");
         for label in
-            ["Go to Header", "Go to Footer", "Previous Section", "Next Section", "Link to Previous", "Different First Page", "Header from Top:"]
+            ["Go to Header", "Go to Footer", "Previous Section", "Next Section", "Link to Previous", "Different First Page", "Header from Top"]
         {
             let r = h.get_by_label(label).rect();
             assert!(r.left() >= dock.left() && r.right() <= dock.right() + 0.5, "{label} at {r:?} is outside the pane {dock:?}");
         }
+        // Even grids (owner, 2026-11-22): the three menus, Insert's three tiles, Navigation's two
+        // columns, and Position's two boxes each share one width and one row.
+        for row in [
+            &["Header", "Footer", "Page Number"][..],
+            &["Date & Time", "Field", "Picture from File"],
+            &["Go to Header", "Go to Footer"],
+            &["Previous Section", "Next Section"],
+            &["Header from Top", "Footer from Bottom"],
+        ] {
+            let r: Vec<egui::Rect> = row.iter().map(|l| h.get_by_label(l).rect()).collect();
+            for x in &r {
+                assert!((x.width() - r[0].width()).abs() < 0.5 && (x.top() - r[0].top()).abs() < 0.5, "{row:?} are one even row");
+            }
+        }
+        let (a, b) = (h.get_by_label("Go to Header").rect(), h.get_by_label("Previous Section").rect());
+        assert!((a.left() - b.left()).abs() < 0.5 && (a.width() - b.width()).abs() < 0.5, "Navigation's columns line up");
         // A click on an option reaches it.
         h.get_by_label("Different First Page").click();
         h.run_steps(3);

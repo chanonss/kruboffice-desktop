@@ -5,7 +5,7 @@ use wordcraft_doc::numbering::{Counters, LevelSuffix};
 use wordcraft_doc::para::{InlineObject, NoteKind, OBJ};
 use wordcraft_doc::props::{CharProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::section::NumFormat;
-use wordcraft_doc::{Block, Paragraph, PartKind, Path, Pos, StoryRef, para_block};
+use wordcraft_doc::{Block, ParaProps, Paragraph, PartKind, Path, Pos, StoryRef, para_block};
 
 use super::{delete_selection, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
@@ -270,6 +270,9 @@ fn toc_entries(s: &Session, f: &FieldCode) -> Vec<TocEntry> {
             .map(|(label, def)| match def.suffix {
                 LevelSuffix::Tab => format!("{label}\t"),
                 LevelSuffix::Space => format!("{label} "),
+                // Nothing after the number keeps a centred "บทที่ 1" heading centred; in the
+                // table of contents the number and the title still need a space between them.
+                LevelSuffix::Nothing if !label.ends_with(char::is_whitespace) => format!("{label} "),
                 LevelSuffix::Nothing => label,
             });
         if path.depth() > 0 {
@@ -323,7 +326,7 @@ fn toc_entries(s: &Session, f: &FieldCode) -> Vec<TocEntry> {
 
 /// The TOC block range in the body: the paragraph holding the TOC field and the TOC entries after
 /// it. A TOC with `\c` is a table of figures, kept by the generated lists.
-fn toc_range(s: &Session) -> Option<(usize, usize)> {
+pub(crate) fn toc_range(s: &Session) -> Option<(usize, usize)> {
     let start = s.doc.body.iter().position(|b| b.as_para().is_some_and(|p| toc_field(p).is_some()))?;
     let mut end = start;
     while let Some(Block::Para(p)) = s.doc.body.get(end + 1).map(|b| &**b) {
@@ -349,7 +352,7 @@ pub fn caret_in_toc(s: &Session) -> bool {
 /// range started, its old result gone, and the regenerated entries after that paragraph (text
 /// that followed the range moves below them). Only an unlocked, top-level TOC that isn't inside
 /// another range field, and only when the body has no engine TOC already.
-fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
+pub(crate) fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
     if toc_range(s).is_some() {
         return Ok(());
     }
@@ -400,7 +403,7 @@ fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
 }
 
 /// The TOC field instruction in `p` (not a table of figures).
-fn toc_field(p: &Paragraph) -> Option<String> {
+pub(crate) fn toc_field(p: &Paragraph) -> Option<String> {
     p.objects.iter().find_map(|o| match o {
         InlineObject::Field { instr, .. } => {
             let f = FieldCode::parse(instr);
@@ -414,7 +417,7 @@ fn toc_field(p: &Paragraph) -> Option<String> {
 /// instead of laying out megabytes of text (WordCraft #3720, #5824).
 const MAX_TOC_TITLE: usize = 1024;
 
-fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
+pub(crate) fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     // Checked before an existing table is removed, so a refused title changes nothing.
     if p::str(v, "title").is_some_and(|t| t.chars().count() > MAX_TOC_TITLE) {
         return Err(CmdError::Params(format!("`title` is longer than {MAX_TOC_TITLE} characters")));
@@ -440,12 +443,23 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
         }
         None => delete_selection(s)?,
     };
-    let title = p::str(v, "title").unwrap_or("Contents").to_string();
+    // The Thai academic report layout (สารบัญ, "หน้า" over the page numbers, "สารบัญ (ต่อ)"
+    // on each further page): see `continued`.
+    let report = report_label(v);
+    let title = p::str(v, "title").unwrap_or(if report.is_some() { "สารบัญ" } else { "Contents" }).to_string();
     if at.story != StoryRef::Body || at.path.depth() > 0 {
         return Err(CmdError::Failed("a table of contents goes in the main text".into()));
     }
     // Title paragraph carrying the TOC field marker.
-    let mut head = Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading");
+    let mut head = if report.is_some() {
+        let (para, chr) = super::continued::heading_look(s);
+        let mut h = Paragraph::with_text(&title, chr.clone());
+        h.mark = chr;
+        h.props = ParaProps { style: Some("TOCHeading".into()), ..para };
+        h
+    } else {
+        Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading")
+    };
     head.insert_object(
         head.len(),
         InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
@@ -460,10 +474,38 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
         s.doc.split_paragraph(&at)?.path.last()
     };
     s.doc.insert_block(StoryRef::Body, &Path::top(i), Block::Para(head))?;
-    let leader = leader(p::str(v, "tabLeader").unwrap_or("dot"));
-    regenerate_toc(s, Some(leader))?;
+    // The report guides print page numbers without a leader.
+    let leader = leader(p::str(v, "tabLeader").unwrap_or(if report.is_some() { "none" } else { "dot" }));
+    if report.is_some() {
+        report_toc_styles(s);
+    }
+    regenerate_toc(s, Some(leader), Some(report))?;
     s.clamp_selection();
     sel_result(s)
+}
+
+/// The page label of a list in the Thai academic report layout (`continued` true, `pageLabel`
+/// or "หน้า"), or `None` without it.
+pub(crate) fn report_label(v: &Value) -> Option<String> {
+    p::bool(v, "continued").unwrap_or(false).then(|| {
+        let l = super::continued::clean_label(p::str(v, "pageLabel").unwrap_or(""));
+        if l.is_empty() { super::continued::PAGE_LABEL.to_string() } else { l }
+    })
+}
+
+/// The TOC levels as the report guides set them: each level 1.27 cm (36 pt) further in than
+/// the one above (TOC 2 at 1.27 cm), single spaced with no space between entries.
+fn report_toc_styles(s: &mut Session) {
+    for n in 1..=9u32 {
+        if let Some(st) = s.doc.styles.get_mut(&format!("TOC{n}")) {
+            st.para.indent_left = Some(36.0 * (n - 1) as f32);
+            st.para.indent_first = Some(0.0);
+            st.para.space_before = Some(0.0);
+            st.para.space_after = Some(0.0);
+        }
+    }
+    // The paragraphs laid out with the old styles are stale.
+    s.touch();
 }
 
 /// A hidden `_Toc` bookmark around the heading at body block `i` (after its leading page breaks),
@@ -501,15 +543,19 @@ pub(crate) fn toc_bookmark(s: &mut Session, i: usize, lead: usize) -> Result<Str
 
 /// Regenerate the TOC entries with page numbers (two layout passes: entries change pagination).
 pub fn update_toc(s: &mut Session) -> Result<(), CmdError> {
-    regenerate_toc(s, None)
+    regenerate_toc(s, None, None)
 }
 
 /// Rebuild the entries the TOC field's switches ask for. The tab leader is `leader`, or the one
-/// the entries had (Word keeps it in the entries' tab stops, not in the field).
-fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdError> {
+/// the entries had (Word keeps it in the entries' tab stops, not in the field). `report` is the
+/// page label of the Thai academic report layout (`Some(None)`: without it), or `None` to keep
+/// what the table has.
+fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, report: Option<Option<String>>) -> Result<(), CmdError> {
+    use super::continued;
     range_toc_to_field(s)?;
     let Some((start, end)) = toc_range(s) else { return Ok(()) };
     let Some(instr) = s.doc.body.get(start).and_then(|b| b.as_para()).and_then(toc_field) else { return Ok(()) };
+    let report = report.unwrap_or_else(|| continued::label_in(s, start + 1, end, continued::TOC));
     // A TOC field imported with an inline placeholder/cached result must have its result cleared so
     // that the engine's TOC shape matches `toc_span` and the DOCX writer spans the field across entries.
     if let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(start)) {
@@ -527,9 +573,11 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     let leader = leader.unwrap_or_else(|| {
         s.doc
             .body
-            .get(start + 1)
-            .filter(|_| end > start)
-            .and_then(|b| b.as_para())
+            .iter()
+            .take(end + 1)
+            .skip(start + 1)
+            .filter_map(|b| b.as_para())
+            .find(|p| !continued::is_part(p, continued::TOC))
             .and_then(|p| p.props.tabs.as_ref()?.last().map(|t| t.leader))
             .unwrap_or(TabLeader::Dot)
     });
@@ -540,7 +588,13 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     // at the end of the document, possibly in a wider (landscape) section.
     let section = s.doc.section_index_of(start);
     let width = s.doc.sections().get(section).map_or_else(|| super::page::sect(s).text_width(), |(_, x)| x.text_width());
-    let entries = toc_entries(s, &f);
+    let mut entries = toc_entries(s, &f);
+    if report.is_some() {
+        // The report guides set a heading's number off by one space, not a tab.
+        for e in &mut entries {
+            e.text = e.text.replacen('\t', " ", 1);
+        }
+    }
     let links: Vec<Option<String>> = if f.has('h') {
         let mut v = Vec::new();
         for e in &entries {
@@ -555,18 +609,28 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     let no_pages = f.has('n').then(|| f.arg('n').and_then(level_range).unwrap_or((1, 9)));
     let sep = f.arg('p').map(str::to_string).unwrap_or_else(|| "\t".into());
     let formats = page_formats(s);
+    // The blocks the table now has after its heading: the page label, then the entries.
+    let mut added = 0;
+    if let Some(label) = &report {
+        continued::add_styles(s, continued::TOC);
+        added = continued::insert_label(s, start, label, continued::TOC)?;
+    }
+    let first_entry = start + 1 + added;
+    // Pass 1 lays out without the entries; pass 2 with them in place (and the continued
+    // headings they need), so headings below the TOC sit further down and their pages account
+    // for the TOC's own length.
     for pass in 0..2 {
-        // Pass 1 lays out with the entries in place, so headings below the TOC sit `entries.len()`
-        // blocks further down and their pages account for the TOC's own length.
         s.touch();
         let l = s.layout();
-        if pass == 1 {
-            // Replace the page numbers now that the entries exist.
-            for _ in 0..entries.len() {
-                s.doc.remove_block(StoryRef::Body, &Path::top(start + 1))?;
-            }
-        }
-        let shift = if pass == 0 { 0 } else { entries.len() };
+        // The entries' blocks: in order, past the label and continued headings.
+        let slots: Vec<usize> = if pass == 0 {
+            (0..entries.len()).map(|k| first_entry + k).collect()
+        } else {
+            (start + 1..=start + added)
+                .filter(|i| s.doc.body.get(*i).and_then(|b| b.as_para()).is_some_and(|p| !continued::is_part(p, continued::TOC)))
+                .collect()
+        };
+        let shift = added;
         for (k, e) in entries.iter().enumerate() {
             let target = Path::top(e.path.last() + if e.path.last() > start { shift } else { 0 });
             let page = page_label_or_first(&l, &formats, &Pos { story: StoryRef::Body, path: target, off: e.lead }).1;
@@ -591,7 +655,21 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
                 let right = TabStop { pos: width - 0.5, align: TabAlign::Right, leader };
                 para.props.tabs = Some(entry_tabs(s, &para.props, &e.text, right));
             }
-            s.doc.insert_block(StoryRef::Body, &Path::top(start + 1 + k), Block::Para(para))?;
+            match slots.get(k) {
+                // Pass 2 puts the final page numbers into the entries where they are.
+                Some(i) if pass == 1 => {
+                    s.doc.remove_block(StoryRef::Body, &Path::top(*i))?;
+                    s.doc.insert_block(StoryRef::Body, &Path::top(*i), Block::Para(para))?;
+                }
+                Some(i) => s.doc.insert_block(StoryRef::Body, &Path::top(*i), Block::Para(para))?,
+                None => {}
+            }
+        }
+        if pass == 0 {
+            added += entries.len();
+            if let Some(label) = &report {
+                added = continued::paginate(s, start, start + added, label, continued::TOC)? - start;
+            }
         }
     }
     s.touch();
@@ -1203,5 +1281,35 @@ mod tests {
         s.run("caret.docEnd", &json!({})).unwrap();
         s.run("references.caption", &json!({"label": "Table", "excludeLabel": true, "format": "ROMAN"})).unwrap();
         assert_eq!(s.doc.body.last().unwrap().as_para().unwrap().plain_text(), "I");
+    }
+}
+
+#[cfg(test)]
+mod suffix_tests {
+    use serde_json::json;
+    use wordcraft_doc::numbering::{Level, LevelSuffix};
+    use wordcraft_doc::props::NumRef;
+    use wordcraft_doc::{Path, StoryRef};
+
+    use crate::Session;
+
+    /// A heading numbered "บทที่ 1" with nothing after the number (so it centres) still lists as
+    /// "บทที่ 1 บทนำ" in the table of contents.
+    #[test]
+    fn a_number_with_nothing_after_it_is_spaced_in_the_toc() {
+        for (suffix, want) in [(LevelSuffix::Nothing, "บทที่ 1 บทนำ"), (LevelSuffix::Space, "บทที่ 1 บทนำ"), (LevelSuffix::Tab, "บทที่ 1\tบทนำ")]
+        {
+            let mut s = Session::new(wordcraft_doc::Document::from_text(""));
+            s.run("text.insert", &json!({"text": "บทนำ"})).unwrap();
+            s.run("styles.apply", &json!({"style": "Heading1"})).unwrap();
+            s.run("text.newParagraph", &json!({})).unwrap();
+            let level = Level { text: "บทที่ %1".into(), suffix, ..Default::default() };
+            let num = s.doc.numbering.try_add_levels(None, vec![level]).unwrap();
+            s.doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.numbering = Some(NumRef { num, level: 0 });
+            s.run("references.toc", &json!({})).unwrap();
+            let (start, _) = super::toc_range(&s).unwrap();
+            let entry = s.doc.body[start + 1].as_para().unwrap().plain_text();
+            assert!(entry.starts_with(want), "{suffix:?}: {entry:?}");
+        }
     }
 }

@@ -11,8 +11,13 @@
 //! document with KhianKrub's Thai defaults); `{"empty": true, "startScreen": true}`
 //! starts the way the desktop app does with nothing to open (File › Home, #766).
 //! `"drafts": true` on the first line gives Home two sample browser drafts (the web's list), and
-//! `"lang": "th"` sets the interface language. A later `{"clearDrafts": "first" | "last"}` line
-//! opens that step of the "Delete all drafts" confirmation.
+//! `"lang": "th"` sets the interface language; `"openDraft": true` with it makes the open
+//! document a saved browser draft (the file card's draft lines). A later `{"clearDrafts": "first" | "last"}` line
+//! opens that step of the "Delete all drafts" confirmation. `{"click": "label"}` clicks the widget
+//! whose accessible label contains `label`; `{"drag": [[x0, y0], [x1, y1]]}` drags the primary
+//! button between two window points (logical, 1440×900 frame); with `"hold": true` the button
+//! stays down (a shot mid-drag) until `{"release": [x, y]}`. `{"rightClick": [x, y]}` right-clicks
+//! there (the context menu); `{"clickAt": [x, y]}` clicks there.
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{ControlRequest, Services, WordApp};
@@ -45,6 +50,7 @@ fn main() {
         app.ui.language = lang.into();
     }
     if lines.first().is_some_and(|l| l.get("drafts").is_some()) {
+        let open = lines.first().is_some_and(|l| l.get("openDraft").is_some());
         let list = vec![
             wordcraft_ui_egui::BrowserDraft {
                 id: "a-1".into(), name: "รายงานประจำเดือน".into(), saved: "21/11/2569 14:32".into()
@@ -60,7 +66,7 @@ fn main() {
             drafts: Box::new(move |_| Some(list.clone())),
             act: Box::new(|_, _| {}),
             fragile: Box::new(|| false),
-            open_draft: Box::new(|| None),
+            open_draft: Box::new(move || open.then_some(true)),
         });
     }
     if lines.first().is_some_and(|l| l.get("startScreen").is_some()) {
@@ -97,6 +103,34 @@ fn main() {
             let step = if step == "last" { krub_icons::clear_drafts::Step::Last } else { krub_icons::clear_drafts::Step::First };
             krub_icons::clear_drafts::open(&harness.ctx, step);
             step_n(&mut harness, 2);
+        } else if let Some(label) = l.get("click").and_then(|v| v.as_str()) {
+            use egui_kittest::kittest::Queryable;
+            harness.get_by_label_contains(label).click();
+            step_n(&mut harness, 4);
+        } else if let Some([a, b]) = l.get("drag").and_then(|v| serde_json::from_value::<[[f32; 2]; 2]>(v.clone()).ok()) {
+            let hold = l.get("hold").and_then(|v| v.as_bool()).unwrap_or(false);
+            drag(&mut harness, egui::pos2(a[0], a[1]), egui::pos2(b[0], b[1]), hold);
+        } else if let Some(([x, y], secondary)) = l
+            .get("rightClick")
+            .map(|v| (v, true))
+            .or_else(|| l.get("clickAt").map(|v| (v, false)))
+            .and_then(|(v, secondary)| serde_json::from_value::<[f32; 2]>(v.clone()).ok().map(|p| (p, secondary)))
+        {
+            let pos = egui::pos2(x, y);
+            harness.input_mut().events.push(egui::Event::PointerMoved(pos));
+            step_n(&mut harness, 2);
+            for pressed in [true, false] {
+                harness.input_mut().events.push(egui::Event::PointerButton {
+                    pos,
+                    button: if secondary { egui::PointerButton::Secondary } else { egui::PointerButton::Primary },
+                    pressed,
+                    modifiers: Default::default(),
+                });
+                step_n(&mut harness, 2);
+            }
+            step_n(&mut harness, 4);
+        } else if let Some([x, y]) = l.get("release").and_then(|v| serde_json::from_value::<[f32; 2]>(v.clone()).ok()) {
+            release(&mut harness, egui::pos2(x, y));
         } else if let Some(n) = l.get("steps").and_then(|v| v.as_u64()) {
             step_n(&mut harness, n as usize);
         } else if let Some(ms) = l.get("wait").and_then(|v| v.as_u64()) {
@@ -128,6 +162,32 @@ fn step(harness: &mut egui_kittest::Harness<'_, WordApp>) {
     harness.state_mut().raw_input_hook(&mut raw);
     *harness.input_mut() = raw;
     harness.step();
+}
+
+fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+}
+
+/// A primary-button drag from `a` to `b` in eight moves, a frame each; `hold` leaves the button
+/// down at `b`.
+fn drag(harness: &mut egui_kittest::Harness<'_, WordApp>, a: egui::Pos2, b: egui::Pos2, hold: bool) {
+    harness.input_mut().events.push(egui::Event::PointerMoved(a));
+    step_n(harness, 2);
+    harness.input_mut().events.push(button(a, true));
+    step_n(harness, 2);
+    for i in 1..=8 {
+        harness.input_mut().events.push(egui::Event::PointerMoved(a + (b - a) * (i as f32 / 8.0)));
+        step(harness);
+    }
+    if !hold {
+        release(harness, b);
+    }
+}
+
+/// Lift the primary button at `at`.
+fn release(harness: &mut egui_kittest::Harness<'_, WordApp>, at: egui::Pos2) {
+    harness.input_mut().events.push(button(at, false));
+    step_n(harness, 4);
 }
 
 fn step_n(harness: &mut egui_kittest::Harness<'_, WordApp>, n: usize) {

@@ -132,6 +132,16 @@ pub fn corner_radius(corner: Option<u32>, w: f32, h: f32) -> f32 {
     side * corner.map_or(DEFAULT_CORNER, |c| c.min(MAX_CORNER) as f32 / 100_000.0)
 }
 
+/// The stored corner (see [`ShapeExtra::corner`]) that gives a `w` × `h` rounded rectangle a
+/// corner radius of `radius` points: 0 is square, half the shorter side (or more) round ends.
+pub fn corner_from_radius(radius: f32, w: f32, h: f32) -> u32 {
+    let side = wordcraft_geom::finite(w).min(wordcraft_geom::finite(h)).max(0.0);
+    if side <= 0.0 || !radius.is_finite() {
+        return 0;
+    }
+    ((radius.max(0.0) / side) * 100_000.0).round().clamp(0.0, MAX_CORNER as f32) as u32
+}
+
 /// One glued end of a connector: the drawing id of the shape and its connection site index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

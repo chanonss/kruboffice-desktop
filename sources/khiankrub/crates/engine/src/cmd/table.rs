@@ -849,6 +849,9 @@ pub(in crate::cmd) fn clear_range_cells(s: &mut Session, range: &crate::CellRang
 /// row or column are left out. Returns false (nothing done) when the paste isn't that.
 pub(in crate::cmd) fn paste_cells(s: &mut Session, frag: &wordcraft_doc::edit::Fragment) -> Result<bool, CmdError> {
     use wordcraft_doc::props::VMerge;
+    if fill_selected_cells(s, frag)? {
+        return Ok(true);
+    }
     let [Block::Table(src)] = frag.blocks.as_slice() else { return Ok(false) };
     let story = s.sel.focus.story;
     let start = match s.cell_range() {
@@ -887,6 +890,48 @@ pub(in crate::cmd) fn paste_cells(s: &mut Session, frag: &wordcraft_doc::edit::F
     if targets.is_empty() {
         return Ok(false);
     }
+    fill_cells(s, story, targets, frag)
+}
+
+/// Text, or one copied cell, pasted over two or more selected cells goes into every one of them,
+/// replacing their text, as in Word (a text paste otherwise lands in the first cell only).
+/// Returns false (nothing done) when the paste isn't that.
+fn fill_selected_cells(s: &mut Session, frag: &wordcraft_doc::edit::Fragment) -> Result<bool, CmdError> {
+    use wordcraft_doc::props::VMerge;
+    let blocks: Vec<Block> = match frag.blocks.as_slice() {
+        [Block::Table(t)] => match t.rows.as_slice() {
+            [row] => match row.cells.as_slice() {
+                [cell] => cell.blocks.iter().map(|b| Block::clone(b)).collect(),
+                _ => return Ok(false),
+            },
+            _ => return Ok(false),
+        },
+        bs if !bs.is_empty() && bs.iter().all(|b| b.as_table().is_none()) => bs.to_vec(),
+        _ => return Ok(false),
+    };
+    let story = s.sel.focus.story;
+    let Some(range) = s.cell_range().filter(|r| r.story == story).cloned() else { return Ok(false) };
+    let Some(t) = s.doc.table(story, &range.table) else { return Ok(false) };
+    // Cells merged down from above belong to the cell they continue.
+    let targets: Vec<(Vec<u32>, Vec<Block>)> = range
+        .cells(t)
+        .into_iter()
+        .filter(|&(r, c)| t.rows.get(r).and_then(|x| x.cells.get(c)).is_some_and(|d| d.props.vmerge != VMerge::Continue))
+        .map(|(r, c)| (cell_prefix(&range.table, r, c), blocks.clone()))
+        .collect();
+    if targets.len() < 2 {
+        return Ok(false);
+    }
+    fill_cells(s, story, targets, frag)
+}
+
+/// Replace the text of each cell (by path prefix) with its blocks; the caret ends after the last.
+fn fill_cells(
+    s: &mut Session,
+    story: StoryRef,
+    targets: Vec<(Vec<u32>, Vec<Block>)>,
+    frag: &wordcraft_doc::edit::Fragment,
+) -> Result<bool, CmdError> {
     let mut last = None;
     for (pre, blocks) in targets {
         // Each cell's paragraphs change only inside it, so the other cells' paths still hold.

@@ -20,7 +20,8 @@ use crate::theme::semibold;
 use crate::widgets::SteadyUi;
 
 /// The pages, in order: (id, name, icon).
-const PAGES: [(&str, &str, &str); 14] = [
+/// No Asian Typography page (owner, 2026-11-25: no East Asian support).
+const PAGES: [(&str, &str, &str); 13] = [
     ("general", "General", "styles"),
     ("font", "Font", "fonts"),
     ("effects", "Font Effects", "effects"),
@@ -34,7 +35,6 @@ const PAGES: [(&str, &str, &str); 14] = [
     ("borders", "Borders & Shading", "borders"),
     ("tabs", "Tabs", "ruler"),
     ("numbering", "Numbering", "multilevel"),
-    ("asian", "Asian Typography", "fonts"),
 ];
 
 /// Underline styles offered: (OOXML name, label).
@@ -564,7 +564,8 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) -> bool {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::hover());
                     let t = crate::theme::Tokens::get(ui.ctx());
-                    crate::icons::paint(ui.painter(), r, icon, t.icon, t.accent);
+                    // Accent colours (owner, 2026-11-25: style A), as on the ribbon.
+                    krub_icons::tabler_colour::with_colour(ui.ctx(), true, || crate::icons::paint(ui.painter(), r, icon, t.icon, t.accent));
                     if ui.steady_label(f.page == *id, tl!(name)).clicked() {
                         f.page = id.to_string();
                     }
@@ -589,7 +590,6 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) -> bool {
                 "flow" if !f.character => flow_page(ui, f),
                 "borders" if !f.character => borders_page(app, ui, f),
                 "numbering" if !f.character => numbering_page(ui, f),
-                "asian" if !f.character => asian_page(ui, f),
                 "dropcap" if !f.character => drop_cap_page(ui, f),
                 _ => general_page(app, ui, f),
             }
@@ -741,17 +741,8 @@ fn font_page(app: &mut WordApp, ui: &mut Ui, f: &mut StyleForm) {
         f.bold_cs = f.bold;
         f.italic_cs = f.italic;
     }
-    egui::Grid::new("ms_east_asian_font").num_columns(2).spacing(vec2(8.0, 8.0)).show(ui, |ui| {
-        ui.label(tl!("East Asian font:"));
-        let shown = app.previews.font_shown(&f.font_ea);
-        if let Some(pick) = crate::widgets::font_combo(ui, "ms_east_asian_font_family", 190.0, &shown, &fams, Some(&*prev))
-            && pick != crate::widgets::ADD_FONT
-            && pick != crate::widgets::LOAD_SYSTEM_FONTS
-        {
-            f.font_ea = app.previews.font_stored(&pick);
-        }
-        ui.end_row();
-    });
+    // No East Asian font box (owner, 2026-11-25: no East Asian support); the style keeps
+    // whatever East Asian font its file has.
     egui::Grid::new("ms_color").num_columns(2).spacing(vec2(8.0, 8.0)).show(ui, |ui| {
         ui.label(tl!("Font color:"));
         let theme = app.session.doc.settings.theme_colors.clone();
@@ -1062,11 +1053,6 @@ fn numbering_page(ui: &mut Ui, f: &mut StyleForm) {
     });
     ui.add_space(6.0);
     ui.label(egui::RichText::new(tl!("The level is linked to this style, as Define New Multilevel List's Link level to style does.")).small().weak());
-}
-
-fn asian_page(ui: &mut Ui, f: &mut StyleForm) {
-    heading(ui, "Line breaking");
-    ui.checkbox(&mut f.kinsoku, tl!("Apply East Asian line-breaking rules"));
 }
 
 fn highlight_page(ui: &mut Ui, f: &mut StyleForm) {

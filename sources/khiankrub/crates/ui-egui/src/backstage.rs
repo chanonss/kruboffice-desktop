@@ -727,16 +727,17 @@ fn drafts_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
             ui.painter().circle_filled(pos2(more_rect.center().x, more_rect.center().y + dy), 1.6, t.icon);
         }
         let menu = |ui: &mut Ui, action: &mut Option<(crate::DraftAction, String)>| {
-            if ui.button(tl!("Keep writing")).clicked() {
+            use crate::ribbon::menu_icon_button;
+            if menu_icon_button(ui, "keep-writing", tl!("Keep writing"), "", true, false).clicked() {
                 *action = Some((crate::DraftAction::Open, draft.id.clone()));
                 ui.close();
             }
-            if ui.button(tl!("Download a copy")).clicked() {
+            if menu_icon_button(ui, "download", tl!("Download a copy"), "", true, false).clicked() {
                 *action = Some((crate::DraftAction::Download, draft.id.clone()));
                 ui.close();
             }
             ui.separator();
-            if ui.button(tl!("Discard draft…")).clicked() {
+            if danger_menu_button(ui, "delete", tl!("Discard draft…")).clicked() {
                 ui.ctx().data_mut(|d| d.insert_temp(confirm_id, draft.id.clone()));
                 ui.close();
             }
@@ -769,6 +770,20 @@ fn drafts_list(app: &mut WordApp, ui: &mut Ui, new_tab: bool) {
         }
     }
     delete_all_drafts(app, ui);
+}
+
+/// A menu row in red, its icon too, for an item that throws work away (the ⋮ menu's Discard
+/// draft…, owner 2026-11-22); laid out as `ribbon::menu_icon_button`.
+fn danger_menu_button(ui: &mut Ui, icon: &str, label: &str) -> egui::Response {
+    let red = Tokens::get(ui.ctx()).red;
+    let atom = ui.id().with(("menu icon", icon, label));
+    let result =
+        egui::Button::new((egui::Atom::custom(atom, vec2(20.0, 18.0)), egui::RichText::new(label).color(red))).min_size(vec2(200.0, 0.0)).atom_ui(ui);
+    if let Some(rect) = result.rect(atom) {
+        icons::paint(ui.painter(), rect.shrink(1.0), icon, red, red);
+    }
+    result.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    result.response
 }
 
 /// The red "Delete all drafts" button under the drafts and its two confirmations (owner,

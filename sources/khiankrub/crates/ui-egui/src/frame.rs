@@ -77,6 +77,56 @@ pub fn rotate_handle_at(f: egui::Rect, deg: f32, p: Pos2) -> bool {
     rotate_handle(f, deg).distance(p) <= GRAB_R
 }
 
+/// Where a rounded rectangle's corner handle is on frame `f` turned `deg`, for a corner radius of
+/// `r` screen points: on the top edge where the top-left curve ends.
+pub fn corner_handle(f: egui::Rect, deg: f32, r: f32) -> Pos2 {
+    let r = r.clamp(0.0, (f.width().min(f.height()) / 2.0).max(0.0));
+    turn(pos2(f.min.x + r, f.min.y), f.center(), deg)
+}
+
+/// Whether screen point `p` is on the corner handle at `at`, and nearer to it than to every
+/// resize handle of frame `f` turned `deg` (a square corner's handle sits on the corner's).
+pub fn corner_handle_wins(f: egui::Rect, deg: f32, at: Pos2, p: Pos2) -> bool {
+    let d = at.distance(p);
+    d <= GRAB_R && handles(f).all(|h| h.at_turned(f, deg).distance(p) > d)
+}
+
+/// The gold diamond of a rounded rectangle's corner handle at `at`.
+pub fn paint_corner_handle(painter: &Painter, t: &Tokens, at: Pos2) {
+    let k = HANDLE_R + 0.5;
+    let pts = |c: Pos2, k: f32| vec![c + vec2(0.0, -k), c + vec2(k, 0.0), c + vec2(0.0, k), c + vec2(-k, 0.0)];
+    painter.add(egui::Shape::convex_polygon(pts(at + vec2(0.0, 0.75), k + 1.0), t.handle_shadow, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(pts(at, k), CORNER_GOLD, Stroke::new(1.0, CORNER_GOLD_EDGE)));
+}
+
+/// The corner handle's fill and edge (the yellow of adjust handles, kept readable on white).
+const CORNER_GOLD: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xB7, 0x05);
+const CORNER_GOLD_EDGE: egui::Color32 = egui::Color32::from_rgb(0x7A, 0x5B, 0x00);
+
+/// A rounded rectangle being given corners of `r` screen points: its outline with those corners,
+/// turned `deg`, and the handle where it would drop.
+pub fn paint_cornering(painter: &Painter, t: &Tokens, f: egui::Rect, deg: f32, r: f32) {
+    let r = r.clamp(0.0, (f.width().min(f.height()) / 2.0).max(0.0));
+    let c = f.center();
+    let mut pts = Vec::new();
+    // Clockwise from the top-left corner's end: each corner a quarter circle.
+    let arcs = [
+        (pos2(f.max.x - r, f.min.y + r), -90.0f32),
+        (pos2(f.max.x - r, f.max.y - r), 0.0),
+        (pos2(f.min.x + r, f.max.y - r), 90.0),
+        (pos2(f.min.x + r, f.min.y + r), 180.0),
+    ];
+    for (o, from) in arcs {
+        for i in 0..=8 {
+            let a = (from + 90.0 * i as f32 / 8.0).to_radians();
+            pts.push(turn(o + vec2(a.cos(), a.sin()) * r, c, deg));
+        }
+    }
+    pts.push(pts[0]);
+    painter.add(egui::Shape::line(pts, Stroke::new(1.25, t.accent)));
+    paint_corner_handle(painter, t, corner_handle(f, deg, r));
+}
+
 /// What a press grabbed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Grab {
@@ -84,6 +134,8 @@ pub enum Grab {
     Resize(Handle),
     /// The rotation handle.
     Rotate,
+    /// A rounded rectangle's corner handle.
+    Corner,
 }
 
 impl Grab {
@@ -92,6 +144,7 @@ impl Grab {
             Grab::Move => CursorIcon::Move,
             Grab::Resize(h) => h.cursor(),
             Grab::Rotate => CursorIcon::Crosshair,
+            Grab::Corner => CursorIcon::PointingHand,
         }
     }
 }
@@ -111,6 +164,12 @@ pub(crate) fn handles(f: egui::Rect) -> impl Iterator<Item = Handle> {
 pub fn handle_at(f: egui::Rect, deg: f32, p: Pos2) -> Option<Handle> {
     let d = |h: &Handle| h.at_turned(f, deg).distance(p);
     handles(f).filter(|h| d(h) <= GRAB_R).min_by(|a, b| d(a).total_cmp(&d(b)))
+}
+
+/// The corners of frame `f` turned `deg`, clockwise from the top left (not closed).
+pub fn corners(f: egui::Rect, deg: f32) -> [Pos2; 4] {
+    let o = outline(f, deg);
+    [o[0], o[1], o[2], o[3]]
 }
 
 /// The corners of frame `f` turned `deg`, clockwise from the top left, closed.
@@ -182,12 +241,34 @@ pub struct Drag {
     pub moved: bool,
     /// The frame's angle (degrees clockwise): as it started, or where turning puts it.
     pub deg: f32,
+    /// A rounded rectangle's corner radius (points): as it started, or where the corner handle
+    /// puts it.
+    pub corner: f32,
 }
 
 impl Drag {
     /// A drag of the frame at `start` on `page`, turned `deg`, grabbed at screen point `press`.
     pub fn new(grab: Grab, page: usize, start: Rect, deg: f32, press: Pos2) -> Drag {
-        Drag { grab, page, start, press, to_page: page, rect: start, moved: false, deg: wordcraft_geom::normalize_degrees(deg) }
+        Drag { grab, page, start, press, to_page: page, rect: start, moved: false, deg: wordcraft_geom::normalize_degrees(deg), corner: 0.0 }
+    }
+
+    /// The same drag, starting from a corner radius of `r` points.
+    pub fn with_corner(self, r: f32) -> Drag {
+        Drag { corner: r, ..self }
+    }
+
+    /// Follow the pointer with the corner handle: the radius is how far along the frame's own top
+    /// edge the pointer is from its left end, between square (0) and round ends.
+    pub fn corner_to(&mut self, pointer: Pos2, pages: &[egui::Rect], scale: f32) {
+        if !self.moved && pointer.distance(self.press) < DRAG_START {
+            return;
+        }
+        let Some(page) = pages.get(self.page) else { return };
+        self.moved = true;
+        let f = to_screen(*page, scale, self.start);
+        let p = turn(pointer, f.center(), -self.deg);
+        let max = (self.start.w.min(self.start.h) / 2.0).max(0.0);
+        self.corner = ((p.x - f.min.x) / scale.max(0.01)).clamp(0.0, max);
     }
 
     /// Follow the pointer with the rotation handle: the frame turns to face it, by whole degrees
@@ -233,7 +314,7 @@ impl Drag {
                 self.to_page = self.page;
                 self.rect = resized_turned(self.start, self.deg, h, d.x, d.y, min, keep_aspect);
             }
-            Grab::Rotate => {}
+            Grab::Rotate | Grab::Corner => {}
         }
     }
 }

@@ -2275,8 +2275,19 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 _ => break,
             }
         }
-        let slack = right_edge - content_end;
         let last_tab = (c0..c1).rev().find(|k| pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Tab));
+        // A line holding only the list number (a centred "บทที่ 1" whose title follows a line
+        // break): the space after the number hangs as a trailing space does, so the number itself
+        // is centred.
+        if first
+            && suffix == Some(LevelSuffix::Space)
+            && last_tab.is_none()
+            && content_end <= line_start_x + 0.01
+            && let Some(lab) = pl.label.as_ref()
+        {
+            content_end = content_end.min(lab.x + lab.width);
+        }
+        let slack = right_edge - content_end;
         let align_from = last_tab.map(|k| k + 1).unwrap_or(c0);
         let display = pl.displays.iter().find(|(ci, _)| *ci >= c0 && *ci < c1).map(|d| d.1);
         let shift = match (display, rp.align) {
@@ -2981,6 +2992,45 @@ pub fn proof_text(p: &wordcraft_doc::Paragraph) -> String {
 #[cfg(test)]
 mod label_spacing_tests {
     use super::*;
+
+    /// A centred heading whose first line is only its number ("บทที่ 1", the title after a line
+    /// break) centres the number alike whether a space or nothing follows it.
+    #[test]
+    fn a_number_alone_on_a_centred_line_ignores_its_space() {
+        let lab_x = |suffix: LevelSuffix| {
+            let doc = Document::new();
+            let fields = FieldCtx::default();
+            let level = Level { suffix, ..Default::default() };
+            let env = ParaEnv {
+                doc: &doc,
+                fields: &fields,
+                width: 400.0,
+                label: Some(("Chapter 1".into(), level.clone())),
+                show_hidden: false,
+                hide_deleted: false,
+                table: None,
+                proofing: None,
+                field_codes: false,
+                grid: Grid::default(),
+                exclusions: &[],
+                eq_number: 0,
+                numeral: crate::NumeralMode::default(),
+                read_line_spacing: None,
+                fit_objects: false,
+            };
+            let mut p = Paragraph::with_text(&format!("{LINE_BREAK}Introduction"), Default::default());
+            p.props.align = Some(Align::Center);
+            let mut pl = layout_para(&p, &env);
+            let mark_style = pl.clusters.first().map(|c| c.style).unwrap_or(0);
+            break_lines(&mut pl, &env, mark_style, Some(&level));
+            let lab = pl.label.as_ref().unwrap();
+            (lab.x, lab.width)
+        };
+        let (none, w) = lab_x(LevelSuffix::Nothing);
+        let (space, _) = lab_x(LevelSuffix::Space);
+        assert!(none > 100.0 && none + w < 300.0, "the number is centred: {none}");
+        assert!((space - none).abs() < 0.01, "space {space} vs nothing {none}");
+    }
 
     // Inject measured metric pairs after shaping so these regressions do not depend on
     // the fonts installed on the test host. Word for Mac 16.113.3, original Roboto probes.

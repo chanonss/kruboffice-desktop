@@ -4627,6 +4627,8 @@ fn an_inherited_footer_sizes_its_percentage_table_by_its_own_section() {
             landscape.footers.default = None;
         }
         d.last_section = landscape;
+        // Word's layout: the footer runs across the landscape page (not turned for binding).
+        d.set_custom_prop(crate::TURN_HF_PROP, "off");
         let l = lay(&d);
         let cells: Vec<Rect> = l.pages[1].footer.iter().filter_map(|i| if let Placed::Cell { rect, .. } = i { Some(*rect) } else { None }).collect();
         let (x0, x1) = cells.iter().fold((f32::MAX, f32::MIN), |(a, b), r| (a.min(r.x), b.max(r.right())));

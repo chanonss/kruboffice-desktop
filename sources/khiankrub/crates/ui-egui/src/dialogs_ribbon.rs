@@ -438,22 +438,30 @@ mod tests {
     /// shown (the ribbon falls back to a visible one).
     #[test]
     fn custom_tabs_draw_their_commands_and_hidden_tabs_dont_show() {
-        let ctx = ctx();
-        let mut n = 0;
+        use egui_kittest::kittest::Queryable;
         let mut a = app();
         a.run("tools.customizeRibbon", json!({"newTab": {"name": "Mine"}, "hide": "Home"})).unwrap();
         a.run("tools.customizeRibbon", json!({"add": {"tab": "Mine", "group": "New Group", "command": "view.ruler"}})).unwrap();
         a.ui.tab = "Mine".into();
         let ruler = a.session.view.ruler;
-        frame(&ctx, &mut n, vec![], |ui| crate::ribbon::show(&mut a, ui));
-        // The group's one command is a large button at the ribbon's left edge, under the tab strip.
-        click(&ctx, &mut n, egui::pos2(24.0, 60.0), |ui| crate::ribbon::show(&mut a, ui));
-        assert_eq!(a.ui.tab, "Mine");
-        assert_ne!(a.session.view.ruler, ruler, "the custom group's button runs its command");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 300.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        // The group's one command, wherever the one-line ribbon centres it.
+        h.get_by_label("Ruler").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tab, "Mine");
+        assert_ne!(h.state().session.view.ruler, ruler, "the custom group's button runs its command");
 
-        a.ui.tab = "Home".into();
-        frame(&ctx, &mut n, vec![], |ui| crate::ribbon::show(&mut a, ui));
-        assert_eq!(a.ui.tab, "Insert", "a hidden tab isn't shown");
+        h.state_mut().ui.tab = "Home".into();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Insert", "a hidden tab isn't shown");
     }
 
     /// #376: the Quick Access Toolbar's … button opens its menu, and the toolbar shows the user's

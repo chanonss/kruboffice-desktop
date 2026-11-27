@@ -97,8 +97,75 @@ pub struct FileCard<'a> {
     pub action: Option<&'a str>,
 }
 
+/// The icons in front of the card's lines (owner, 2026-11-22), each an icon name for
+/// [`crate::paint_named`]; a line without one keeps its place in the icon column.
+#[derive(Clone, Copy, Default)]
+pub struct FileCardIcons<'a> {
+    pub name: Option<&'a str>,
+    pub state: Option<&'a str>,
+    pub place: Option<&'a str>,
+    pub action: Option<&'a str>,
+}
+
+/// The icon column's width, and the size an icon is drawn at.
+const CARD_ICON: f32 = 16.0;
+const CARD_ICON_GAP: f32 = 8.0;
+
 /// Draws the file pill's card, opened by a click on the pill; `true` when its action was clicked.
 pub fn file_card(ui: &mut Ui, card: &FileCard) -> bool {
+    file_card_with_icons(ui, card, &FileCardIcons::default())
+}
+
+/// [`file_card`] with an icon in front of each line, the way a menu has them.
+pub fn file_card_with_icons(ui: &mut Ui, card: &FileCard, icons: &FileCardIcons) -> bool {
+    let any = icons.name.is_some() || icons.state.is_some() || icons.place.is_some() || icons.action.is_some();
+    if !any {
+        return file_card_plain(ui, card);
+    }
+    ui.set_min_width(240.0);
+    ui.set_max_width(320.0);
+    let text = ui.visuals().text_color();
+    let weak = ui.visuals().weak_text_color();
+    let line = |ui: &mut Ui, icon: Option<&str>, ink: Color32, label: egui::RichText| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = CARD_ICON_GAP;
+            let (r, _) = ui.allocate_exact_size(vec2(CARD_ICON, CARD_ICON), Sense::hover());
+            if let Some(name) = icon {
+                crate::paint_named(ui.painter(), r, name, ink, true, false);
+            }
+            ui.add(egui::Label::new(label).wrap());
+        });
+    };
+    line(ui, icons.name, text, egui::RichText::new(card.name).strong());
+    line(ui, icons.state, weak, egui::RichText::new(card.state));
+    if let Some(place) = card.place {
+        line(ui, icons.place, weak, egui::RichText::new(place).weak());
+    }
+    let Some(label) = card.action else { return false };
+    ui.add_space(2.0);
+    ui.separator();
+    // A menu row: icon and label inside one clickable, highlighted on hover.
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let text_size = ui.painter().layout_no_wrap(label.to_string(), font.clone(), text).size();
+    let pad = ui.spacing().button_padding;
+    let height = text_size.y.max(CARD_ICON) + pad.y * 2.0;
+    let width = ui.available_width().max(pad.x * 2.0 + CARD_ICON + CARD_ICON_GAP + text_size.x);
+    let (r, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    let icon = Rect::from_min_size(pos2(r.left() + pad.x, r.center().y - CARD_ICON / 2.0), vec2(CARD_ICON, CARD_ICON));
+    if let Some(name) = icons.action {
+        crate::paint_named(ui.painter(), icon, name, text, true, false);
+    }
+    // A label, as on the avatar, so assistive technology reads the action; clicks pass through
+    // it to the row.
+    let at = Rect::from_min_size(pos2(icon.right() + CARD_ICON_GAP, r.center().y - text_size.y / 2.0), text_size);
+    ui.put(at, egui::Label::new(egui::RichText::new(label).font(font).color(text)).selectable(false));
+    resp.clicked()
+}
+
+fn file_card_plain(ui: &mut Ui, card: &FileCard) -> bool {
     ui.set_min_width(240.0);
     ui.set_max_width(320.0);
     ui.add(egui::Label::new(egui::RichText::new(card.name).strong()).wrap());

@@ -5,6 +5,15 @@ Thai-speaking audience. This file lists what differs from the original, newest f
 progress notes are in `ROADMAP.md` and `docs/`; they are not edited here. Each entry matches a commit on the
 `my-changes` branch.
 
+## 2026-11-24 (own settings folder, no longer shared with WordCraft)
+
+- The settings folder was WordCraft's (`%APPDATA%\WordCraft`, `~/Library/Application Support/WordCraft`,
+  `~/.config/wordcraft`), so with WordCraft installed too both programs shared recent files, custom ribbons,
+  options, dictionary words and recovery copies. It is now `KhianKrub` (`khiankrub` on Linux and BSD).
+- First start after the update: WordCraft's folder is copied to the new one (not moved; logs and control
+  keys left out), only when the new one doesn't exist yet. WordCraft's folder is not changed.
+- Hunspell dictionaries are also looked for in `KhianKrub\dictionaries` on Windows (WordCraft's still works).
+
 ## 2026-11-18 (contributed patches: underline samples, character spacing, object distances)
 
 Three patches from [preeniin/khiankrub-feature-patches](https://github.com/preeniin/khiankrub-feature-patches)

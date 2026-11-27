@@ -227,7 +227,9 @@ pub fn show(ui: &mut Ui, parts: &[(Part, String)], formats: &Formats, tr: &dyn F
     }
     if !f.is_auto() {
         ui.add_space(4.0);
-        if ui.button(tr("Reset to Automatic")).clicked() {
+        // Across the pane, like the other panes' last actions (owner, 2026-11-22).
+        let w = ui.available_width().floor();
+        if ui.add_sized(egui::vec2(w, 28.0), egui::Button::new(tr("Reset to Automatic"))).clicked() {
             out(Edit::Reset);
         }
     }

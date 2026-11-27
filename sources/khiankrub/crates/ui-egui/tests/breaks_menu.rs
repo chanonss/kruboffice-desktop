@@ -28,7 +28,11 @@ fn layout_tab() -> egui_kittest::Harness<'static, WordApp> {
 /// Open the ribbon's Breaks menu and click the item labelled `item`.
 fn click_break(h: &mut egui_kittest::Harness<'static, WordApp>, item: &str) {
     use egui_kittest::kittest::{NodeT, Queryable};
-    h.get_by_role_and_label(egui::accesskit::Role::Button, "Breaks").click();
+    // The ribbon's Breaks (the right panel's Page pane has one too, lower down).
+    h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Breaks")
+        .min_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+        .expect("the ribbon has Breaks")
+        .click();
     for _ in 0..3 {
         h.step();
     }

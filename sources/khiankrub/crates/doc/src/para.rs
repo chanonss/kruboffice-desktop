@@ -216,6 +216,10 @@ pub struct Float {
     /// laid out, as Word for Windows does (Word for Mac draws hidden VML shapes).
     #[serde(skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// Locked (owner, 2026-11-23): it can't be moved, resized, formatted, edited or deleted until
+    /// it is unlocked (`shape.lock`). Saved as DrawingML's `noMove`/`noResize`… locks.
+    #[serde(skip_serializing_if = "is_false")]
+    pub locked: bool,
 }
 
 /// Longest alternative text kept (characters): hostile files and commands are capped.

@@ -709,6 +709,15 @@ fn breaks(s: &mut Session, v: &Value) -> CmdResult {
     let next_block = new.path.last();
     para.section = Some(Box::new(props.clone()));
     props.start = start;
+    // Its page numbers go on from the section before (owner, 2026-11-22): a break inside a
+    // chapter that starts at 1 (a Thai report's body after its ก, ข front matter) would
+    // otherwise copy "start at 1" and number the new section 1 again. The format stays.
+    props.page_num_start = None;
+    // The new section's headers and footers are linked to the previous section's ("Same as
+    // Previous"), as in Word: it has no references of its own. A copy of the references would
+    // share the previous section's parts while Link to Previous showed as off.
+    props.headers = Default::default();
+    props.footers = Default::default();
     *s.doc.section_mut(next_block) = props;
     // The selection keeps its text, which now starts the new section.
     let first = Pos { off: 0, ..new };
@@ -1102,5 +1111,33 @@ mod tests {
         assert!(found > 0, "no candidates");
         assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body).matches('\u{ad}').count(), found);
         assert!(s.run("layout.manualHyphenation", &json!({"from": {"block": 999, "off": 0}})).unwrap()["done"] == true);
+    }
+
+    /// Owner, 2026-11-22: a report's body section starts at page 1 (after ก, ข front matter);
+    /// a Next Page break in it (for a landscape page) continued numbering 1, 1, 1. The section
+    /// after a break goes on counting, in the same number format.
+    #[test]
+    fn a_next_page_break_continues_the_page_numbers() {
+        use wordcraft_doc::section::NumFormat;
+        let mut s = Session::new(wordcraft_doc::Document::default());
+        s.run("text.insert", &json!({"text": "Front"})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "Chapter 1"})).unwrap();
+        {
+            let at = s.sel.focus.path.last();
+            let sect = s.doc.section_mut(at);
+            sect.page_num_start = Some(1);
+            sect.page_num_format = NumFormat::Decimal;
+        }
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("layout.orientation", &json!({"value": "landscape"})).unwrap();
+        s.run("text.insert", &json!({"text": "Landscape table"})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("layout.orientation", &json!({"value": "portrait"})).unwrap();
+        s.run("text.insert", &json!({"text": "Chapter 1 goes on"})).unwrap();
+        let numbers: Vec<u32> = s.layout().pages.iter().map(|p| p.number).collect();
+        assert_eq!(numbers, vec![1, 1, 2, 3], "the body restarts at 1 once, then counts on");
+        let sections = s.doc.sections();
+        assert!(sections.iter().skip(2).all(|(_, sp)| sp.page_num_start.is_none() && sp.page_num_format == NumFormat::Decimal));
     }
 }

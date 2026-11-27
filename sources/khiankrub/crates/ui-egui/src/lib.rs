@@ -60,6 +60,7 @@ pub mod equation_tab;
 pub mod file_browser;
 pub mod file_dialogs;
 pub mod font_download;
+pub mod format_panes;
 pub mod frame;
 pub mod guides;
 pub mod hf_pane;
@@ -69,6 +70,7 @@ pub mod ink;
 pub mod keys;
 pub mod keytips;
 mod line_looks;
+pub mod lists_pane;
 pub mod mini_toolbar;
 pub mod number_select;
 pub mod number_text;
@@ -317,6 +319,9 @@ pub struct UiState {
     /// File › Options › General: the ribbon tabs sit in the middle of the strip (the default) or
     /// start at the left after File, as in Word.
     pub ribbon_tabs_centered: bool,
+    /// The one-line ribbon's buttons as the user arranged them (owner, 2026-11-24): per tab, the
+    /// keys (command ids or icon names) in order. A tab without an entry shows its own list.
+    pub ribbon_line: std::collections::BTreeMap<String, Vec<String>>,
     pub recent: Vec<String>,
     /// Symbols inserted from the Symbol dialog, most recent first (#321).
     pub recent_symbols: Vec<dialogs_insert::RecentSymbol>,
@@ -460,6 +465,7 @@ impl Default for UiState {
             show_ribbon_tab_numbers: true,
             show_ribbon_group_names: false,
             ribbon_tabs_centered: true,
+            ribbon_line: Default::default(),
             recent: Vec::new(),
             recent_symbols: Vec::new(),
             recent_colors: Vec::new(),
@@ -471,7 +477,8 @@ impl Default for UiState {
             legacy_interface_size: None,
             animations: theme::Animations::default(),
             legacy_dark: None,
-            nav_tab: "headings".into(),
+            // UI experiment: the left panel opens on the page thumbnails.
+            nav_tab: "pages".into(),
             author: String::new(),
             window: None,
             language: i18n::AUTO.into(),
@@ -569,6 +576,8 @@ pub struct WordApp {
     pub colors: Option<colors::ColorsDialog>,
     /// The Restrict Editing pane (#412).
     pub restrict: dialogs_review::RestrictPane,
+    /// The Table of Contents pane (owner, 2026-11-22).
+    pub lists_pane: lists_pane::ListsPane,
     pub status_msg: Option<(String, f64)>,
     pub previews: previews::Previews,
     /// Media key of the picture a pending Change Picture replaces (#147).
@@ -750,6 +759,7 @@ impl WordApp {
             border_pen: Default::default(),
             colors: None,
             restrict: Default::default(),
+            lists_pane: Default::default(),
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
@@ -1589,11 +1599,18 @@ impl WordApp {
                 crate::panes::set_right_collapsed(&ctx, !open);
                 json!({"value": open})
             }
-            // Navigation pane tab: headings, pages or results. Opens the pane.
+            // Navigation pane tab: headings, pages or results. Opens the pane. `"columns": 1 | 2`
+            // shows the page thumbnails as single pages or as facing pages (remembered).
             "ui.navTab" => {
                 let tab = s("tab").unwrap_or("headings");
                 if !matches!(tab, "headings" | "pages" | "results") {
                     return Some(Err(format!("unknown Navigation tab {tab:?}: use headings, pages or results")));
+                }
+                if let Some(c) = p.get("columns") {
+                    let (Some(n @ (1 | 2)), Some(ctx)) = (c.as_u64(), self.ctx.clone()) else {
+                        return Some(Err("columns is 1 or 2, once the window is open".into()));
+                    };
+                    crate::panes::set_two_columns(&ctx, n == 2);
                 }
                 self.ui.nav_tab = tab.into();
                 self.session.view.nav_pane = true;
@@ -1649,6 +1666,16 @@ impl WordApp {
                     *region = dialogs_table_style::part_index(part);
                 }
                 json!({"dialog": self.dialog.as_ref().map(|d| d.name())})
+            }
+            // References › Manage Table of Contents: the Table of Contents pane, on `kind`
+            // (contents, figures or tables) if given; `value` false closes it.
+            "ui.listsPane" => {
+                if p.get("value").and_then(Value::as_bool) == Some(false) {
+                    self.lists_pane.open = false;
+                } else {
+                    self.lists_pane.open_on(s("kind").and_then(wordcraft_engine::cmd::ref_lists::Kind::from_name));
+                }
+                json!({"listsPane": self.lists_pane.open})
             }
             "ui.closeDialog" => {
                 self.dialog = None;
@@ -1999,7 +2026,12 @@ impl WordApp {
     }
 
     pub fn status(&mut self, s: impl Into<String>) {
-        self.status_msg = Some((s.into(), now_ms()));
+        let s = s.into();
+        // A change a locked object refused also shows on the object (its badge and a note).
+        if krub_icons::object_lock::is_lock_error(&s) {
+            krub_icons::object_lock::ask();
+        }
+        self.status_msg = Some((s, now_ms()));
     }
 
     /// A file that wouldn't open (#1103): log it, and say on the status bar which file and why,
@@ -2624,12 +2656,18 @@ impl WordApp {
             if self.session.view.focus_mode {
                 chrome::title_bar(self, ui);
             } else {
-                ribbon::show(self, ui);
+                // UI experiment (branch `ui-pages-layout`, 2026-11-23): the bar across the whole
+                // window, then the side panels the full height under it, then the one-line
+                // ribbon, the banners and the status bar over the document only (the ribbon now full width).
+                ribbon::show_tabs(self, ui);
+                // Owner, 2026-11-24: the ribbon line across the whole window too, the panels
+                // starting under it, so the line has room for more buttons.
+                ribbon::show_body(self, ui);
+                panes::show(self, ui);
                 updates::bar(self, ui);
                 self.browser_recovery_bar(ui);
                 self.font_hint_bar(ui);
                 chrome::status_bar(self, ui);
-                panes::show(self, ui);
             }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
@@ -3390,6 +3428,35 @@ mod tests {
         assert!(h.query_by_label("Trip plan — Edited").is_some(), "a document saved elsewhere is not a draft");
     }
 
+    /// References › Manage Table of Contents opens the Table of Contents pane (owner,
+    /// 2026-11-22); it lists what the document has, and Insert at Cursor puts the chosen list in.
+    #[test]
+    fn the_table_of_contents_pane_inserts_a_list_of_tables() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.ui.tab = "References".into();
+        let mut h = harness(a);
+        h.run_steps(6);
+        h.get_by_label("Manage Table of Contents").click();
+        h.run_steps(4);
+        assert!(h.state().lists_pane.open);
+        assert!(h.query_by_label("List of Tables: Not inserted").is_some());
+        h.get_by_label("List of Tables: Not inserted").click();
+        h.run_steps(3);
+        h.get_by_label("Insert at Cursor").click();
+        h.run_steps(4);
+        let has =
+            h.state().session.doc.body.iter().filter_map(|b| b.as_para()).any(|p| {
+                p.objects.iter().any(|o| matches!(o, wordcraft_doc::para::InlineObject::Field { instr, .. } if instr.starts_with("TOC \\c")))
+            });
+        assert!(has, "a list of tables went in");
+        assert!(h.query_by_label("List of Tables: Page 1").is_some());
+        // Its × closes the pane.
+        h.state_mut().lists_pane.open = false;
+        h.run_steps(2);
+        assert!(h.query_by_label("List of Tables: Page 1").is_none());
+    }
+
     #[test]
     fn title_and_account_buttons_work() {
         use egui_kittest::kittest::Queryable;
@@ -3806,7 +3873,8 @@ mod tests {
         assert!(!h.state().ui.backstage && !h.state().has_document(), "the empty window");
         h.get_by_label("Account").click();
         h.run_steps(4);
-        assert!(h.get_by_label("Comments").accesskit_node().is_disabled(), "Comments is: nothing to comment on");
+        // Comments is in the file name's menu, which an empty window doesn't open: nothing to comment on.
+        assert!(h.query_by_label("Comments").is_none(), "Comments isn't offered");
         h.key_press(egui::Key::Escape);
         h.run_steps(2);
         let file = h.get_by_role_and_label(egui::accesskit::Role::Button, "File");
@@ -4176,9 +4244,11 @@ mod tests {
         let mut a = app();
         a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(4000)})).unwrap();
         a.run("caret.docStart", json!({})).unwrap();
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1313.0, 800.0));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1258.0, 800.0));
+        // Navigation hidden: the document column these zoom and scroll checks were written for.
+        crate::panes::set_left_shown(&mut a, &ctx, false);
         // The same 1258 px page area as before the side panel was persistent (the pages' place
-        // is sensitive to its width): the panel folded to its strip, the window that much wider.
+        // is sensitive to its width): both panels hidden, so the window is the page area.
         crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
@@ -4244,6 +4314,8 @@ mod tests {
         let mut a = app();
         a.run("ui.tab", json!({"tab": "View"})).unwrap();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        // Navigation hidden: the document column these zoom and scroll checks were written for.
+        crate::panes::set_left_shown(&mut a, &ctx, false);
         let frame = |a: &mut WordApp| {
             for _ in 0..4 {
                 let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
@@ -4331,6 +4403,8 @@ mod tests {
         a.run("caret.set", json!({"pos": wordcraft_doc::Pos::body(0, 0)})).unwrap();
         let original = a.session.doc.settings.clone();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 740.0));
+        // Navigation hidden: the document column these zoom and scroll checks were written for.
+        crate::panes::set_left_shown(&mut a, &ctx, false);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp, events: Vec<egui::Event>, screen| {
             t += 1.0 / 60.0;
@@ -4741,7 +4815,8 @@ mod tests {
         a.run("select.word", json!({})).unwrap();
         a.run("review.newComment", json!({"text": "A comment with a few words in it"})).unwrap();
         a.session.view.comments_pane = false;
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 700.0));
+        // Wide enough for both side panels, the page and its comment margin.
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1700.0, 700.0));
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
             t += 1.0 / 60.0;
@@ -4788,11 +4863,71 @@ mod tests {
         assert_eq!(a.canvas.balloon, None, "a click on the page leaves the balloon");
     }
 
+    /// Owner, 2026-11-24: in a window too narrow for the page and the comment column (1400 pt,
+    /// both side panels, 100%), comments show as markers at the page's edge; a click on one opens
+    /// its card. A window with room keeps the column.
+    #[test]
+    fn a_narrow_window_shows_comment_markers_that_open_their_card() {
+        for (width, narrow) in [(1400.0_f32, true), (1900.0, false)] {
+            let ctx = egui::Context::default();
+            let mut a = app();
+            a.run("text.insert", json!({"text": "one two three. ".repeat(20)})).unwrap();
+            a.run("select.text", json!({"text": "two"})).unwrap();
+            a.run("review.newComment", json!({"text": "First"})).unwrap();
+            a.run("select.text", json!({"text": "three"})).unwrap();
+            a.run("review.newComment", json!({"text": "Second"})).unwrap();
+            a.session.view.comments_pane = false;
+            a.run("caret.docEnd", json!({})).unwrap();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 800.0));
+            let mut t = 0.0;
+            let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+                t += 1.0 / 60.0;
+                let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+                ctx.run_ui(input, |ui| {
+                    a.logic(ui.ctx());
+                    a.ui(ui);
+                })
+                .drop_without_applying_deltas();
+            };
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+            assert!(a.session.view.nav_pane && !panes::right_collapsed(&ctx), "width {width}: both side panels");
+            if !narrow {
+                assert!(a.canvas.comment_markers.is_empty(), "width {width}: room for the column");
+                assert_eq!(a.canvas.balloon_rects.len(), 2, "width {width}: both balloons in the column");
+                continue;
+            }
+            assert_eq!(canvas::markup_width(&a), 0.0, "no column");
+            assert_eq!(a.canvas.comment_markers.len(), 2, "a marker for each comment");
+            assert!(a.canvas.balloon_rects.is_empty(), "no card until one is picked");
+            let view = a.canvas.canvas_rect.unwrap();
+            let (id, mark) = a.canvas.comment_markers[1];
+            assert!(view.contains_rect(mark), "the marker is in sight: {mark:?} in {view:?}");
+            let btn = |pressed| egui::Event::PointerButton {
+                pos: mark.center(),
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            frame(&mut a, vec![egui::Event::PointerMoved(mark.center())]);
+            frame(&mut a, vec![btn(true)]);
+            frame(&mut a, vec![btn(false)]);
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.canvas.balloon, Some(id), "the click opens that comment");
+            assert_eq!(a.canvas.balloon_rects.len(), 1, "as one card");
+            assert!(view.intersects(a.canvas.balloon_rects[0].1), "in sight");
+        }
+    }
+
     /// #1055: with "only for the selected text" the margin column is gone and just the comment
     /// under the caret floats, beside the page in a wide window and over its edge in a narrow one.
     #[test]
     fn selected_comment_floats_and_keeps_its_clicks() {
-        for width in [1700.0_f32, 1000.0] {
+        // 2000 pt has room beside the page with both side panels open; 1000 pt doesn't.
+        for width in [2000.0_f32, 1000.0] {
             let ctx = egui::Context::default();
             let mut a = app();
             a.run("text.insert", json!({"text": "one two three. ".repeat(60)})).unwrap();
@@ -5014,7 +5149,9 @@ mod tests {
         }
         a.run("text.insert", json!({"text": "Last page"})).unwrap();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
-        // The page area at the full window width: the side panel folded to its strip.
+        // Navigation hidden: the document column these zoom and scroll checks were written for.
+        crate::panes::set_left_shown(&mut a, &ctx, false);
+        // The page area at the full window width: both side panels hidden.
         crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp| {
@@ -5056,7 +5193,9 @@ mod tests {
             a.run("insert.pageBreak", json!({})).unwrap();
         }
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
-        // The page area at the full window width: the side panel folded to its strip.
+        // Navigation hidden: the document column these zoom and scroll checks were written for.
+        crate::panes::set_left_shown(&mut a, &ctx, false);
+        // The page area at the full window width: both side panels hidden.
         crate::panes::set_right_collapsed(&ctx, true);
         let mut t = 0.0;
         let mut frame = |a: &mut WordApp| {

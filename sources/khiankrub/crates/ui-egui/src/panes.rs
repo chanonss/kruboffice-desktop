@@ -11,6 +11,10 @@ use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
+    // UI experiment: the navigation panel on the left and the right panel come first, so both
+    // run the full height under the bar.
+    left_panel(app, ui);
+    right_dock(app, ui);
     // SmartArt Design › Text Pane, while a SmartArt graphic WordCraft can edit is selected.
     if app.session.view.smart_art_pane && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some() {
         side_pane(ui, "smart_art_pane", false, |ui| {
@@ -24,12 +28,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if app.session.view.clipboard_pane {
         side_pane(ui, "clipboard_pane", false, |ui| clipboard(app, ui));
     }
-    right_dock(app, ui);
 }
 
-/// The right-hand panes, in the strip's order: id, icon, name.
-const RIGHT: [(&str, &str, &str); 13] = [
-    ("nav", "navPane", "Navigation"),
+/// The right panel's panes: id, icon, name (UI experiment, branch `ui-pages-layout`,
+/// 2026-11-23). `text` and `page` are always there; the object panes while their object is
+/// selected; the tools while turned on.
+const RIGHT: [(&str, &str, &str); 15] = [
+    ("text", "fontcolor", "Text"),
+    ("page", "margins", "Page"),
     ("headerFooter", "header", "Header & Footer"),
     ("table", "table", "Table"),
     ("picture", "picture", "Picture"),
@@ -37,6 +43,7 @@ const RIGHT: [(&str, &str, &str); 13] = [
     ("shape", "shapes", "Shape"),
     ("chart", "chart", "Chart"),
     ("styles", "stylesPane", "Styles"),
+    ("lists", "toc", "Table of Contents"),
     ("inspector", "styles", "Style Inspector"),
     ("accessibility", "accessibility", "Accessibility"),
     ("altText", "altText", "Alt Text"),
@@ -44,14 +51,15 @@ const RIGHT: [(&str, &str, &str); 13] = [
     ("comments", "comment", "Comments"),
 ];
 
-/// The width of the strip of pane buttons beside the right-hand pane.
-pub const STRIP_W: f32 = 36.0;
+/// The tools: they open in the right panel from their command or the title menu, with ×.
+const TOOLS: [&str; 6] = ["lists", "inspector", "accessibility", "altText", "restrict", "comments"];
 
 /// The right-hand panes open now, in [`RIGHT`]'s order. Every object pane's `wanted` runs each
 /// frame (they remember whether they were showing).
 fn right_open(app: &WordApp, ctx: &egui::Context) -> Vec<&'static str> {
     let v = &app.session.view;
     let on = [
+        true,
         true,
         crate::hf_pane::wanted(app, ctx),
         crate::table_pane::wanted(app, ctx),
@@ -60,6 +68,7 @@ fn right_open(app: &WordApp, ctx: &egui::Context) -> Vec<&'static str> {
         crate::object_pane::shape_wanted(app, ctx),
         crate::object_pane::chart_wanted(app, ctx),
         v.styles_pane,
+        app.lists_pane.open,
         v.style_inspector,
         v.accessibility_pane,
         v.alt_text_pane,
@@ -69,216 +78,315 @@ fn right_open(app: &WordApp, ctx: &egui::Context) -> Vec<&'static str> {
     RIGHT.iter().zip(on).filter(|(_, on)| *on).map(|((id, _, _), _)| *id).collect()
 }
 
-/// The pane the right-hand dock shows: the most recently opened or chosen of those open.
+/// The pane the right panel shows.
 pub fn right_active(ctx: &egui::Context) -> Option<&'static str> {
     ctx.data(|d| d.get_temp::<Option<&'static str>>(egui::Id::new("right_dock_active"))).flatten()
 }
 
-/// Whether the right-hand dock is folded down to its strip (remembered between sessions).
+/// Whether the right panel is hidden (remembered between sessions).
 const COLLAPSED: &str = "krub_side_dock_collapsed";
 
 /// The object panes, which open by themselves while their object is selected.
 const OBJECT_PANES: [&str; 6] = ["headerFooter", "table", "picture", "smartArt", "shape", "chart"];
 
-/// Whether the right-hand dock is folded down to its strip of buttons: as last chosen, or until
-/// then, folded on a narrow window (a phone, a small browser tab). The default follows the
-/// window's width, which a browser reports only after the first frames.
+/// Whether the right panel is hidden: as last chosen, or until then, hidden on a narrow window
+/// (a phone, a small browser tab).
 pub fn right_collapsed(ctx: &egui::Context) -> bool {
     ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::new(COLLAPSED))).unwrap_or_else(|| ctx.content_rect().width() < 900.0)
 }
 
-/// Fold (`true`) or unfold the right-hand dock.
+/// Hide (`true`) or show the right panel.
 pub fn set_right_collapsed(ctx: &egui::Context, collapsed: bool) {
     ctx.data_mut(|d| d.insert_persisted(egui::Id::new(COLLAPSED), collapsed));
 }
 
-/// The right-hand dock (owner, 2026-11-15; persistent since 2026-11-17): always there, one pane
-/// at a time at the shared width, with a strip of buttons on its outer edge for every pane that
-/// is open, so selecting and deselecting objects never moves the page. Navigation is the home
-/// pane, first in the strip; a pane that opens (a table, picture, shape, chart or SmartArt
-/// selected; Styles, Comments… turned on) comes to the front; a strip button brings its pane
-/// back; closing the front pane shows the one used before it (in the end, Navigation). The
-/// chevron at the top of the strip folds the dock down to the strip; while folded a selected
-/// object's button carries a dot instead of opening its pane, and any strip button unfolds it.
-/// View › Navigation Pane (`view.nav_pane`) reads and sets "the dock is open on Navigation".
-fn right_dock(app: &mut WordApp, ui: &mut Ui) {
+/// Whether the left navigation panel shows: View › Navigation Pane. Until the user chooses, it
+/// shows on a window wide enough for both panels and a page (1200 pt).
+pub fn left_shown(app: &mut WordApp, ctx: &egui::Context) -> bool {
+    let id = egui::Id::new("krub_left_panel_init");
+    if !ctx.data_mut(|d| d.get_persisted::<bool>(id)).unwrap_or(false) && ctx.content_rect().width() > 0.0 {
+        ctx.data_mut(|d| d.insert_persisted(id, true));
+        app.session.view.nav_pane = ctx.content_rect().width() >= 1200.0;
+    }
+    app.session.view.nav_pane
+}
+
+/// Show or hide the left navigation panel as if the user had chosen (so the first frame's
+/// window-width default doesn't override it).
+#[cfg(test)]
+pub(crate) fn set_left_shown(app: &mut WordApp, ctx: &egui::Context, shown: bool) {
+    ctx.data_mut(|d| d.insert_persisted(egui::Id::new("krub_left_panel_init"), true));
+    app.session.view.nav_pane = shown;
+}
+
+/// The width of the document column's side panels now shown: (left, right).
+pub fn panel_widths(app: &WordApp, ctx: &egui::Context) -> (f32, f32) {
+    let left = if app.session.view.nav_pane { PANE_W } else { 0.0 };
+    let right = if right_collapsed(ctx) { 0.0 } else { PANE_W };
+    (left, right)
+}
+
+/// The left navigation panel (UI experiment): the full height under the bar, the shared width.
+fn left_panel(app: &mut WordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    let (order_id, prev_id, synced_id) =
-        (egui::Id::new("right_dock_order"), egui::Id::new("right_dock_prev"), egui::Id::new("right_dock_nav_synced"));
-    let open = right_open(app, &ctx);
-    let prev: Vec<&'static str> = ctx.data(|d| d.get_temp(prev_id)).unwrap_or_default();
-    let mut order: Vec<&'static str> = ctx.data(|d| d.get_temp(order_id)).unwrap_or_default();
-    let front = |order: &mut Vec<&'static str>, id: &'static str| {
-        order.retain(|o| *o != id);
-        order.insert(0, id);
-    };
-    for id in open.iter().filter(|id| !prev.contains(id)) {
-        front(&mut order, id);
-    }
-    ctx.data_mut(|d| d.insert_temp(prev_id, open.clone()));
-    let chosen = ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::new(COLLAPSED))).is_some();
-    let mut collapsed = right_collapsed(&ctx);
-    let was = collapsed;
-    // A command changed View › Navigation Pane (the ribbon, Ctrl+F, a find…) since this frame
-    // last set it: on brings the dock out on Navigation, off folds it.
-    let synced: Option<bool> = ctx.data(|d| d.get_temp(synced_id));
-    let nav_now = app.session.view.nav_pane;
-    if synced != Some(nav_now) {
-        if nav_now {
-            collapsed = false;
-            front(&mut order, "nav");
-        } else if synced.is_some() {
-            collapsed = true;
-        }
-    }
-    let t = Tokens::get(&ctx);
-    let mut active = order.iter().copied().find(|id| open.contains(id)).or_else(|| open.first().copied());
-    egui::Panel::right("right_dock_strip")
-        .exact_size(STRIP_W)
-        .resizable(false)
-        .frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(3, 8)).stroke(Stroke::new(1.0, t.border)))
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            let label = if collapsed { tl!("Expand Side Panel") } else { tl!("Collapse Side Panel") };
-            let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), egui::Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(r, 5.0, t.hover);
-            }
-            paint_dock_toggle(ui.painter(), egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), collapsed, t.icon);
-            let resp = resp.on_hover_text(label);
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-            if resp.clicked() {
-                collapsed = !collapsed;
-            }
-            let mut last_group = None;
-            for (id, icon, name) in RIGHT.iter().filter(|(id, _, _)| open.contains(id)) {
-                // A thin rule between the toggle, Navigation, the object panes and the others.
-                let group = if *id == "nav" {
-                    0
-                } else if OBJECT_PANES.contains(id) {
-                    1
-                } else {
-                    2
-                };
-                if last_group != Some(group) {
-                    let (r, _) = ui.allocate_exact_size(vec2(30.0, 3.0), egui::Sense::hover());
-                    ui.painter().hline(r.x_range().shrink(4.0), r.center().y, Stroke::new(1.0, t.border_strong));
-                    last_group = Some(group);
-                }
-                let on = !collapsed && active == Some(*id);
-                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), egui::Sense::click());
-                let fill = if on {
-                    t.checked
-                } else if resp.hovered() {
-                    t.hover
-                } else {
-                    egui::Color32::TRANSPARENT
-                };
-                ui.painter().rect_filled(r, 5.0, fill);
-                if on {
-                    ui.painter().rect_stroke(r, 5.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
-                }
-                crate::icons::paint(ui.painter(), egui::Rect::from_center_size(r.center(), vec2(20.0, 20.0)), icon, t.icon, t.accent);
-                if collapsed && group == 1 {
-                    // Folded: the selected object's pane is ready behind its button.
-                    ui.painter().circle_filled(r.right_top() + vec2(-6.0, 6.0), 3.0, t.accent);
-                }
-                let label = tl!(name);
-                let resp = resp.on_hover_text(label);
-                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
-                if resp.clicked() {
-                    active = Some(*id);
-                    collapsed = false;
-                }
-            }
-        });
-    if let Some(id) = active {
-        front(&mut order, id);
-    }
-    let nav_shown = !collapsed && active == Some("nav");
-    app.session.view.nav_pane = nav_shown;
-    ctx.data_mut(|d| {
-        d.insert_temp(order_id, order);
-        d.insert_temp(egui::Id::new("right_dock_active"), active);
-        d.insert_temp(synced_id, nav_shown);
-        // Remembered once folded or unfolded by hand (or a command); not the width's default.
-        if chosen || collapsed != was {
-            d.insert_persisted(egui::Id::new(COLLAPSED), collapsed);
-        }
-    });
-    if collapsed {
+    if !left_shown(app, &ctx) {
         return;
     }
-    let Some(id) = active else { return };
-    side_pane(ui, "right_dock", true, |ui| match id {
-        "nav" => nav(app, ui),
-        "headerFooter" => crate::hf_pane::show(app, ui),
-        "table" => crate::table_pane::show(app, ui),
-        "picture" => crate::object_pane::show_picture(app, ui),
-        "smartArt" => crate::object_pane::show_smart_art(app, ui),
-        "shape" => crate::object_pane::show_shape(app, ui),
-        "chart" => crate::object_pane::show_chart(app, ui),
-        "styles" => styles(app, ui),
-        "inspector" => inspector(app, ui),
-        "accessibility" => crate::a11y_pane::accessibility(app, ui),
-        "altText" => crate::a11y_pane::alt_text(app, ui),
-        "restrict" => {
-            if header(ui, "Restrict Editing") {
-                app.restrict.open = false;
-                return;
-            }
-            crate::dialogs_review::restrict_pane(app, ui);
+    // Accent colours (owner, 2026-11-24: style A, side panels batch 1).
+    side_pane(ui, "left_nav", false, |ui| krub_icons::tabler_colour::with_colour(&ctx, true, || nav(app, ui)));
+}
+
+/// The pane the right panel picks by itself: Page on Design and Layout, otherwise the selected
+/// object's pane, otherwise Text.
+fn auto_pane(app: &WordApp, open: &[&'static str]) -> &'static str {
+    if matches!(app.ui.tab.as_str(), "Design" | "Layout") {
+        return "page";
+    }
+    OBJECT_PANES.iter().copied().find(|id| open.contains(id)).unwrap_or("text")
+}
+
+/// The right panel (UI experiment, branch `ui-pages-layout`, 2026-11-23): the full height under
+/// the bar, one pane at a time at the shared width. It picks its pane by itself
+/// ([`auto_pane`]); its title is a menu to pick another (the selection's, Page, or a tool); a
+/// tool that is turned on (Comments, Accessibility…) comes to the front and × closes it.
+fn right_dock(app: &mut WordApp, ui: &mut Ui) {
+    let ctx = ui.ctx().clone();
+    let id_of = |k: &str| egui::Id::new(("right_panel", k));
+    let open = right_open(app, &ctx);
+    let prev_open: Vec<&'static str> = ctx.data(|d| d.get_temp(id_of("open"))).unwrap_or_default();
+    let auto = auto_pane(app, &open);
+    let prev_auto: Option<&'static str> = ctx.data(|d| d.get_temp(id_of("auto")));
+    let mut active: &'static str = right_active(&ctx).unwrap_or(auto);
+    if prev_auto != Some(auto) {
+        active = auto;
+    }
+    // A tool turned on (its command, the title menu) comes to the front; Styles opens Text's
+    // Styles tab.
+    for id in open.iter().copied().filter(|id| !prev_open.contains(id)) {
+        if TOOLS.contains(&id) {
+            active = id;
+        } else if id == "styles" {
+            active = "text";
+            ctx.data_mut(|d| d.insert_temp(id_of("sub_text"), "styles"));
+            set_right_collapsed(&ctx, false);
         }
-        _ => comments(app, ui),
+    }
+    if !open.contains(&active) || (OBJECT_PANES.contains(&active) && active != auto && !matches!(auto, "page")) {
+        active = auto;
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(id_of("open"), open.clone());
+        d.insert_temp(id_of("auto"), auto);
+        d.insert_temp(egui::Id::new("right_dock_active"), Some(active));
+    });
+    // The Styles pane's flag means "Styles was asked for": read once above, then let go.
+    app.session.view.styles_pane = false;
+    if right_collapsed(&ctx) {
+        return;
+    }
+    // Accent colours (owner, 2026-11-24/25: style A, side panels batches 1–3): everything the
+    // right panel draws, its title row and menu included.
+    side_pane(ui, "right_dock", true, |ui| {
+        krub_icons::tabler_colour::with_colour(&ctx, true, || {
+            title_row(app, ui, active, auto, &open);
+            ui.data_mut(|d| d.insert_temp(egui::Id::new(IN_PANEL), true));
+            match active {
+                "text" | "page" => {
+                    let tabs: &[(&str, &str, &str)] = if active == "text" {
+                        &[("styles", "stylesPane", "Styles"), ("text", "fontcolor", "Text"), ("paragraph", "pilcrow", "Paragraph")]
+                    } else {
+                        &[("page", "margins", "Page"), ("design", "palette", "Design")]
+                    };
+                    let key = id_of(if active == "text" { "sub_text" } else { "sub_page" });
+                    let mut sub: &'static str = ui.data(|d| d.get_temp(key)).unwrap_or(tabs[0].0);
+                    let w = crate::table_pane::col_w(ui, tabs.len() as u8);
+                    crate::table_pane::grid(ui, |ui| {
+                        for (k, icon, l) in tabs {
+                            if crate::widgets::pane_tab(ui, icon, tl!(l), sub == *k, w).clicked() {
+                                sub = k;
+                            }
+                        }
+                    });
+                    ui.data_mut(|d| d.insert_temp(key, sub));
+                    ui.add_space(6.0);
+                    crate::widgets::set_compact(ui.ctx(), true);
+                    match sub {
+                        "styles" => styles(app, ui),
+                        "text" => crate::format_panes::text(app, ui),
+                        "paragraph" => crate::format_panes::paragraph(app, ui),
+                        "design" => crate::format_panes::design(app, ui),
+                        _ => crate::format_panes::page(app, ui),
+                    }
+                    crate::widgets::set_compact(ui.ctx(), false);
+                }
+                "headerFooter" => crate::hf_pane::show(app, ui),
+                "table" => crate::table_pane::show(app, ui),
+                "picture" => crate::object_pane::show_picture(app, ui),
+                "smartArt" => crate::object_pane::show_smart_art(app, ui),
+                "shape" => crate::object_pane::show_shape(app, ui),
+                "chart" => crate::object_pane::show_chart(app, ui),
+                "lists" => crate::lists_pane::show(app, ui),
+                "inspector" => inspector(app, ui),
+                "accessibility" => crate::a11y_pane::accessibility(app, ui),
+                "altText" => crate::a11y_pane::alt_text(app, ui),
+                "restrict" => {
+                    if header(ui, "Restrict Editing") {
+                        app.restrict.open = false;
+                        return;
+                    }
+                    crate::dialogs_review::restrict_pane(app, ui);
+                }
+                _ => comments(app, ui),
+            }
+            ui.data_mut(|d| d.insert_temp(egui::Id::new(IN_PANEL), false));
+        })
     });
 }
 
-/// The dock's fold button, drawn (original artwork): a window with its right-hand panel marked
-/// off, and a chevron pointing the way the panel will move.
-fn paint_dock_toggle(p: &egui::Painter, r: egui::Rect, collapsed: bool, ink: egui::Color32) {
-    let s = r.width() / 24.0;
-    let at = |x: f32, y: f32| r.min + vec2(x * s, y * s);
-    let stroke = Stroke::new(1.6 * s, ink);
-    p.rect_stroke(egui::Rect::from_min_max(at(4.0, 4.0), at(20.0, 20.0)), 2.0 * s, stroke, egui::StrokeKind::Middle);
-    p.line_segment([at(15.0, 4.0), at(15.0, 20.0)], stroke);
-    let chevron = if collapsed { [at(11.0, 10.0), at(9.0, 12.0), at(11.0, 14.0)] } else { [at(9.0, 10.0), at(11.0, 12.0), at(9.0, 14.0)] };
-    p.add(egui::Shape::line(chevron.to_vec(), stroke));
+/// Set while the right panel draws a pane: [`header`] draws nothing there (the panel's title row
+/// names the pane and closes a tool).
+const IN_PANEL: &str = "krub_in_right_panel";
+/// Set by the title row's ×: the pane's own [`header`] reports the close.
+const CLOSE: &str = "krub_right_panel_close";
+
+/// The right panel's title row: the pane's name as a menu of the panes there are to show, and
+/// × for a tool.
+fn title_row(app: &mut WordApp, ui: &mut Ui, active: &'static str, auto: &'static str, open: &[&'static str]) {
+    let t = Tokens::get(ui.ctx());
+    let entry = |id: &str| RIGHT.iter().find(|(k, _, _)| *k == id).copied();
+    let (_, icon, name) = entry(active).unwrap_or(("text", "fontcolor", "Text"));
+    let selection = if auto == "page" { OBJECT_PANES.iter().copied().find(|id| open.contains(id)).unwrap_or("text") } else { auto };
+    let mut pick: Option<&'static str> = None;
+    ui.horizontal(|ui| {
+        let label = tl!(name);
+        let galley = ui.painter().layout_no_wrap(label.to_string(), semibold(15.0), t.text);
+        let w = galley.size().x + 20.0 + 8.0 + crate::widgets::DROPDOWN + 10.0;
+        let (r, resp) = ui.allocate_exact_size(vec2(w, 28.0), egui::Sense::click());
+        if resp.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp)) {
+            ui.painter().rect_filled(r, 5.0, t.hover);
+        }
+        crate::icons::paint(
+            ui.painter(),
+            egui::Rect::from_center_size(egui::pos2(r.min.x + 13.0, r.center().y), vec2(18.0, 18.0)),
+            icon,
+            t.icon,
+            t.accent,
+        );
+        let gs = galley.size();
+        ui.painter().galley(egui::pos2(r.min.x + 26.0, r.center().y - gs.y / 2.0), galley, t.text);
+        let d = crate::widgets::DROPDOWN;
+        crate::icons::paint(
+            ui.painter(),
+            egui::Rect::from_center_size(egui::pos2(r.max.x - 5.0 - d / 2.0, r.center().y), vec2(d, d)),
+            "dropdown",
+            t.icon,
+            t.icon,
+        );
+        let resp = resp.on_hover_text(tl!("Choose what this panel shows"));
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{label}, {}", tl!("panel menu"))));
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_min_width(230.0);
+            let item = |ui: &mut Ui, id: &'static str, pick: &mut Option<&'static str>| {
+                let Some((_, icon, name)) = entry(id) else { return };
+                if crate::ribbon::menu_icon_button(ui, icon, tl!(name), "", true, id == active).clicked() {
+                    *pick = Some(id);
+                    ui.close();
+                }
+            };
+            let heading = |ui: &mut Ui, text: &str| {
+                ui.label(egui::RichText::new(tl!(text)).small().color(t.text_dim));
+            };
+            heading(ui, "This selection");
+            item(ui, selection, &mut pick);
+            ui.separator();
+            heading(ui, "The whole document");
+            item(ui, "page", &mut pick);
+            ui.separator();
+            heading(ui, "Tools");
+            for id in ["comments", "accessibility", "inspector", "lists", "restrict"] {
+                item(ui, id, &mut pick);
+            }
+        });
+        if TOOLS.contains(&active) {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::widgets::icon_button(ui, "close", tl!("Close")).clicked() {
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE), true));
+                }
+            });
+        }
+    });
+    ui.add_space(6.0);
+    if let Some(id) = pick {
+        match id {
+            "comments" => app.session.view.comments_pane = true,
+            "accessibility" => app.session.view.accessibility_pane = true,
+            "inspector" => app.session.view.style_inspector = true,
+            "lists" => app.lists_pane.open = true,
+            "restrict" => app.restrict.open = true,
+            _ => {}
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("right_dock_active"), Some(id)));
+    }
 }
 
-/// Every side pane's width (owner, 2026-11-15): one width for all of them, so switching panes
-/// never changes it. Dragging any pane's inner edge sets it for all.
+/// A side panel's show/hide button for the bar (original artwork): a window with its left or
+/// right panel marked off, filled while the panel shows. Returns whether it was clicked.
+pub(crate) fn panel_toggle(ui: &mut Ui, app: &WordApp, right: bool) -> bool {
+    let t = Tokens::get(ui.ctx()).band();
+    let shown = if right { !right_collapsed(ui.ctx()) } else { app.session.view.nav_pane };
+    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 5.0, t.hover);
+    }
+    let ink = t.text;
+    let s = 20.0 / 24.0;
+    let o = r.center() - vec2(10.0, 10.0);
+    let at = |x: f32, y: f32| o + vec2(x * s, y * s);
+    let stroke = Stroke::new(1.5, ink);
+    let window = egui::Rect::from_min_max(at(3.0, 5.0), at(21.0, 19.0));
+    let (x0, x1) = if right { (15.0, 21.0) } else { (3.0, 9.0) };
+    if shown {
+        ui.painter().rect_filled(egui::Rect::from_min_max(at(x0, 5.0), at(x1, 19.0)), 1.5, ink.gamma_multiply(0.55));
+    }
+    ui.painter().rect_stroke(window, 2.0, stroke, egui::StrokeKind::Middle);
+    let edge = if right { 15.0 } else { 9.0 };
+    ui.painter().line_segment([at(edge, 5.0), at(edge, 19.0)], stroke);
+    let label = match (right, shown) {
+        (false, true) => tl!("Hide Navigation Panel"),
+        (false, false) => tl!("Show Navigation Panel"),
+        (true, true) => tl!("Hide Side Panel"),
+        (true, false) => tl!("Show Side Panel"),
+    };
+    let resp = resp.on_hover_text(label);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, shown, label));
+    resp.clicked()
+}
+
+/// Every side panel's width (owner, 2026-11-15): one width for all of them, so switching panes
+/// never changes it. UI experiment (2026-11-23): fixed, no drag handle.
 pub const PANE_W: f32 = 280.0;
-const PANE_W_RANGE: std::ops::RangeInclusive<f32> = 220.0..=520.0;
 
-/// The shared pane width (remembered in egui's memory, like the panes' old sizes).
-pub fn pane_width(ctx: &egui::Context) -> f32 {
-    let w = ctx.data_mut(|d| *d.get_persisted_mut_or(egui::Id::new("krub_side_pane_w"), PANE_W));
-    w.clamp(*PANE_W_RANGE.start(), *PANE_W_RANGE.end())
+/// The shared pane width.
+pub fn pane_width(_ctx: &egui::Context) -> f32 {
+    PANE_W
 }
 
-/// A side pane `id` on the left or `right`, at the shared width ([`PANE_W`]), with a drag handle
-/// on its inner edge.
+/// A side pane `id` on the left or `right`, at the shared width ([`PANE_W`]).
 pub(crate) fn side_pane(ui: &mut Ui, id: &'static str, right: bool, add: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
-    let w = pane_width(ui.ctx());
     let panel = if right { egui::Panel::right(id) } else { egui::Panel::left(id) };
-    let shown =
-        panel.exact_size(w).resizable(false).frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border))).show(ui, add);
-    let r = shown.response.rect;
-    let edge = if right { r.min.x } else { r.max.x };
-    let handle = egui::Rect::from_x_y_ranges(edge - 3.0..=edge + 3.0, r.y_range());
-    let resp = ui.interact(handle, egui::Id::new((id, "resize")), egui::Sense::drag());
-    if resp.hovered() || resp.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-    }
-    if resp.dragged() {
-        let dx = resp.drag_delta().x;
-        let nw = (if right { w - dx } else { w + dx }).clamp(*PANE_W_RANGE.start(), *PANE_W_RANGE.end());
-        ui.ctx().data_mut(|d| d.insert_persisted(egui::Id::new("krub_side_pane_w"), nw));
-    }
+    panel
+        .exact_size(PANE_W)
+        .resizable(false)
+        .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
+        .show(ui, |ui| crate::table_pane::faces(ui, add));
 }
 
 pub(crate) fn header(ui: &mut Ui, title: &str) -> bool {
+    if ui.data(|d| d.get_temp::<bool>(egui::Id::new(IN_PANEL))).unwrap_or(false) {
+        // In the right panel: its title row names the pane; its × closes a tool.
+        return ui.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(CLOSE))).unwrap_or(false);
+    }
     let mut close = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(tl!(title)).font(semibold(15.0)));
@@ -294,7 +402,7 @@ pub(crate) fn header(ui: &mut Ui, title: &str) -> bool {
 }
 
 fn nav(app: &mut WordApp, ui: &mut Ui) {
-    // No ×: Navigation is the dock's home pane; the strip's chevron folds the dock.
+    // No ×: the navigation panel hides from the bar's button and View › Navigation Pane.
     ui.label(egui::RichText::new(tl!("Navigation")).font(semibold(15.0)));
     ui.add_space(4.0);
     let qid = egui::Id::new("nav_query");
@@ -323,14 +431,21 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        for (k, l) in [("headings", "Headings"), ("pages", "Pages"), ("objects", "Objects"), ("results", "Results")] {
-            if ui.steady_label(app.ui.nav_tab == k, tl!(l)).clicked() {
+    // The four views as one even row of choices (owner, 2026-11-22).
+    let w = crate::table_pane::col_w(ui, 4);
+    crate::table_pane::grid(ui, |ui| {
+        for (k, icon, l) in
+            [("headings", "chartTitle", "Headings"), ("pages", "onePage", "Pages"), ("objects", "shapes", "Objects"), ("results", "find", "Results")]
+        {
+            if crate::widgets::pane_tab(ui, icon, tl!(l), app.ui.nav_tab == k, w).clicked() {
                 app.ui.nav_tab = k.into();
             }
         }
     });
     ui.separator();
+    if app.ui.nav_tab == "pages" {
+        pages_columns_toggle(app, ui);
+    }
     egui::ScrollArea::vertical().show(ui, |ui| match app.ui.nav_tab.as_str() {
         "pages" => page_thumbnails(app, ui),
         "objects" => navigation_objects(app, ui),
@@ -460,11 +575,12 @@ const THUMBS_PER_FRAME: usize = 2;
 /// Rendered page thumbnails, by page index: the page's content key and the texture.
 type ThumbCache = std::collections::HashMap<usize, (u64, egui::TextureHandle)>;
 
-/// Navigation › Pages: a small picture of each page with its number below, the current page
-/// outlined, as in Word. Clicking one goes to that page. Thumbnails are rendered only once
-/// scrolled into view and again only when that page's content changes. With mirror margins
-/// (facing pages) they are shown in spreads, as the pages face each other in print: the first
-/// page alone on the right, then each even page on the left of the odd page after it.
+/// Navigation › Pages: a small picture of each page with its number, the current page outlined,
+/// as in Word. Clicking one goes to that page. Thumbnails are rendered only once scrolled into
+/// view and again only when that page's content changes. In two columns ([`two_columns`]) they
+/// are shown in spreads, as the pages of a bound report face each other: the first page alone
+/// on the right, then each even page on the left of the odd page after it, each numbered at its
+/// outer corner.
 fn page_thumbnails(app: &mut WordApp, ui: &mut Ui) {
     let l = app.session.layout();
     let cache_id = egui::Id::new("nav_page_thumbs");
@@ -472,9 +588,15 @@ fn page_thumbnails(app: &mut WordApp, ui: &mut Ui) {
     cache.retain(|i, _| *i < l.pages.len());
     let mut budget = THUMBS_PER_FRAME;
     let mut go = None;
-    if spreads(app) {
+    // Each page's number as its footer shows it (`ก`, `ii`, `1` after a restart).
+    let formats: Vec<wordcraft_doc::section::NumFormat> = app.session.doc.sections().iter().map(|(_, s)| s.page_num_format).collect();
+    let number = |page: &wordcraft_layout::Page| {
+        let text = formats.get(page.section).copied().unwrap_or_default().format(page.number);
+        if text.trim().is_empty() { page.number.to_string() } else { text }
+    };
+    if two_columns(app, ui.ctx()) {
         const GAP: f32 = 8.0;
-        let width = ((ui.available_width() - 32.0 - GAP) / 2.0).clamp(40.0, 110.0);
+        let width = ((ui.available_width() - 24.0 - GAP) / 2.0).clamp(40.0, 160.0);
         let indent = ((ui.available_width() - 2.0 * width - GAP) / 2.0).max(0.0);
         for row in spread_rows(l.pages.len()) {
             ui.horizontal_top(|ui| {
@@ -488,9 +610,11 @@ fn page_thumbnails(app: &mut WordApp, ui: &mut Ui) {
                         ui.add_space(width);
                         continue;
                     };
-                    let size = vec2(width, width * page.1.h / page.1.w.max(1.0) + 40.0);
-                    ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Center), |ui| {
-                        if thumbnail(app, ui, page, width, &mut cache, &mut budget).is_some_and(|r| r.clicked()) {
+                    // A landscape page fits its column's width, so it is shorter, not wider.
+                    let size = vec2(width, width * page.1.h / page.1.w.max(1.0) + 30.0);
+                    let corner = if k == 0 { egui::Align::Min } else { egui::Align::Max };
+                    ui.allocate_ui_with_layout(size, egui::Layout::top_down(corner), |ui| {
+                        if thumbnail(app, ui, page, width, &number(page.1), Some(corner), &mut cache, &mut budget).is_some_and(|r| r.clicked()) {
                             go = Some(page.0);
                         }
                     });
@@ -501,7 +625,7 @@ fn page_thumbnails(app: &mut WordApp, ui: &mut Ui) {
         let width = (ui.available_width() - 40.0).clamp(60.0, 150.0);
         for page in l.pages.iter().enumerate() {
             ui.vertical_centered(|ui| {
-                if thumbnail(app, ui, page, width, &mut cache, &mut budget).is_some_and(|r| r.clicked()) {
+                if thumbnail(app, ui, page, width, &number(page.1), None, &mut cache, &mut budget).is_some_and(|r| r.clicked()) {
                     go = Some(page.0);
                 }
             });
@@ -514,9 +638,35 @@ fn page_thumbnails(app: &mut WordApp, ui: &mut Ui) {
     ui.ctx().data_mut(|d| d.insert_temp(cache_id, cache));
 }
 
-/// Whether the page thumbnails are shown as facing pages: the document has mirror margins.
-fn spreads(app: &WordApp) -> bool {
-    app.session.doc.settings.mirror_margins
+/// Where the person's choice of one or two thumbnail columns is remembered.
+const TWO_COLUMNS: &str = "krub_nav_pages_two_columns";
+
+/// Whether the page thumbnails are shown in two columns, as facing pages: the person's choice
+/// ([`set_two_columns`]), or until they choose, whether the document has mirror margins.
+pub(crate) fn two_columns(app: &WordApp, ctx: &egui::Context) -> bool {
+    ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::new(TWO_COLUMNS))).unwrap_or(app.session.doc.settings.mirror_margins)
+}
+
+/// Remembers the person's choice of one or two thumbnail columns.
+pub(crate) fn set_two_columns(ctx: &egui::Context, two: bool) {
+    ctx.data_mut(|d| d.insert_persisted(egui::Id::new(TWO_COLUMNS), two));
+}
+
+/// The Pages tab's choice between single pages in one column and facing pages in two, at the
+/// right above the thumbnails.
+fn pages_columns_toggle(app: &WordApp, ui: &mut Ui) {
+    let two = two_columns(app, ui.ctx());
+    let row = vec2(ui.available_width(), 24.0);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        if crate::widgets::icon_only_button(ui, "multiplePages", tl!("Facing pages"), Some(two)).clicked() {
+            set_two_columns(ui.ctx(), true);
+        }
+        if crate::widgets::icon_only_button(ui, "onePage", tl!("Single pages"), Some(!two)).clicked() {
+            set_two_columns(ui.ctx(), false);
+        }
+    });
+    ui.add_space(2.0);
 }
 
 /// The rows of a spread view of `n` pages, by page index, left then right: the first page alone
@@ -534,13 +684,17 @@ fn spread_rows(n: usize) -> Vec<[Option<usize>; 2]> {
     rows
 }
 
-/// One page's thumbnail, `width` points wide, with its label below; `None` for a page with no
-/// size.
+/// One page's thumbnail, `width` points wide, with its `number` below: centred as "Page 3" in
+/// one column, or the bare number at the page's outer `corner` (left or right) in a spread.
+/// `None` for a page with no size.
+#[allow(clippy::too_many_arguments)]
 fn thumbnail(
     app: &WordApp,
     ui: &mut Ui,
     (i, page): (usize, &wordcraft_layout::Page),
     width: f32,
+    number: &str,
+    corner: Option<egui::Align>,
     cache: &mut ThumbCache,
     budget: &mut usize,
 ) -> Option<egui::Response> {
@@ -586,10 +740,11 @@ fn thumbnail(
         };
         ui.painter().rect_stroke(r.expand(if current { 2.0 } else { 0.0 }), 2.0, Stroke::new(w, c), egui::StrokeKind::Outside);
     }
-    let label = crate::i18n::fmt(tl!("Page {page}"), &[("page", &page.number.to_string())]);
+    let label = crate::i18n::fmt(tl!("Page {page}"), &[("page", number)]);
     ui.add_space(if current { 5.0 } else { 3.0 });
     let font = if current { semibold(11.5) } else { regular(11.5) };
-    ui.label(egui::RichText::new(&label).font(font).color(if current { t.accent_text } else { t.text_dim }));
+    let shown = if corner.is_some() { number } else { label.as_str() };
+    ui.add(egui::Label::new(egui::RichText::new(shown).font(font).color(if current { t.accent_text } else { t.text_dim })).truncate());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, current, &label));
     Some(resp)
 }
@@ -676,42 +831,29 @@ fn styles(app: &mut WordApp, ui: &mut Ui) {
     // other actions share the next, as icons with tooltips.
     let hierarchy_id = egui::Id::new("styles_hierarchical");
     let mut hierarchical = ui.data(|d| d.get_temp::<bool>(hierarchy_id)).unwrap_or(false);
-    ui.allocate_ui_with_layout(vec2(ui.available_width(), 24.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if crate::widgets::icon_only_button(ui, "outline", tl!("Hierarchical"), Some(hierarchical)).clicked() {
-            hierarchical = !hierarchical;
-            ui.data_mut(|d| d.insert_temp(hierarchy_id, hierarchical));
-        }
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.add(
-                egui::Label::new(egui::RichText::new(crate::i18n::fmt(tl!("Current style: {style}"), &[("style", &current_name)])).small())
-                    .truncate(),
-            );
-        });
-    });
-    ui.horizontal_wrapped(|ui| {
-        // New Style… keeps its label unless the pane is too narrow for it and the four icons.
-        let label_w = ui.painter().layout_no_wrap(tl!("New Style…").to_string(), regular(12.5), egui::Color32::PLACEHOLDER).size().x;
-        let spacing = ui.spacing().item_spacing.x;
-        let needed = 2.0 * ui.spacing().button_padding.x + 20.0 + label_w + 4.0 * (26.0 + spacing) + spacing;
-        let new_style = if ui.available_width() >= needed {
-            crate::widgets::icon_text_button(ui, "styles", tl!("New Style…"), regular(12.5))
-        } else {
-            crate::widgets::icon_only_button(ui, "styles", tl!("New Style…"), None)
-        };
-        if new_style.clicked() {
+    // The current style on its own line, then the six actions in one even row of icons with
+    // tooltips, Hierarchical last (owner, 2026-11-23: one line).
+    ui.add(egui::Label::new(egui::RichText::new(crate::i18n::fmt(tl!("Current style: {style}"), &[("style", &current_name)])).small()).truncate());
+    let w = crate::table_pane::col_w(ui, 6);
+    crate::table_pane::grid(ui, |ui| {
+        if crate::widgets::pane_icon(ui, "styles", tl!("New Style…"), None, w).clicked() {
             app.dialog = crate::dialogs::Dialog::open("newStyle", app);
         }
-        if crate::widgets::icon_only_button(ui, "update", tl!("Update to Match"), None).clicked() {
+        if crate::widgets::pane_icon(ui, "update", tl!("Update to Match"), None, w).clicked() {
             let _ = app.run("styles.updateToMatch", json!({}));
         }
-        if crate::widgets::icon_only_button(ui, "clear", tl!("Clear"), None).clicked() {
+        if crate::widgets::pane_icon(ui, "clear", tl!("Clear"), None, w).clicked() {
             let _ = app.run("format.clear", json!({}));
         }
-        if crate::widgets::icon_only_button(ui, "options", tl!("Manage Styles…"), None).clicked() {
+        if crate::widgets::pane_icon(ui, "options", tl!("Manage Styles…"), None, w).clicked() {
             let _ = app.run("styles.manage", json!({}));
         }
-        if crate::widgets::icon_only_button(ui, "find", tl!("Style Inspector"), Some(app.session.view.style_inspector)).clicked() {
+        if crate::widgets::pane_icon(ui, "find", tl!("Style Inspector"), Some(app.session.view.style_inspector), w).clicked() {
             let _ = app.run("styles.inspector", json!({}));
+        }
+        if crate::widgets::pane_icon(ui, "outline", tl!("Hierarchical"), Some(hierarchical), w).clicked() {
+            hierarchical = !hierarchical;
+            ui.data_mut(|d| d.insert_temp(hierarchy_id, hierarchical));
         }
     });
     ui.separator();
@@ -1208,6 +1350,12 @@ mod tests {
         for label in ["New Style…", "Update to Match", "Clear", "Manage Styles…", "Style Inspector", "Hierarchical"] {
             assert!(h.get_by_label(label).rect().max.x <= 1440.0, "{label} escapes the pane");
         }
+        // One even row of five (owner, 2026-11-22).
+        let row: Vec<egui::Rect> =
+            ["New Style…", "Update to Match", "Clear", "Manage Styles…", "Style Inspector"].iter().map(|l| h.get_by_label(l).rect()).collect();
+        for r in &row {
+            assert!((r.width() - row[0].width()).abs() < 0.5 && (r.top() - row[0].top()).abs() < 0.5, "the actions are one even row");
+        }
         h.get_by_role_and_label(Role::CheckBox, "Hierarchical").click();
         h.run_steps(3);
         assert!(hierarchy.get());
@@ -1342,6 +1490,9 @@ mod navigation_tests {
             a,
         );
         h.run_steps(4);
+        // Navigation opens on the page thumbnails (owner, 2026-11-23); its Headings tab lists them.
+        h.get_by_label("Headings").click();
+        h.run_steps(4);
         assert!(h.query_by_label("1. Intro").is_some(), "the heading is listed with its number");
     }
 
@@ -1423,6 +1574,61 @@ mod navigation_tests {
         h.run_steps(4);
         let (p2, p3) = (at(&h, 2), at(&h, 3));
         assert!((p2.min.x - p3.min.x).abs() < 1.0 && p2.max.y < p3.min.y, "one column again");
+    }
+
+    /// The Pages tab's Facing pages button shows any document (no mirror margins here) as a bound
+    /// report's spreads, remembered: the front page (numbered `i`) alone on the right, then 1 beside
+    /// 2 and the landscape page 3 beside 4, within its column. Each page is named by the number it
+    /// shows; clicking one still goes to it, and Single pages goes back to one column.
+    #[test]
+    fn facing_pages_button_shows_spreads() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Cover"})).unwrap();
+        a.session.doc.section_mut(0).page_num_format = wordcraft_doc::section::NumFormat::LowerRoman;
+        a.run("layout.break", json!({"kind": "nextPage"})).unwrap();
+        a.run("text.insert", json!({"text": "Chapter 1"})).unwrap();
+        let at = a.session.sel.focus.path.last();
+        a.session.doc.section_mut(at).page_num_start = Some(1);
+        a.session.doc.section_mut(at).page_num_format = wordcraft_doc::section::NumFormat::Decimal;
+        a.run("insert.pageBreak", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "Two"})).unwrap();
+        a.run("layout.break", json!({"kind": "nextPage"})).unwrap();
+        a.run("layout.orientation", json!({"value": "landscape"})).unwrap();
+        a.run("text.insert", json!({"text": "Wide table"})).unwrap();
+        a.run("layout.break", json!({"kind": "nextPage"})).unwrap();
+        a.run("layout.orientation", json!({"value": "portrait"})).unwrap();
+        a.run("text.insert", json!({"text": "Four"})).unwrap();
+        a.run("ui.navTab", json!({"tab": "pages"})).unwrap();
+        assert!(!a.session.doc.settings.mirror_margins);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(8);
+        let at = |h: &egui_kittest::Harness<'_, WordApp>, n: &str| {
+            egui_kittest::kittest::Queryable::get_by_role_and_label(h, egui::accesskit::Role::Button, &format!("Page {n}")).rect()
+        };
+        let (i, p1) = (at(&h, "i"), at(&h, "1"));
+        assert!((i.min.x - p1.min.x).abs() < 1.0 && i.max.y < p1.min.y, "one column by default");
+        egui_kittest::kittest::Queryable::get_by_label(&h, "Facing pages").click();
+        h.run_steps(8);
+        assert!(two_columns(h.state(), &h.ctx), "the choice is remembered");
+        let (i, p1, p2, p3, p4) = (at(&h, "i"), at(&h, "1"), at(&h, "2"), at(&h, "3"), at(&h, "4"));
+        assert!((p1.min.y - p2.min.y).abs() < 1.0 && p1.max.x < p2.min.x, "1 on the left faces 2 on the right");
+        assert!((i.min.x - p2.min.x).abs() < 1.0 && i.max.y < p1.min.y, "the front page alone, on the right");
+        assert!((p3.min.y - p4.min.y).abs() < 1.0 && p3.max.x < p4.min.x, "the landscape page faces 4");
+        assert!(p3.width() <= p1.width() + 0.5 && p3.height() < p3.width(), "the landscape page fits its column");
+        egui_kittest::kittest::Queryable::get_by_role_and_label(&h, egui::accesskit::Role::Button, "Page 3").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.page_hint, 3, "clicking a spread's page goes to it");
+        egui_kittest::kittest::Queryable::get_by_label(&h, "Single pages").click();
+        h.run_steps(4);
+        let (p1, p2) = (at(&h, "1"), at(&h, "2"));
+        assert!((p1.min.x - p2.min.x).abs() < 1.0 && p1.max.y < p2.min.y, "one column again");
     }
 
     /// Navigation › Pages shows a thumbnail of every page, labelled with its number, and clicking

@@ -1,6 +1,6 @@
 # KrubOffice icon design
 
-Status: 2026-11-01 · ICON.6 approved square ท Thai Distribution icon; PhutKrub paragraph alignment added locally.
+Status: 2026-11-25 · ICON.20 accent colours (style A) on every Tabler icon in KhianKrub, except the flat white ones on the blue band (top bar, File and start-screen side).
 
 Quiet Glass uses original 24×24 drawings, usually inside a 20×20 area, with 1.75-unit outlines and round caps. Display sizes remain controlled by each app. At 16 px the drawings omit fine details and keep at least a 1 px stroke. Foreground ink follows the caller, including its alpha; gold tints disappear on flat band icons and disabled icons. Common action mappings change painting only, never command IDs, tooltips, enabled state or hit targets.
 
@@ -20,6 +20,19 @@ The owner approved Balanced after reviewing the palette comparison. Toolbar gold
 
 | Date | Change |
 |---|---|
+| 2026-11-25 | ICON.20: style A in the dialogs' page lists, the account menu and More's tray. |
+| 2026-11-25 | ICON.19: style A on the right-click menu, the mini toolbar and the status bar. |
+| 2026-11-25 | ICON.18: style A on the last tabs (Draw, Mailings, Developer, Zotero, Help, Outlining, Equation); Expand drawn as a plus. |
+| 2026-11-25 | ICON.17: style A on KhianKrub's tool panes and the panel menu (side panels, batch 3). |
+| 2026-11-24 | ICON.16: style A on KhianKrub's object panes (side panels, batch 2). |
+| 2026-11-24 | ICON.15: style A on KhianKrub's side panels, batch 1. |
+| 2026-11-24 | ICON.14: style A on KhianKrub's View ribbon. |
+| 2026-11-24 | ICON.13: style A on KhianKrub's Review ribbon. |
+| 2026-11-24 | ICON.12: style A on KhianKrub's References ribbon. |
+| 2026-11-24 | ICON.11: style A on KhianKrub's Layout ribbon; coloured solid shapes. |
+| 2026-11-24 | ICON.10: style A on KhianKrub's Design ribbon. |
+| 2026-11-24 | ICON.9: style A on KhianKrub's Insert ribbon; tint-only parts. |
+| 2026-11-24 | ICON.8: style A accent colours on KhianKrub's Home ribbon. |
 | 2026-11-01 | ICON.3: approved Balanced gold roles; preserve dimmed alpha and monochrome flat/disabled states. |
 | 2026-11-01 | ICON.1: shared library and first common action mappings; richer gold glass web logos and start-screen lettering. |
 
@@ -116,3 +129,60 @@ The owner compared every icon with Tabler Icons candidates and approved the defa
 - Side-by-side duplicates fixed after the owner's preview check: 100% zoom (`zoom-reset`), Select / Split Cells / Split Table / Draw Table, Endnote (`file-text`), Ungroup (`arrows-split-2`), Save As (`file-export`), Immersive Reader (`eyeglass`). Increase / Decrease Decimal keep their KrubOffice drawings, since Tabler has a single `decimal` icon.
 - KhitKrub's Automate tab had one `</>` icon on every button. New spreadsheet icons `Agent` (`robot`), `Journal` (`history`) and `Updates` (`refresh`) are drawn only from Tabler; Run Macro uses Play, Command Palette uses Search, and Macros uses Tabler `script`. `line::sheet::paint` now tries Tabler first, like the other painters.
 - KhitKrub View › Zoom showed three magnifiers: new spreadsheet icons `ZoomReset` (`zoom-reset`, the 100% button, as in KhianKrub) and `ZoomSelection` (`zoom-in-area`) are drawn only from Tabler.
+
+## Accent colours, style A · ICON.8 · 2026-11-24
+
+Chanon compared monochrome, A (accent) and B (full colour) drafts of KhianKrub's Home ribbon and chose **A** for Home first; other ribbons follow one at a time. Tabler outlines are unchanged; the part of an icon that carries its meaning is drawn in colour, sometimes with a soft tint inside (18% on light themes, 26% on dark), and the rest keeps the caller's ink. Bold, Italic and the four alignment icons stay ink. Any colour may be used, not only the gold: blue `#2563EB`, red `#DC2626`, green `#16A34A`, orange `#EA580C`, purple `#7C3AED`, teal `#0D9488`, gold `#D99A00`, each with a lighter dark-theme shade chosen when the ink is light.
+
+- `crates/krub-icons/src/tabler_colour.rs` (hand-written) holds the palette and the table of coloured outlines per Tabler drawing (outline index: every `M` or circle starts one). It is separate from the generated `tabler.rs`, so regenerating Tabler keeps the colours. The generator template (`tools/tabler_rs.py`) and `tabler.rs` gained the same small hook: `paint` looks up the table while colour is on.
+- Colour is off by default. A caller turns it on for a stretch of drawing with `tabler_colour::with_colour(ctx, on, ..)`. KhianKrub does so in `ribbon.rs` `draw_tab` while the Home tab draws (its line, its More tray and its menus). Disabled icons and flat white icons stay monochrome; the hue takes the ink's opacity.
+- Tests: coloured outlines exist in their drawings, colour only when asked and never when disabled, concave tints triangulate fully, theme shade and alpha.
+- The colour hook changes the shared crate in KhianKrub only; KhitKrub and PhutKrub keep their copies until colour reaches them (their copies already differed in `chart_pane.rs` / `shape_pane.rs`).
+
+### Insert ribbon · ICON.9 · 2026-11-24
+
+Chanon approved the Insert draft (`~/dev/KrubOffice/ui-experiments/khiankrub-insert-icon-colours-draft.html`) and `draw_tab` now colours Home and Insert. Same colour language: green for add (Comment, Insert Table plus), red for marks (Bookmark, Date & Time, the X in Icons), blue as the main hue, purple for text tools (Quick Parts, Drop Cap, Signature, Symbol); Pictures, Chart, Icons and Diagram are livelier. Pages and Table keep their ink outline with only a blue tint inside: a new tint-only part (`f`) in the table, because a fully blue outline read as style B. Colours belong to the drawing, so Link and Cross-reference match and WordArt shares Font Colour's red bar.
+
+### Design ribbon · ICON.10 · 2026-11-24
+
+Chanon approved the Design draft (`~/dev/KrubOffice/ui-experiments/khiankrub-design-icon-colours-draft.html`); `draw_tab` now colours Home, Insert and Design. New: red/green/blue paint dots on the palette (Themes and Theme Colors), purple on the Fonts letter, gold star (Set as Default), gold folder (Themes menu), blue drop (Watermark), blue frame (Page Borders). Paragraph Spacing, Effects and Page Color keep the colours of the Home drawings they share. Menu diagrams and galleries stay content previews.
+
+### Layout ribbon · ICON.11 · 2026-11-24
+
+Chanon approved the Layout draft (`~/dev/KrubOffice/ui-experiments/khiankrub-layout-icon-colours-draft.html`); `draw_tab` now colours Home, Insert, Design and Layout. Blue marks what changes on the page (text-direction arrow, Margins content box, Size arrows, the moving layer, Selection Pane divider, Align object); Columns is blue and teal; Breaks and Hyphenation are orange like Page Break; Orientation is tint-only (an orange stroke would have coloured only half its arrowhead). Line Numbers shares Home's Numbering colours. New `tabler_colour::SOLID` part index colours a drawing's pre-filled shapes (Bring Forward / Send Backward); the generator template and `tabler.rs` share that lookup.
+
+### References ribbon · ICON.12 · 2026-11-24
+
+Chanon approved the References draft (`~/dev/KrubOffice/ui-experiments/khiankrub-references-icon-colours-draft.html`); `draw_tab` now colours Home, Insert, Design, Layout and References. Purple is the notes and citations family: the footnote number (Home's Superscript), the endnote's last line, Show Notes' text, the quote marks, Manage Sources' person, Bibliography's leaning book. Blue marks what changes or moves: the Update arrows (`refresh`), Next Footnote's arrow, the caption lines, the index letters (as Numbering's digits), the options "i", and Researcher's lens (as Find) with an orange question mark. Mark Entry's tag and Mark Citation's bookmark are red like Bookmark, with green plus signs; the gavel head (Table of Authorities) is orange. Table of Contents, Footnote, Style and Cross-reference reuse the Numbering, Superscript, brush and Link colours. Mark Citation's bookmark outline is open at the plus, so its tint ends in a short diagonal there.
+
+### Review ribbon · ICON.13 · 2026-11-24
+
+Chanon approved the Review draft (`~/dev/KrubOffice/ui-experiments/khiankrub-review-icon-colours-draft.html`); `draw_tab` now colours Home, Insert, Design, Layout, References and Review. Purple for the word tools (Spelling's "Abc", Thesaurus' page curves). Blue for what moves or speaks: the Previous/Next arrows (comments: the arrow inside the bubble; changes: `arrow-up`/`arrow-down`, the same as Next Footnote), Read Aloud's waves, Word Count's digits, the person in Check Accessibility (including its solid head), the "A" in Translate and Language, the dots in Display for Review and Reviewing Pane, and the arrows of Track Changes and Compare (one drawing). Green for Accept's check and New Comment's plus; red for Reject's and Delete Comment's X and Hide Ink's slash. Gold for Show Comments' back bubble (like the comment markers) and the Protect shields (like the object lock badge).
+
+### View ribbon · ICON.14 · 2026-11-24
+
+Chanon approved the View draft (`~/dev/KrubOffice/ui-experiments/khiankrub-view-icon-colours-draft.html`); `draw_tab` now colours Home, Insert, Design, Layout, References, Review and View. Six drawings keep their colours from earlier tabs: Read Mode (Thesaurus' book), Print Layout (Endnote's page, so its last line is purple), Outline (Multilevel List), One Page (Blank Page's tint), Navigation Pane (Selection Pane), Switch Modes and Interface Theme (Design's palette). Blue for what changes the view: the lenses of Zoom, Zoom In, Zoom Out and Print Preview (as Find; + and − stay ink), Page Width's and Hide White Space's arrows, Full Screen's corners, Focus' centre dot, Web Layout's globe, the Immersive Reader glasses, tinted pages/windows (Multiple Pages, New Window), Templates' top bar plus a tint, and one window in Arrange All (a tint on all four small tiles barely showed). Gridlines colours only the middle cross. Teal for Text Boundaries' corners (so they differ from Full Screen) and Split's second arrow. Orange for Hide White Space's dashed page gap (as Breaks). Gold for the ruler and Draft's pencil (as Draw Table).
+
+### Side panels, batch 1 · ICON.15 · 2026-11-24
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-side-panels-icon-colours-draft.html`). Colour is on in the left Navigation panel and in the right panel's Text and Page panes with their tabs (Styles, Text, Paragraph; Page, Design), and on the title row's icon while one of those panes shows (`panes.rs`: `left_panel`, the `"text" | "page"` arm of `right_dock`, `title_row`). These panes reuse the ribbons' drawings, so they take the ribbons' colours. New drawings: Character Border and Enclose Characters (blue frame), Character Spacing (teal arrows), the Styles tab (`layout-sidebar-right`, blue divider as Navigation Pane), Navigation's Headings (`heading`, purple H). Manage Styles' gear stays ink. Not yet: the object panes (Table, Picture, Shape, Chart, Diagram, Header & Footer), the tools (Comments, Accessibility, Style Inspector, Table of Contents, Restrict Editing, Alt Text) and the title row's menu.
+
+### Side panels, batch 2 (object panes) · ICON.16 · 2026-11-24
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-object-panels-icon-colours-draft.html`). Colour is on in the Table, Picture, Shape, Chart, Diagram and Header & Footer panes and on the title row's icon while one of them shows (`panes.rs`). Drawings already coloured on a ribbon keep their colours. 34 new drawings: green plus signs (Insert Above/Below/Left/Right, Add Shape); red for Delete Rows/Columns/Cells/Table and the Eraser; blue for what moves or changes (Merge, the Split arrows, Rotate, Reset, Change Chart Type, Flip's mirrored half, Crop, the Select outline, Repeat Header Rows' header, Corrections' knobs, Shadow's lines, Text Effects' handles, Convert to Text's arrow); orange for the Split line; teal for Cell Margins' dots; gold for Change Picture's pencil and Picture Styles' star; Color as a red, green and blue filter; Transparency a tinted droplet; Group a tinted front box; Promote orange and Demote green (as Decrease/Increase Indent); Text Pane a purple T. Rotate and Group also show on Layout › Arrange, which now colours them the same way. Align Left/Center/Right and Borders stay ink; KrubOffice's own drawings (diagram layouts, border and cell-alignment buttons, header and footer navigation) stay as they are.
+
+### Side panels, batch 3 (tool panes) · ICON.17 · 2026-11-25
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-tool-panels-icon-colours-draft.html`). Colour is now on for everything the right panel draws (`panes.rs` `right_dock`): the tools (Comments, Accessibility, Style Inspector, Table of Contents, Alt Text, Restrict Editing), the title row and its menu, as well as the panes of batches 1 and 2 (the per-pane switches are gone). Their icons keep the colours they have elsewhere. New: List of Figures (`list-details`, gold picture boxes) and Remove (`trash`, red lid). The × that closes a tool stays ink.
+
+### The last tabs · ICON.18 · 2026-11-25
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-more-tabs-icon-colours-draft.html`). `draw_tab` now colours every built-in tab, so Draw, Mailings, Developer, Zotero and Help (hidden until turned on) and Outlining and Equation (contextual) are in colour too; custom groups follow the tab. 29 new drawings: Draw (lasso, pen, Add Pen, ink colour, Ink to Math, replay), Mailings (envelope flap, labels, the fields' braces, preview, previous/next record, check for errors, finish), Developer (design mode, plain text, picture, check box, combo box, drop-down, date picker, repeating section), Zotero (note, document preferences, unlink), Help (help, commands), Outlining (Promote to Heading 1). Expand now uses Tabler's `plus` (green) instead of `minus`, so it no longer looks like Collapse (`tabler-map.tsv` and the generated `tabler.rs` changed the same way). Equation's structure buttons are equation pictures and stay as they are; alignment icons and the close buttons stay ink.
+
+### Right-click menu, mini toolbar and status bar · ICON.19 · 2026-11-25
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-menus-statusbar-icon-colours-draft.html`) and asked for the status bar in colour too (the draft recommended keeping it monochrome). Colour is on in the text's right-click menu (`canvas.rs`), the mini toolbar (`mini_toolbar.rs`) and the status bar (`chrome.rs` `status_bar`). Their icons keep their ribbon colours, so Zoom Out and Zoom In in the status bar are the orange minus and the green plus. New: Arabic digits (`number-123`, blue), the spelling suggestion's tick (`check`, green), Save (`device-floppy`, blue shutter) and Repeat (`arrow-forward-up`, blue). The top bar and the left side of the File page and start screen stay flat white on the blue band. Dialogs are not coloured.
+
+### Dialogs, account menu and More's tray · ICON.20 · 2026-11-25
+
+Chanon approved the draft (`~/dev/KrubOffice/ui-experiments/khiankrub-dialogs-icon-colours-draft.html`). No new drawings. Colour is on for the page lists of the three dialogs that show icons (Character `dialogs_character.rs`, Modify Style `dialogs_style.rs`, Table Properties `dialogs.rs`), the account menu (`chrome.rs`, the round button's popup) and the + / − on More's tray tiles (`ribbon.rs` `tray_tile`). Options' gear stays ink; Alignment and Borders stay ink. With this, every Tabler icon in KhianKrub is in colour except the flat white ones on the blue band.

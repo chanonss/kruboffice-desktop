@@ -25,7 +25,7 @@ pub struct Entry {
 ///   size); it falls back to the plain entry.
 /// - `crop side`: the one-letter side names beside Picture Format › Crop (L, T, R, B), which
 ///   must not translate a bare "B" or "L" anywhere else.
-pub const CONTEXTS: &[&str] = &["preview", "template", "crop side", "shapes"];
+pub const CONTEXTS: &[&str] = &["preview", "template", "crop side", "shapes", "pane tile"];
 
 /// A parsed catalog. Values are owned for the life of the process (catalogs are built once).
 #[derive(Debug, Default)]

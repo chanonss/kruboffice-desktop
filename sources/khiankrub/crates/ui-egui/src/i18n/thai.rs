@@ -102,9 +102,21 @@ fn right_click_labels() -> BTreeSet<String> {
 /// Text that depends on the clock or the document's state, so one run draws only some of it: the
 /// File page's greeting and the title bar's saved state.
 fn shown_some_of_the_time() -> BTreeSet<String> {
-    ["Good morning", "Good afternoon", "Good evening", "Edited", "Saved", "Not saved", "draft", "Saved on this device", "Saving…"]
-        .map(String::from)
-        .into()
+    [
+        "Good morning",
+        "Good afternoon",
+        "Good evening",
+        "Edited",
+        "Saved",
+        "Not saved",
+        "draft",
+        "Saved on this device",
+        "Saving…",
+        "Single pages",
+        "Facing pages",
+    ]
+    .map(String::from)
+    .into()
 }
 
 /// Shown as they are in Thai too: numbers, and product and format names.

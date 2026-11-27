@@ -1,6 +1,14 @@
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 
 pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, _accent: Color32) {
+    // Flat (white) icons stay one colour, like their gold.
+    if c == Color32::WHITE && krub_icons::tabler_colour::enabled(p.ctx()) {
+        return krub_icons::tabler_colour::with_colour(p.ctx(), false, || paint_ink(p, r, name, c));
+    }
+    paint_ink(p, r, name, c);
+}
+
+fn paint_ink(p: &Painter, r: Rect, name: &str, c: Color32) {
     if clipboard_pilot::paint(p, r, name, c) {
         return;
     }

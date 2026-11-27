@@ -73,6 +73,14 @@ fn has_shape_or_canvas(s: &Session) -> Option<&'static str> {
 fn can_group(s: &Session) -> Option<&'static str> {
     if picked_objects(s).len() >= 2 { None } else { Some("select two or more pictures or shapes first (Shift+click)") }
 }
+/// A rounded rectangle is selected (its corner radius can change).
+fn has_rounded_rectangle(s: &Session) -> Option<&'static str> {
+    match selected(s) {
+        Some((_, InlineObject::Shape { kind: wordcraft_doc::para::ShapeKind::RoundedRectangle, .. })) => None,
+        _ => Some("select a rounded rectangle first"),
+    }
+}
+
 fn has_shape(s: &Session) -> Option<&'static str> {
     match selected(s) {
         Some((_, InlineObject::Shape { .. })) => None,
@@ -95,6 +103,9 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"text": string, "title"?: string, "decorative"?: bool}"#)
         .when(has_picture),
+        CommandSpec::new("shape.lock", "Lock", "Shape Format › Arrange", lock)
+            .params(r#"{"locked"?: bool} (the selected pictures, shapes, text boxes, groups and charts; toggles without `locked`)"#)
+            .when(has_object),
         CommandSpec::new("object.altText", "Alt Text", "Shape Format › Accessibility", alt_text)
             .params(r#"{"text"?: string, "title"?: string, "decorative"?: bool} (the selected picture, shape, text box, group or chart)"#)
             .when(has_object),
@@ -451,6 +462,17 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"kind": string}"#)
         .when(has_shape),
+        CommandSpec::new("shape.cornerRadius", "Corner Radius", "Shape Format › Size", |s, v| {
+            let r = p::f32(v, "radius").filter(|r| r.is_finite()).ok_or_else(|| CmdError::Params("`radius`: a number of points".into()))?;
+            with_obj(s, |o| {
+                let (w, h) = o.frame().map_or((0.0, 0.0), |(w, h, _)| (w, h));
+                if let InlineObject::Shape { kind: wordcraft_doc::para::ShapeKind::RoundedRectangle, extra, .. } = o {
+                    extra.corner = Some(wordcraft_doc::connector::corner_from_radius(r, w, h));
+                }
+            })
+        })
+        .params(r#"{"radius": pt}  (the selected rounded rectangle's corners: 0 square, half the shorter side or more round ends)"#)
+        .when(has_rounded_rectangle),
         CommandSpec::new("shape.textDirection", "Text Direction", "Shape Format › Text", |s, v| {
             let dir = p::str(v, "dir").unwrap_or("horz");
             let vert = match dir {
@@ -965,6 +987,89 @@ fn alt_text(s: &mut Session, v: &Value) -> CmdResult {
             }
         }
     })
+}
+
+/// The words a refused change to a locked object gives (`krub_icons::object_lock::LOCKED_ERROR`
+/// in the interface).
+pub const LOCKED: &str = "the object is locked";
+
+fn is_locked(o: &InlineObject) -> bool {
+    o.frame().is_some_and(|(_, _, f)| f.locked)
+}
+
+/// `shape.lock`: lock or unlock the selected objects (owner, 2026-11-23); without `locked`, the
+/// first one's state is turned over for all.
+fn lock(s: &mut Session, v: &Value) -> CmdResult {
+    let mut picked = picked_objects(s);
+    if picked.is_empty() {
+        picked = selected(s).map(|(p, _)| vec![p]).unwrap_or_default();
+    }
+    let first = picked.first().and_then(|p| s.doc.para_at(p)?.object_at(p.off)).is_some_and(is_locked);
+    let to = v.get("locked").and_then(Value::as_bool).unwrap_or(!first);
+    for pos in &picked {
+        edit_float(s, pos, |f| f.locked = to)?;
+    }
+    Ok(json!({"locked": to, "objects": picked.len()}))
+}
+
+/// Whether the selection's object (or every picked one) is locked: the panes grey their controls.
+pub fn selection_locked(s: &Session) -> bool {
+    let picked = picked_objects(s);
+    if picked.is_empty() {
+        return selected(s).is_some_and(|(_, o)| is_locked(&o));
+    }
+    picked.iter().all(|p| s.doc.para_at(p).and_then(|q| q.object_at(p.off)).is_some_and(is_locked))
+}
+
+/// Whether object command `id` would change a locked object (the selected one, or the one before
+/// the caret): the interface greys it. Cheap enough to ask for every button every frame.
+pub fn object_lock_refuses(s: &Session, id: &str) -> bool {
+    const FREE: [&str; 6] = ["shape.lock", "object.altText", "picture.altText", "picture.save", "edit.undo", "edit.redo"];
+    let object_cmd = ["picture.", "shape.", "arrange.", "canvas.", "wordArt.", "chart.", "smartArt.", "object."].iter().any(|p| id.starts_with(p));
+    if !object_cmd || FREE.contains(&id) {
+        return false;
+    }
+    let picked = picked_objects(s);
+    if picked.is_empty() {
+        selected(s).is_some_and(|(_, o)| is_locked(&o))
+    } else {
+        picked.iter().any(|p| s.doc.para_at(p).and_then(|q| q.object_at(p.off)).is_some_and(is_locked))
+    }
+}
+
+/// Whether text box story `id` belongs to a locked shape (its text can't be edited).
+fn locked_story(s: &Session, id: u32) -> bool {
+    fn holds(o: &InlineObject, id: u32) -> bool {
+        match o {
+            InlineObject::Shape { story, .. } => *story == Some(id),
+            InlineObject::Group { children, .. } => children.iter().any(|c| holds(&c.obj, id)),
+            _ => false,
+        }
+    }
+    all_objects(s).iter().any(|(_, o)| is_locked(o) && holds(o, id))
+}
+
+/// Refuse a change to a locked object (owner, 2026-11-23), before a command that changes the
+/// document runs. Object commands act on the selected object (or the one before the caret); text
+/// commands only when the object itself is what is selected, or the caret is in a locked text box.
+/// Locking, the alternative text and undo always run.
+pub fn lock_check(s: &Session, id: &str) -> Result<(), CmdError> {
+    let refused = || Err(CmdError::Failed(format!("{id}: {LOCKED}")));
+    if object_lock_refuses(s, id) {
+        return refused();
+    }
+    let text_cmd = ["text.", "edit.cut", "edit.paste", "format.", "para.", "list.", "style."].iter().any(|p| id.starts_with(p));
+    if text_cmd {
+        if object_selection(s).is_some_and(|(_, o)| is_locked(o)) {
+            return refused();
+        }
+        if let StoryRef::Part(story) = s.sel.ordered().0.story
+            && locked_story(s, story)
+        {
+            return refused();
+        }
+    }
+    Ok(())
 }
 
 fn with_obj(s: &mut Session, f: impl Fn(&mut InlineObject)) -> CmdResult {
@@ -2196,6 +2301,110 @@ mod tests {
         assert_eq!(s.doc.text_box_chains(), vec![vec![a, b]]);
         s.run("edit.undo", &json!({})).unwrap();
         assert!(s.doc.text_box_chains().is_empty());
+    }
+
+    #[test]
+    fn a_locked_object_refuses_changes_until_unlocked() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rect"})).unwrap();
+        s.run("arrange.wrap", &json!({"wrap": "square"})).unwrap();
+        let before = selected(&s).unwrap().1;
+        s.run("shape.lock", &json!({})).unwrap();
+        assert!(selection_locked(&s));
+        for (cmd, p) in [
+            ("arrange.nudge", json!({"dx": 10})),
+            ("arrange.bounds", json!({"x": 1, "y": 1, "w": 20, "h": 20})),
+            ("shape.fill", json!({"color": "#00ff00"})),
+            ("text.insert", json!({"text": "x"})),
+            ("text.delete", json!({})),
+            ("text.backspace", json!({})),
+            ("edit.cut", json!({})),
+        ] {
+            let e = s.run(cmd, &p).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(e.contains(LOCKED), "{cmd} on a locked object: {e:?}");
+        }
+        let (_, now) = selected(&s).unwrap();
+        assert_eq!(now.frame().map(|f| (f.0, f.1)), before.frame().map(|f| (f.0, f.1)));
+        assert!(object_selection(&s).is_some(), "still there, still selected");
+        // Its alternative text still changes; unlocking frees it; Lock is one undo step.
+        s.run("object.altText", &json!({"text": "Logo"})).unwrap();
+        s.run("shape.lock", &json!({"locked": false})).unwrap();
+        assert!(!selection_locked(&s));
+        s.run("shape.fill", &json!({"color": "#00ff00"})).unwrap();
+        s.run("edit.undo", &json!({})).unwrap();
+        s.run("edit.undo", &json!({})).unwrap();
+        assert!(selection_locked(&s));
+    }
+
+    /// The Shape pane's Corner radius and the corner handle: points in, the file's share of the
+    /// shorter side stored, kept through .docx; only for rounded rectangles; refused when locked.
+    #[test]
+    fn corner_radius_sets_round_trips_and_respects_locks() {
+        let corner = |s: &Session| match selected(s).map(|(_, o)| o) {
+            Some(InlineObject::Shape { extra, .. }) => extra.corner,
+            _ => panic!("no shape"),
+        };
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle", "width": 200, "height": 100})).unwrap();
+        assert!(s.run("shape.cornerRadius", &json!({"radius": 10})).is_err(), "a plain rectangle has no corner radius");
+        s.run("insert.shape", &json!({"kind": "roundedRectangle", "width": 200, "height": 100})).unwrap();
+        assert_eq!(corner(&s), None, "the default corner until changed");
+        s.run("shape.cornerRadius", &json!({"radius": 10})).unwrap();
+        assert_eq!(corner(&s), Some(10_000), "10 pt of a 100 pt shorter side");
+        s.run("shape.cornerRadius", &json!({"radius": 500})).unwrap();
+        assert_eq!(corner(&s), Some(wordcraft_doc::connector::MAX_CORNER), "round ends at most");
+        s.run("shape.cornerRadius", &json!({"radius": -3})).unwrap();
+        assert_eq!(corner(&s), Some(0), "square corners");
+        assert!(s.run("shape.cornerRadius", &json!({})).is_err());
+        s.run("shape.cornerRadius", &json!({"radius": 25})).unwrap();
+        let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+        let corners: Vec<Option<u32>> = all_objects(&Session::new(back))
+            .iter()
+            .filter_map(|(_, o)| match o {
+                InlineObject::Shape { kind: wordcraft_doc::para::ShapeKind::RoundedRectangle, extra, .. } => Some(extra.corner),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(corners, [Some(25_000)]);
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(corner(&s), Some(0), "one undo step");
+        s.run("shape.lock", &json!({})).unwrap();
+        let e = s.run("shape.cornerRadius", &json!({"radius": 30})).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains(LOCKED), "{e:?}");
+        assert_eq!(corner(&s), Some(0));
+    }
+
+    #[test]
+    fn lock_round_trips_through_docx() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "ellipse"})).unwrap();
+        s.run("shape.lock", &json!({"locked": true})).unwrap();
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        let back = wordcraft_docx::read(&bytes).unwrap();
+        let mut t = Session::new(back);
+        let locks: Vec<bool> = all_objects(&t).iter().map(|(_, o)| is_locked(o)).collect();
+        assert_eq!(locks, [true]);
+        // Unlocked, the locks go.
+        t.run("select.objects", &json!({"index": 0})).unwrap();
+        t.run("shape.lock", &json!({"locked": false})).unwrap();
+        let again = wordcraft_docx::read(&wordcraft_docx::write(&t.doc).unwrap()).unwrap();
+        assert!(all_objects(&Session::new(again)).iter().all(|(_, o)| !is_locked(o)));
+    }
+
+    #[test]
+    fn a_locked_text_box_keeps_its_text() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.textBox", &json!({"text": "Label"})).unwrap();
+        // Back to the box itself, lock it, then go into its text.
+        s.run("select.objects", &json!({"index": 0})).unwrap();
+        let story = match selected(&s).map(|(_, o)| o) {
+            Some(InlineObject::Shape { story: Some(id), .. }) => id,
+            other => panic!("no text box: {other:?}"),
+        };
+        s.run("shape.lock", &json!({"locked": true})).unwrap();
+        s.sel = Selection::caret(Pos { story: StoryRef::Part(story), path: wordcraft_doc::Path::top(0), off: 0 });
+        let e = s.run("text.insert", &json!({"text": "x"})).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains(LOCKED), "{e:?}");
     }
 
     #[test]

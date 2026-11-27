@@ -244,6 +244,19 @@ fn file_place(app: &WordApp) -> Option<String> {
     }
 }
 
+/// The icon in front of [`file_place`]'s line, chosen the same way.
+fn file_place_icon(app: &WordApp) -> Option<&'static str> {
+    if app.drive_file_name().is_some() {
+        Some("cloud")
+    } else if app.session.path.is_some() {
+        Some("folder")
+    } else if app.services.browser_recovery.as_ref().and_then(|r| (r.open_draft)()).is_some() {
+        Some("this-browser")
+    } else {
+        None
+    }
+}
+
 /// The file pill (`krub_icons::chrome::file_pill`) centred in `area`: the document's name (a
 /// Google Drive document with the cloud in front). A click opens its card: the whole name, the
 /// state, where it is kept and Rename (owner, 2026-11-18).
@@ -264,8 +277,24 @@ pub(crate) fn file_pill(app: &mut WordApp, ui: &mut Ui, area: Rect) {
     let place = file_place(app);
     egui::Popup::menu(&resp).show(|ui| {
         let card = krub_icons::chrome::FileCard { name: &name, state: &state, place: place.as_deref(), action: Some(tl!("Rename…")) };
-        if krub_icons::chrome::file_card(ui, &card) {
+        let icons = krub_icons::chrome::FileCardIcons {
+            name: Some("file-name"),
+            state: draft.then_some("this-device"),
+            place: file_place_icon(app),
+            action: Some("pencil"),
+        };
+        if krub_icons::chrome::file_card_with_icons(ui, &card, &icons) {
             let _ = app.run("file.rename", json!({}));
+            ui.close();
+        }
+        // UI experiment (owner, 2026-11-23): Comments is in the file name's menu, with the number
+        // of open ones; it opens them in the right panel.
+        ui.separator();
+        let open = app.session.doc.comments.values().filter(|c| c.parent.is_none() && !c.resolved).count();
+        let label = if open > 0 { format!("{} ({open})", tl!("Comments")) } else { tl!("Comments").to_string() };
+        if crate::ribbon::menu_icon_button(ui, "comment", &label, "", true, app.session.view.comments_pane).clicked() {
+            app.session.view.comments_pane = true;
+            crate::panes::set_right_collapsed(ui.ctx(), false);
             ui.close();
         }
     });
@@ -301,8 +330,15 @@ pub(crate) fn bar_right(app: &mut WordApp, ui: &mut Ui) -> f32 {
     }
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(240.0);
-        user_menu(ui, app);
+        // Accent colours (owner, 2026-11-25: style A), as the same icons elsewhere.
+        krub_icons::tabler_colour::with_colour(&ui.ctx().clone(), true, || user_menu(ui, app));
     });
+    // UI experiment: the right panel's button, left of the user icon.
+    ui.add_space(4.0);
+    if crate::panes::panel_toggle(ui, app, true) {
+        let ctx = ui.ctx().clone();
+        crate::panes::set_right_collapsed(&ctx, !crate::panes::right_collapsed(&ctx));
+    }
     ui.min_rect().min.x
 }
 
@@ -330,10 +366,7 @@ fn user_menu(ui: &mut Ui, app: &mut WordApp) {
         ui.close();
     }
     let doc = app.has_document();
-    if menu_icon_button(ui, "comment", tl!("Comments"), "", doc, false).clicked() {
-        let _ = app.run("view.commentsPane", json!({}));
-        ui.close();
-    }
+    // UI experiment: Comments moved to the file name's menu.
     ui.separator();
     ui.label(egui::RichText::new(tl!("Editing")).small().weak());
     let track = app.session.doc.settings.track_changes;
@@ -428,6 +461,12 @@ pub(crate) fn window_drag(ui: &mut Ui, bar: Rect) {
 }
 
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
+    // Accent colours (owner, 2026-11-25: style A, "the status bar too").
+    let ctx = ui.ctx().clone();
+    krub_icons::tabler_colour::with_colour(&ctx, true, || status_bar_body(app, ui));
+}
+
+fn status_bar_body(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::of(ui);
     egui::Panel::bottom("status")
         .exact_size(26.0)

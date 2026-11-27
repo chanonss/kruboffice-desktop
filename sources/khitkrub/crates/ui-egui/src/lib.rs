@@ -11,7 +11,7 @@ mod ribbon_layout;
 /// KhitKrub's own version number, shown on the Account page and in the About dialog and read by
 /// `packaging/web/publish.sh`. The GridCraft version this fork is based on is in the crates' own
 /// `Cargo.toml` (0.14.2 at the fork) and in `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.7.1";
+pub const APP_VERSION: &str = "0.7.2";
 
 /// GridCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.

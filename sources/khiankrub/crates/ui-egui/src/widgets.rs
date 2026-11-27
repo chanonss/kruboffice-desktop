@@ -30,6 +30,223 @@ pub const SMALL_ICON: f32 = 20.0;
 pub const ROW_GAP: f32 = 4.0;
 const _: () = assert!(2.0 * SMALL_H + ROW_GAP <= CONTENT_H);
 
+// ---- UI experiment (branch `ui-pages-layout`, 2026-11-23): the one-line ribbon ----
+
+const COMPACT_ID: &str = "krub_compact_controls";
+const LINE_ID: &str = "krub_ribbon_line";
+
+/// Compact controls: large buttons draw small with their name beside the icon, and a group's
+/// stacked rows stand side by side. On while the one-line ribbon and the side panel draw.
+pub(crate) fn compact(ui: &Ui) -> bool {
+    ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new(COMPACT_ID))).unwrap_or(false)
+}
+
+/// Turn compact controls on or off ([`compact`]).
+pub(crate) fn set_compact(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(COMPACT_ID), on));
+}
+
+/// The keys (command ids or icon names) of the controls the one-line ribbon draws now, `None`
+/// outside it; `*` keeps every control.
+pub(crate) fn line(ui: &Ui) -> Option<std::sync::Arc<Vec<String>>> {
+    ui.ctx().data(|d| d.get_temp::<Option<std::sync::Arc<Vec<String>>>>(egui::Id::new(LINE_ID))).flatten()
+}
+
+/// Set the keys the one-line ribbon draws now (`None`: every control draws, as the two-row
+/// ribbon and the side panels do).
+pub(crate) fn set_line(ctx: &egui::Context, keys: Option<Vec<String>>) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(LINE_ID), keys.map(std::sync::Arc::new)));
+}
+
+/// One control of a ribbon tab, as the census ([`set_census`]) found it on the one-line ribbon.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LineItem {
+    /// What keeps it on the line: its command id, or its icon when it has none.
+    pub key: String,
+    pub id: String,
+    pub icon: String,
+    /// Its English name (translated where shown).
+    pub name: String,
+    /// The English title of the group it is drawn in.
+    pub group: String,
+    /// About the width it takes on the line.
+    pub est: f32,
+    /// The control shows its own name (a check box, a labelled box), so More's tray adds none.
+    pub named: bool,
+}
+
+impl LineItem {
+    /// Whether `key` (a command id or an icon name) names this control.
+    pub fn is(&self, key: &str) -> bool {
+        key == self.key || (!self.id.is_empty() && key == self.id) || key == self.icon
+    }
+}
+
+/// Whether the control keyed `key` draws now (or the census wants it): the one-line ribbon draws
+/// one control a pass, so a tab skips the work behind the others (the font list…).
+pub(crate) fn wants(ui: &Ui, key: &str) -> bool {
+    match line(ui) {
+        None => true,
+        Some(keys) => census_on(ui) || keys.iter().any(|k| k == "*" || k == key),
+    }
+}
+
+const CENSUS_ID: &str = "krub_ribbon_line_census";
+const GROUP_ID: &str = "krub_ribbon_line_group";
+const NO_DIVIDERS_ID: &str = "krub_ribbon_line_no_dividers";
+
+/// Start (`true`) or end a census: while it runs, every control the one-line ribbon would draw
+/// notes itself ([`census`]) instead of drawing.
+pub(crate) fn set_census(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new((CENSUS_ID, "on")), on);
+        if on {
+            d.insert_temp(egui::Id::new(CENSUS_ID), Vec::<LineItem>::new());
+        }
+    });
+}
+
+/// The controls the last census found, in drawing order, each once.
+pub(crate) fn census(ctx: &egui::Context) -> Vec<LineItem> {
+    ctx.data(|d| d.get_temp::<Vec<LineItem>>(egui::Id::new(CENSUS_ID))).unwrap_or_default()
+}
+
+fn census_on(ui: &Ui) -> bool {
+    ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new((CENSUS_ID, "on")))).unwrap_or(false)
+}
+
+/// Groups draw no dividers of their own (`true`): the line draws them between its buttons.
+pub(crate) fn set_no_group_dividers(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(NO_DIVIDERS_ID), on));
+}
+
+/// Whether a control for command `id` with `icon` draws: always, except while the one-line ribbon
+/// draws and neither is among its essentials (the rest are in the line's More menu), or the
+/// essential is one the line has no room for this time ([`set_line_included`]).
+pub(crate) fn kept(ui: &Ui, id: &str, icon: &str, name: &str) -> bool {
+    kept_est(ui, id, icon, 48.0, name)
+}
+
+/// [`kept`]; `est` is about the width the control takes on the line and `name` its English
+/// name, for the census.
+pub(crate) fn kept_est(ui: &Ui, id: &str, icon: &str, est: f32, name: &str) -> bool {
+    kept_impl(ui, id, icon, est, name, false)
+}
+
+/// [`kept_est`] for a control that shows its own name (a check box, a box with its label): More's
+/// tray draws it without repeating the name.
+pub(crate) fn kept_named(ui: &Ui, id: &str, est: f32, name: &str) -> bool {
+    kept_impl(ui, id, "", est, name, true)
+}
+
+fn kept_impl(ui: &Ui, id: &str, icon: &str, est: f32, name: &str, named: bool) -> bool {
+    let Some(keys) = line(ui) else { return true };
+    if census_on(ui) {
+        let key = if id.is_empty() { icon } else { id };
+        if !key.is_empty() {
+            let group: String = ui.ctx().data(|d| d.get_temp(egui::Id::new(GROUP_ID))).unwrap_or_default();
+            ui.ctx().data_mut(|d| {
+                let found = d.get_temp_mut_or_default::<Vec<LineItem>>(egui::Id::new(CENSUS_ID));
+                if !found.iter().any(|f| f.key == key) {
+                    found.push(LineItem { key: key.into(), id: id.into(), icon: icon.into(), name: name.into(), group, est, named });
+                }
+            });
+        }
+        return false;
+    }
+    let keep = keys.iter().any(|k| k == "*" || (!id.is_empty() && k == id) || k == icon);
+    if keep {
+        // Where it starts, for the line drawing one button at a time ([`kept_at`]).
+        // The first control kept this pass (a key can draw two, as Unicode | LaTeX share one).
+        let x = ui.cursor().min.x;
+        ui.ctx().data_mut(|d| {
+            let at = d.get_temp_mut_or_insert_with(egui::Id::new(KEPT_AT_ID), || None::<f32>);
+            if at.is_none() {
+                *at = Some(x);
+            }
+        });
+    }
+    keep
+}
+
+const KEPT_AT_ID: &str = "krub_ribbon_line_kept_at";
+const KEPT_END_ID: &str = "krub_ribbon_line_kept_end";
+
+/// A ribbon control's face ends at `x`: the right edge of the control the line draws on its own.
+fn note_kept_end(ui: &Ui, x: f32) {
+    ui.ctx().data_mut(|d| {
+        let end = d.get_temp_mut_or_insert_with(egui::Id::new(KEPT_END_ID), || f32::NEG_INFINITY);
+        *end = end.max(x);
+    });
+}
+
+/// Forget or read the right edge of the control drawn since the last call ([`note_kept_end`]).
+pub(crate) fn take_kept_end(ctx: &egui::Context) -> Option<f32> {
+    ctx.data_mut(|d| d.remove_temp::<f32>(egui::Id::new(KEPT_END_ID))).filter(|x| x.is_finite())
+}
+
+/// Forget (`None`) or read where the last control kept on the line started ([`kept_est`]).
+pub(crate) fn take_kept_at(ctx: &egui::Context) -> Option<f32> {
+    ctx.data_mut(|d| d.remove_temp::<Option<f32>>(egui::Id::new(KEPT_AT_ID))).flatten()
+}
+
+/// The one-line ribbon's button height and icon size (UI experiment): 32/22 (owner,
+/// 2026-11-23); `KRUB_LINE_BUTTON` = 28 or 36 on the desktop tries the others.
+pub(crate) fn line_button() -> (f32, f32) {
+    static SIZE: std::sync::OnceLock<(f32, f32)> = std::sync::OnceLock::new();
+    *SIZE.get_or_init(|| match std::env::var("KRUB_LINE_BUTTON").ok().and_then(|v| v.parse::<u32>().ok()) {
+        Some(28) => (SMALL_H, SMALL_ICON),
+        Some(36) => (36.0, 24.0),
+        _ => (32.0, 22.0),
+    })
+}
+
+/// A small button's width, height and icon size: larger in the one-line ribbon if chosen.
+fn small_size(ui: &Ui) -> (f32, f32, f32) {
+    if line(ui).is_some() {
+        let (h, i) = line_button();
+        (SMALL_W + (h - SMALL_H), h, i)
+    } else {
+        (SMALL_W, SMALL_H, SMALL_ICON)
+    }
+}
+
+const LIMIT_ID: &str = "krub_ribbon_line_limit";
+
+/// Where the one-line ribbon's buttons must end (before More), or `None` for no limit. Once a
+/// button doesn't fit, every later one is left out too, so the line never has gaps.
+pub(crate) fn set_line_limit(ctx: &egui::Context, limit: Option<f32>) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new(LIMIT_ID), limit);
+        d.insert_temp(egui::Id::new((LIMIT_ID, "full")), false);
+    });
+}
+
+/// Whether a control `w` wide still fits on the one-line ribbon (always, elsewhere).
+pub(crate) fn room(ui: &Ui, w: f32) -> bool {
+    if line(ui).is_none() {
+        return true;
+    }
+    let Some(limit) = ui.ctx().data(|d| d.get_temp::<Option<f32>>(egui::Id::new(LIMIT_ID))).flatten() else { return true };
+    let full = egui::Id::new((LIMIT_ID, "full"));
+    if ui.ctx().data(|d| d.get_temp::<bool>(full)).unwrap_or(false) {
+        return false;
+    }
+    let fits = ui.cursor().min.x + w <= limit;
+    if !fits {
+        ui.ctx().data_mut(|d| d.insert_temp(full, true));
+    }
+    fits
+}
+
+/// An empty response for a control the one-line ribbon leaves out.
+fn left_out(ui: &mut Ui) -> Response {
+    // Takes no room and no spacing, so the line can draw its buttons one at a time.
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ui.interact(Rect::NOTHING, egui::Id::new(("krub_left_out", n)), Sense::hover())
+}
+
 /// Shortcut text for a command (`⌘B` on macOS, `Ctrl+B` elsewhere): its first key in effect,
 /// custom keys included (Customize Keyboard).
 pub fn shortcut_text(app: &WordApp, id: &str) -> String {
@@ -105,11 +322,17 @@ pub fn enabled(app: &WordApp, id: &str) -> bool {
         return false;
     }
     match app.session.registry.get(id) {
-        Some(s) => (s.enabled)(&app.session).is_none() && !app.session.view_blocks(id, s.mutates),
+        Some(s) => {
+            (s.enabled)(&app.session).is_none()
+                && !app.session.view_blocks(id, s.mutates)
+                // A locked object's commands are greyed (owner, 2026-11-23).
+                && !(s.mutates && wordcraft_engine::cmd::objects::object_lock_refuses(&app.session, id))
+        }
         // Zotero: one command at a time, and only in the desktop app.
         None if id.starts_with("ui.zotero.") => app.zotero.busy.is_none() && !cfg!(target_arch = "wasm32"),
         None if id == "ui.linkTextBox" => enabled(app, "shape.link"),
-        None if id == "ui.crop" => crate::crop::can_toggle(app),
+        None if id == "ui.changePicture" => !wordcraft_engine::cmd::objects::selection_locked(&app.session),
+        None if id == "ui.crop" => crate::crop::can_toggle(app) && !wordcraft_engine::cmd::objects::selection_locked(&app.session),
         None => id.starts_with("ui."),
     }
 }
@@ -133,7 +356,8 @@ pub(crate) fn bg(ui: &Ui, r: Rect, resp: &Response, checked: bool, t: &Tokens) {
 pub(crate) const RIBBON_CONTROL_TAG: &str = "wordcraft_ribbon_controls";
 
 /// Ribbon controls have a light face, a fine outline, and a small visual gap.
-fn ribbon_control_bg(ui: &Ui, rect: Rect, response: &Response, checked: bool, t: &Tokens) {
+pub(crate) fn ribbon_control_bg(ui: &Ui, rect: Rect, response: &Response, checked: bool, t: &Tokens) {
+    note_kept_end(ui, rect.max.x);
     if !ui.stack().iter().any(|stack| stack.tags().contains(RIBBON_CONTROL_TAG)) {
         bg(ui, rect, response, checked, t);
         return;
@@ -206,6 +430,17 @@ pub fn label_line(ui: &Ui, cx: f32, y: f32, text: &str, font: egui::FontId, colo
 
 #[allow(clippy::too_many_arguments)]
 fn big_button(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, params: Value, menu: bool, checked: bool) -> Response {
+    if !kept_est(ui, id, icon, SMALL_W + 6.0, label) {
+        return left_out(ui);
+    }
+    if compact(ui) {
+        // One-line ribbon: an icon (the name is the tooltip); a side panel: icon and name.
+        let name = one_line(tl!(label));
+        if line(ui).is_some() {
+            return small_with_width(ui, app, icon, None, &name, id, params, checked, 0.0);
+        }
+        return labeled_button(ui, app, icon, &name, id, (!menu).then_some(params), checked, menu, 0.0);
+    }
     let label = tl!(label);
     // Tooltips, keytips and accessible names are one line: Thai phrases join with no space.
     let thai = label.chars().any(|c| ('\u{0E00}'..='\u{0E7F}').contains(&c));
@@ -243,6 +478,12 @@ fn big_button(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str,
     resp
 }
 
+/// A large button's label on one line: Thai phrases join with no space.
+fn one_line(label: &str) -> String {
+    let thai = label.chars().any(|c| ('\u{0E00}'..='\u{0E7F}').contains(&c));
+    label.replace('\n', if thai { "" } else { " " })
+}
+
 /// A small button: icon only; `checked` draws the toggled state. `label` is not drawn (small
 /// buttons carry no text in the two-size ribbon); the name is `tip`, shown as the tooltip.
 pub fn small(ui: &mut Ui, app: &mut WordApp, icon: &str, label: Option<&str>, tip: &str, id: &str, params: Value, checked: bool) -> Response {
@@ -272,13 +513,62 @@ pub fn labeled_button(
     dropdown: bool,
     min_width: f32,
 ) -> Response {
+    labeled_button_sized(ui, app, icon, label, id, run, checked, dropdown, min_width, false)
+}
+
+/// A side pane grid button: [`labeled_button`] exactly `width` wide (owner, 2026-11-22: pane
+/// buttons in even grids). A label too long for it is set smaller, down to 9.5 pt, then cut; the
+/// tooltip and the name keep it whole.
+#[allow(clippy::too_many_arguments)]
+pub fn pane_button(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    icon: &str,
+    label: &str,
+    id: &str,
+    run: Option<Value>,
+    checked: bool,
+    dropdown: bool,
+    width: f32,
+) -> Response {
+    labeled_button_sized(ui, app, icon, label, id, run, checked, dropdown, width, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn labeled_button_sized(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    icon: &str,
+    label: &str,
+    id: &str,
+    run: Option<Value>,
+    checked: bool,
+    dropdown: bool,
+    min_width: f32,
+    exact: bool,
+) -> Response {
+    if !kept(ui, id, icon, label) {
+        return left_out(ui);
+    }
     let label = tl!(label);
     let t = Tokens::get(ui.ctx());
     let on = if run.is_some() { enabled(app, id) } else { menu_enabled(app, id) };
     let color = if on { t.text } else { t.text_disabled };
-    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(11.5), color);
     let marker = if dropdown { DROPDOWN + 4.0 } else { 0.0 };
-    let (r, resp) = ui.allocate_exact_size(vec2((SMALL_W + galley.size().x + 8.0 + marker).max(min_width), SMALL_H), Sense::click());
+    let galley = if exact {
+        let room = (min_width - SMALL_W - 6.0 - marker).max(1.0);
+        let wide = ui.painter().layout_no_wrap(label.to_string(), regular(11.5), color).size().x;
+        let size = if wide > room && wide > 0.0 { (11.5 * room / wide).max(9.5) } else { 11.5 };
+        let job = egui::text::LayoutJob {
+            wrap: egui::text::TextWrapping::truncate_at_width(room),
+            ..egui::text::LayoutJob::simple_singleline(label.to_string(), regular(size), color)
+        };
+        ui.painter().layout_job(job)
+    } else {
+        ui.painter().layout_no_wrap(label.to_string(), regular(11.5), color)
+    };
+    let w = if exact { min_width.max(SMALL_W) } else { (SMALL_W + galley.size().x + 8.0 + marker).max(min_width) };
+    let (r, resp) = ui.allocate_exact_size(vec2(w, SMALL_H), Sense::click());
     keytip_badge(ui, r, id, label);
     ribbon_control_bg(ui, r, &resp, checked, &t);
     let ic = Rect::from_center_size(pos2(r.min.x + SMALL_W / 2.0, r.center().y), vec2(SMALL_ICON, SMALL_ICON));
@@ -303,6 +593,123 @@ pub fn labeled_button(
     resp
 }
 
+/// A side pane choice `w` wide: `label` centred on the ribbon's face, drawn on while `on` (one of
+/// a set, like the Table pane's Apply to).
+pub fn pane_choice(ui: &mut Ui, label: &str, on: bool, w: f32) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(w, SMALL_H), Sense::click());
+    ribbon_control_bg(ui, r, &resp, on, &t);
+    let color = if ui.is_enabled() { t.text } else { t.text_disabled };
+    let job = egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping::truncate_at_width((w - 8.0).max(1.0)),
+        ..egui::text::LayoutJob::simple_singleline(label.to_string(), regular(11.5), color)
+    };
+    let galley = ui.painter().layout_job(job);
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, color);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, ui.is_enabled(), on, label));
+    resp
+}
+
+/// A side pane icon button `w` wide with the ribbon's face (an even row of actions, like the
+/// Styles pane's): `tip` is its tooltip and name. `toggle`: `Some(on)` makes it a toggle (a
+/// checkbox to assistive technology), drawn pressed while on.
+pub fn pane_icon(ui: &mut Ui, icon: &str, tip: &str, toggle: Option<bool>, w: f32) -> Response {
+    let on = toggle.unwrap_or(false);
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(w.max(SMALL_W), SMALL_H), Sense::click());
+    ribbon_control_bg(ui, r, &resp, on, &t);
+    let (c, a) = if ui.is_enabled() { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(SMALL_ICON, SMALL_ICON)), icon, c, a);
+    resp.widget_info(|| match toggle {
+        Some(on) => egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), on, tip),
+        None => egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tip),
+    });
+    resp.on_hover_text(tip)
+}
+
+/// Height of a side pane tile ([`pane_tile`]).
+pub const TILE_H: f32 = 48.0;
+
+/// A side pane tile (owner, 2026-11-22: panes set their buttons in even grids): the icon over
+/// one centred label line, exactly `width` wide, with the ribbon's face. A label too long for the
+/// tile is set smaller, down to 9.5 pt, then cut. `run`, `checked` and `dropdown` as in
+/// [`labeled_button`].
+#[allow(clippy::too_many_arguments)]
+pub fn pane_tile(
+    ui: &mut Ui,
+    app: &mut WordApp,
+    icon: &str,
+    label: &str,
+    id: &str,
+    run: Option<Value>,
+    checked: bool,
+    dropdown: bool,
+    width: f32,
+) -> Response {
+    let label_en = label;
+    let label = tl!(label);
+    let t = Tokens::get(ui.ctx());
+    let on = if run.is_some() { enabled(app, id) } else { menu_enabled(app, id) };
+    // The drawn line may be worded shorter for the tile; the tooltip and the name keep `label`.
+    let shown = crate::i18n::tc("pane tile", label_en);
+    let color = if on { t.text } else { t.text_disabled };
+    let (r, resp) = ui.allocate_exact_size(vec2(width.max(SMALL_W), TILE_H), Sense::click());
+    keytip_badge(ui, r, id, label);
+    ribbon_control_bg(ui, r, &resp, checked, &t);
+    let ic = Rect::from_center_size(pos2(r.center().x, r.top() + 16.0), vec2(SMALL_ICON, SMALL_ICON));
+    let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
+    icons::paint(ui.painter(), ic, icon, c, a);
+    let marker = if dropdown { DROPDOWN + 3.0 } else { 0.0 };
+    let room = (r.width() - 8.0 - marker).max(1.0);
+    let wide = ui.painter().layout_no_wrap(shown.to_string(), regular(11.5), color).size().x;
+    let size = if wide > room && wide > 0.0 { (11.5 * room / wide).max(9.5) } else { 11.5 };
+    let job = egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping::truncate_at_width(room),
+        ..egui::text::LayoutJob::simple_singleline(shown.to_string(), regular(size), color)
+    };
+    let galley = ui.painter().layout_job(job);
+    let gs = galley.size();
+    let x = r.center().x - (gs.x + marker) / 2.0;
+    let y = r.top() + 30.0;
+    ui.painter().galley(pos2(x, y), galley, color);
+    if dropdown {
+        let mc = pos2(x + gs.x + 3.0 + DROPDOWN / 2.0, y + gs.y / 2.0);
+        icons::paint(ui.painter(), Rect::from_center_size(mc, vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
+    }
+    let resp = tooltip(app, resp, label, id);
+    command_menu(&resp, app, id);
+    if let Some(params) = run
+        && resp.clicked()
+        && on
+    {
+        run_from_ribbon(app, id, params);
+    }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on && ui.is_enabled(), label));
+    resp
+}
+
+/// A side panel's tab (UI experiment, owner 2026-11-23): an icon over one centred label line,
+/// exactly `width` wide, in the face of [`pane_tile`]; `on` draws it chosen.
+pub fn pane_tab(ui: &mut Ui, icon: &str, label: &str, on: bool, width: f32) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(width.max(SMALL_W), TILE_H), Sense::click());
+    ribbon_control_bg(ui, r, &resp, on, &t);
+    let ic = Rect::from_center_size(pos2(r.center().x, r.top() + 16.0), vec2(SMALL_ICON, SMALL_ICON));
+    icons::paint(ui.painter(), ic, icon, t.icon, t.accent);
+    let room = (r.width() - 8.0).max(1.0);
+    let wide = ui.painter().layout_no_wrap(label.to_string(), regular(11.5), t.text).size().x;
+    let size = if wide > room && wide > 0.0 { (11.5 * room / wide).max(9.5) } else { 11.5 };
+    let job = egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping::truncate_at_width(room),
+        ..egui::text::LayoutJob::simple_singleline(label.to_string(), regular(size), t.text)
+    };
+    let galley = ui.painter().layout_job(job);
+    let gs = galley.size();
+    ui.painter().galley(pos2(r.center().x - gs.x / 2.0, r.top() + 30.0), galley, t.text);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, label));
+    resp
+}
+
 /// The width of the widest of these [`small_labeled`] buttons.
 pub fn small_labeled_width(ui: &Ui, labels: &[&str]) -> f32 {
     let t = Tokens::get(ui.ctx());
@@ -322,13 +729,20 @@ pub fn small_with_width(
     min_width: f32,
 ) -> Response {
     let _ = label;
+    if !kept_est(ui, id, icon, SMALL_W + 6.0, tip) {
+        return left_out(ui);
+    }
     let tip = tl!(tip);
     let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(vec2(SMALL_W.max(min_width), SMALL_H), Sense::click());
+    let (sw, sh, si) = small_size(ui);
+    if !room(ui, sw.max(min_width)) {
+        return left_out(ui);
+    }
+    let (r, resp) = ui.allocate_exact_size(vec2(sw.max(min_width), sh), Sense::click());
     keytip_badge(ui, r, id, tip);
     let on = enabled(app, id);
     ribbon_control_bg(ui, r, &resp, checked, &t);
-    let ic = Rect::from_center_size(r.center(), vec2(SMALL_ICON, SMALL_ICON));
+    let ic = Rect::from_center_size(r.center(), vec2(si, si));
     let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), ic, icon, c, a);
     let resp = tooltip(app, resp, tip, id);
@@ -375,21 +789,28 @@ pub fn split_labeled(
     swatch: Option<Color32>,
     menu: impl FnOnce(&mut Ui, &mut WordApp),
 ) {
+    if !kept_est(ui, id, icon, SMALL_W + 18.0, tip) {
+        return;
+    }
     let tip = tl!(tip);
     // Small buttons carry no text in the two-size ribbon: the label is the tooltip's business.
     let _ = label;
     let t = Tokens::get(ui.ctx());
     let text_w = 0.0;
+    let (sw, sh, si) = small_size(ui);
+    if !room(ui, sw + 12.0 + ui.spacing().item_spacing.x) {
+        return;
+    }
     let gap = ui.spacing().item_spacing.x;
     // A row exactly the button's size (`ui.horizontal` would make it a little taller).
-    ui.allocate_ui_with_layout(vec2(SMALL_W + text_w + gap + 11.0, SMALL_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let (r, resp) = ui.allocate_exact_size(vec2(SMALL_W + text_w, SMALL_H), Sense::click());
+    ui.allocate_ui_with_layout(vec2(sw + text_w + gap + 11.0, sh), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        let (r, resp) = ui.allocate_exact_size(vec2(sw + text_w, sh), Sense::click());
         keytip_badge(ui, r, id, tip);
-        let (ar, aresp) = ui.allocate_exact_size(vec2(11.0, SMALL_H), Sense::click());
+        let (ar, aresp) = ui.allocate_exact_size(vec2(11.0, sh), Sense::click());
         ribbon_control_bg(ui, r, &resp, checked, &t);
         ribbon_control_bg(ui, ar, &aresp, false, &t);
-        let ir = Rect::from_min_size(r.min, vec2(SMALL_W, SMALL_H));
-        let ic = Rect::from_center_size(ir.center(), vec2(SMALL_ICON, SMALL_ICON));
+        let ir = Rect::from_min_size(r.min, vec2(sw, sh));
+        let ic = Rect::from_center_size(ir.center(), vec2(si, si));
         icons::paint(ui.painter(), ic, icon, t.icon, t.accent);
         if let Some(sw) = swatch {
             // Over the icon's own colour bar, outlined so a pale colour still shows.
@@ -398,6 +819,10 @@ pub fn split_labeled(
             ui.painter().rect_stroke(bar, 0.0, Stroke::new(0.6, t.border_strong), egui::StrokeKind::Inside);
         }
         icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(DROPDOWN, DROPDOWN)), "dropdown", t.icon, t.accent);
+        // Named as the large split button's two parts are ("Paste", "Paste options").
+        let on = enabled(app, id) && ui.is_enabled();
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+        aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), format!("{tip} options")));
         let resp = tooltip(app, resp, tip, id);
         command_menu(&resp, app, id);
         if resp.clicked() {
@@ -426,8 +851,23 @@ pub fn menu_button(
     id: &str,
     menu: impl FnOnce(&mut Ui, &mut WordApp),
 ) {
+    if !kept_est(ui, id, icon, SMALL_W + 16.0, tip) {
+        return;
+    }
     let (label, tip) = (label.map(|l| tl!(l)), tl!(tip));
     let t = Tokens::get(ui.ctx());
+    // One-line ribbon: a small menu button; a side panel: icon, name and marker.
+    let big_btn = big_btn && line(ui).is_none();
+    if big_btn && compact(ui) {
+        let resp = labeled_button(ui, app, icon, &one_line(label.unwrap_or(tip)), id, None, false, true, 0.0);
+        if menu_enabled(app, id) {
+            egui::Popup::menu(&resp).show(|ui| {
+                ui.set_min_width(200.0);
+                menu(ui, app);
+            });
+        }
+        return;
+    }
     // `id` names the command the menu is about (Header for the Header menu…); while it is
     // disabled the button greys out and doesn't open, like the other ribbon buttons. "" = always on.
     let on = menu_enabled(app, id);
@@ -452,10 +892,14 @@ pub fn menu_button(
         resp
     } else {
         // Small: icon and drop-down marker only; the name is the tooltip.
-        let (r, resp) = ui.allocate_exact_size(vec2(SMALL_W + 10.0, SMALL_H), Sense::click());
+        let (sw, sh, si) = small_size(ui);
+        if !room(ui, sw + 10.0) {
+            return;
+        }
+        let (r, resp) = ui.allocate_exact_size(vec2(sw + 10.0, sh), Sense::click());
         keytip_badge(ui, r, "menu", tip);
         ribbon_control_bg(ui, r, &resp, false, &t);
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + SMALL_W / 2.0, r.center().y), vec2(SMALL_ICON, SMALL_ICON)), icon, c, a);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + sw / 2.0, r.center().y), vec2(si, si)), icon, c, a);
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 6.0, r.center().y), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
         resp
     };
@@ -488,6 +932,10 @@ pub fn big_split(
     params: Value,
     menu: impl FnOnce(&mut Ui, &mut WordApp),
 ) {
+    if compact(ui) {
+        let _ = label;
+        return split(ui, app, icon, tip, id, params, false, None, menu);
+    }
     let (label, tip) = (tl!(label), tl!(tip));
     let t = Tokens::get(ui.ctx());
     let on = enabled(app, id);
@@ -554,6 +1002,33 @@ pub fn label_strip_h(app: &WordApp) -> f32 {
 /// A ribbon group whose title is shown as is (a custom group's name, Customize Ribbon).
 pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, app: &mut WordApp, add: impl FnOnce(&mut Ui, &mut WordApp)) {
     let t = Tokens::get(ui.ctx());
+    if compact(ui) {
+        // One-line ribbon: no name; a divider after a group that kept anything (unless the line
+        // draws its own, between buttons it orders itself).
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(GROUP_ID), id_title.to_string()));
+        let no_dividers = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new(NO_DIVIDERS_ID))).unwrap_or(false);
+        let start = ui.cursor().min;
+        let h = line_button().0;
+        // Drawn in a child first: a group with nothing on the line takes no room and no spacing,
+        // so the line can draw its buttons one at a time.
+        let max = Rect::from_min_size(start, vec2(ui.available_width().max(0.0), h));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(max).layout(egui::Layout::left_to_right(egui::Align::Center)));
+        child.spacing_mut().item_spacing = vec2(1.0, 0.0);
+        add(&mut child, app);
+        let used = child.min_rect();
+        let used_w = if used.width() > 0.5 { used.max.x - start.x } else { 0.0 };
+        if used_w > 0.0 {
+            ui.allocate_rect(Rect::from_min_size(start, vec2(used_w, h)), Sense::hover());
+        }
+        let _ = (id_title, title);
+        if !no_dividers && used_w >= SMALL_W / 2.0 {
+            ui.add_space(2.0);
+            let x = ui.cursor().min.x;
+            ui.painter().line_segment([pos2(x, start.y + 5.0), pos2(x, start.y + h - 5.0)], Stroke::new(1.0, t.border));
+            ui.add_space(3.0);
+        }
+        return;
+    }
     let show_name = app.ui.show_ribbon_group_names;
     let strip = label_strip_h(app);
     let label_w = if show_name { ui.ctx().fonts_mut(|f| f.layout_no_wrap(title.to_string(), regular(11.0), t.group_label).size().x) } else { 0.0 };
@@ -642,8 +1117,21 @@ pub fn customize_menu_items(ui: &mut Ui, app: &mut WordApp) {
     }
 }
 
+/// `ui.horizontal` for the ribbon's tabs: in the one-line ribbon the items go straight into the
+/// line, on its centre (UI experiment).
+pub fn hrow(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    if compact(ui) {
+        return add(ui);
+    }
+    ui.horizontal(add);
+}
+
 /// A row of small buttons (used inside a vertical stack).
 pub fn row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    if compact(ui) {
+        // One line: the row's buttons go straight into the line, on its centre.
+        return add(ui);
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
         add(ui);
@@ -815,6 +1303,32 @@ struct ComboSearch {
     view_h: f32,
 }
 
+/// The English name of a ribbon box (font, size, style), for the line's census.
+fn combo_name(id: &str) -> &'static str {
+    match id {
+        "font" => "Font",
+        "size" => "Font Size",
+        "para_style_box" => "Style",
+        "outlineLevel" => "Outline Level",
+        "outlineShowLevel" => "Show Level",
+        _ => "",
+    }
+}
+
+/// `name` laid out for a combo field `room` points wide, ending in "…": `None` when it fits whole.
+fn elided_name(ui: &Ui, name: &str, room: f32) -> Option<std::sync::Arc<egui::Galley>> {
+    let color = ui.visuals().text_color();
+    let whole = ui.painter().layout_no_wrap(name.to_string(), regular(12.0), color);
+    if whole.size().x <= room {
+        return None;
+    }
+    let job = egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping::truncate_at_width(room.max(1.0)),
+        ..egui::text::LayoutJob::simple_singleline(name.to_string(), regular(12.0), color)
+    };
+    Some(ui.painter().layout_job(job))
+}
+
 fn combo_impl(
     ui: &mut Ui,
     id: &str,
@@ -825,6 +1339,9 @@ fn combo_impl(
     search: bool,
     shown_as: Option<&str>,
 ) -> Option<String> {
+    if !kept_est(ui, id, id, width + 20.0, combo_name(id)) || !room(ui, width + 24.0) {
+        return None;
+    }
     let mut out = None;
     let edit_id = ui.id().with(("combo_text", id));
     let te_id = ui.id().with(("combo_edit", id));
@@ -858,15 +1375,31 @@ fn combo_impl(
         // A font that isn't installed: room at the field's right end for the warning mark.
         let mark = shown_as.filter(|_| !current.is_empty());
         let right = if mark.is_some() { 18 } else { 4 };
-        let te = egui::TextEdit::singleline(&mut text).id(te_id).desired_width(width - 16.0).font(regular(12.0)).margin(egui::Margin {
+        // While nobody types in it, a name too long for the field ends in "…" (owner, 2026-11-25,
+        // `ui-experiments/font-box-ellipsis-2026-11-25/`) instead of being cut at the edge; the
+        // field keeps the full text, so a click edits it as before.
+        let room = width - 16.0 - 4.0 - f32::from(right);
+        let shorten = !ui.memory(|m| m.has_focus(te_id)) && elided_name(ui, &text, room).is_some();
+        let mut te = egui::TextEdit::singleline(&mut text).id(te_id).desired_width(width - 16.0).font(regular(12.0)).margin(egui::Margin {
             left: 4,
             right,
             top: 3,
             bottom: 3,
         });
+        if shorten {
+            te = te.text_color(egui::Color32::TRANSPARENT);
+        }
         // The arrow's box is painted here, under the field, once its size is known.
         let arrow_bg = ui.painter().add(egui::Shape::Noop);
         let resp = ui.add(te);
+        let resp = if shorten && let Some(galley) = elided_name(ui, &text, room) {
+            let color = if ui.is_enabled() { t.text } else { t.text_disabled };
+            ui.painter().galley(pos2(resp.rect.left() + 4.0, resp.rect.center().y - galley.size().y / 2.0), galley, color);
+            // The full name when the pointer rests on it (a missing font's note names it too).
+            if mark.is_none() { resp.on_hover_text(text.clone()) } else { resp }
+        } else {
+            resp
+        };
         let resp = match mark {
             Some(shown) => {
                 paint_font_warning(ui.painter(), Rect::from_center_size(pos2(resp.rect.right() - 9.0, resp.rect.center().y), vec2(12.0, 12.0)));
@@ -921,6 +1454,7 @@ fn combo_impl(
             out = Some(text.clone());
         }
         let (ar, aresp) = ui.allocate_exact_size(vec2(16.0, resp.rect.height()), Sense::click());
+        note_kept_end(ui, ar.max.x);
         // It reaches one border width under the field, so the field's right border is the only line
         // between them: two borders side by side read as a double-width divider.
         let ar_radius = CornerRadius { nw: 0, sw: 0, ne: r.ne, se: r.se };
@@ -1172,6 +1706,8 @@ pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str) -> Response {
     let st = drawn_state(ui, &resp, false);
     ui.painter().rect_filled(r, CornerRadius::same(4), st.fill);
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), icon, t.icon, t.accent);
+    // Named by its tooltip, so assistive technology can tell what the icon does.
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tip));
     resp.on_hover_text(tip)
 }
 
@@ -1386,6 +1922,21 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
         let h = ctx.fonts_mut(|f| f.layout_no_wrap("Page Number Mail Merge gjpqy".into(), crate::theme::regular(11.5), Color32::WHITE).size().y);
         assert!(h <= LABEL_LINE_H, "label line is {h} px tall");
+    }
+
+    /// Owner, 2026-11-25: a font name too long for its field ends in "…" while nobody types in
+    /// it; a name that fits is left alone.
+    #[test]
+    fn a_long_font_name_ends_in_an_ellipsis() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions(false, false));
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(elided_name(ui, "Aptos", 120.0).is_none(), "a short name fits");
+            let g = elided_name(ui, "Noto Sans Thai Looped UI Condensed", 120.0).expect("a long name is shortened");
+            assert!(g.elided, "cut with an ellipsis");
+            assert!(g.size().x <= 120.5, "{}", g.size().x);
+        })
+        .drop_without_applying_deltas();
     }
 
     #[test]

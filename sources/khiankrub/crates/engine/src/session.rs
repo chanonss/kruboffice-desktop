@@ -1251,6 +1251,10 @@ impl Session {
         }
         // Restrict Editing: refused outright, or allowed as long as it only edits the exceptions.
         let guard = if spec.mutates { crate::cmd::protect::check_before(self, id, params)? } else { false };
+        // A locked object refuses changes (owner, 2026-11-23).
+        if spec.mutates {
+            crate::cmd::objects::lock_check(self, id)?;
+        }
         if spec.mutates && self.doc.settings.protection.as_deref() == Some("trackedChanges") {
             self.doc.settings.track_changes = true;
         }

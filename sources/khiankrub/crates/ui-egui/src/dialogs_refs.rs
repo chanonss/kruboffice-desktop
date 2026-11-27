@@ -709,6 +709,9 @@ pub struct TocForm {
     pub tc_fields: bool,
     /// Options: other paragraph styles with a TOC level (0 = not in the table), by style name.
     pub style_levels: Vec<(String, u8)>,
+    /// The Thai academic report layout: "หน้า" over the page numbers and "สารบัญ (ต่อ)" at the top
+    /// of each further page (`continued`).
+    pub report: bool,
 }
 
 impl TocForm {
@@ -732,15 +735,17 @@ impl TocForm {
             .filter(|s| s.kind == StyleKind::Paragraph && !s.hidden && !s.id.starts_with("Heading") && !s.id.starts_with("TOC"))
             .map(|s| (s.name.clone(), listed.iter().find(|(n, _)| n.eq_ignore_ascii_case(&s.name)).map_or(0, |(_, l)| *l)))
             .collect();
-        // Right-aligned page numbers: no `\p` separator, or a tab one.
-        let leader = app
-            .session
-            .doc
-            .body
-            .iter()
-            .filter_map(|b| b.as_para())
-            .find(|p| p.props.style.as_deref().is_some_and(|s| s.starts_with("TOC") && s != "TOCHeading"))
-            .and_then(|p| p.props.tabs.as_ref()?.last().map(|t| t.leader));
+        // Right-aligned page numbers: no `\p` separator, or a tab one. The report layout's page
+        // label and continued headings are not entries.
+        let toc_style = |p: &&wordcraft_doc::Paragraph, entry: bool| {
+            p.props.style.as_deref().is_some_and(|s| {
+                let part = matches!(s, "TOCPageLabel" | "TOCContinued");
+                s.starts_with("TOC") && s != "TOCHeading" && part != entry
+            })
+        };
+        let paras = || app.session.doc.body.iter().filter_map(|b| b.as_para());
+        let leader = paras().find(|p| toc_style(p, true)).and_then(|p| p.props.tabs.as_ref()?.last().map(|t| t.leader));
+        let report = paras().any(|p| toc_style(&p, false));
         TocForm {
             page_numbers: !f.has('n'),
             right_align: f.arg('p').is_none_or(|p| p.contains('\t')),
@@ -757,6 +762,7 @@ impl TocForm {
             outline_levels: f.has('u'),
             tc_fields: f.has('f'),
             style_levels,
+            report,
         }
     }
 
@@ -773,6 +779,7 @@ impl TocForm {
             "outlineLevels": self.outline_levels,
             "tcFields": self.tc_fields,
             "styleLevels": styles,
+            "continued": self.report,
         })
     }
 }
@@ -798,6 +805,10 @@ fn toc_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm) -> Next {
         });
     });
     ui.checkbox(&mut f.hyperlinks, tl!("Link entries to their headings"));
+    // Thai report and thesis guides: no leader by default, as they print it.
+    if ui.checkbox(&mut f.report, tl!("Thai report layout (หน้า, สารบัญ (ต่อ))")).changed() && f.report {
+        f.leader = "none".into();
+    }
     ui.horizontal(|ui| {
         ui.label(tl!("Levels:"));
         ui.add(crate::numfield::NumField::new(&mut f.levels).range(1..=9));

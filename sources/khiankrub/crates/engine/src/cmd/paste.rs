@@ -351,6 +351,22 @@ pub(crate) fn unlink_sections(blocks: &mut [Block]) {
     }
 }
 
+/// A table pasted from another program fits the text column `width`, like Table Layout ›
+/// AutoFit › AutoFit Window: 100% wide, its columns keeping their proportions (a Word table set
+/// wider or narrower than our margins keeps its look).
+fn fit_table_to_window(t: &mut wordcraft_doc::Table, width: f32) {
+    let total: f32 = t.grid.iter().filter(|g| g.is_finite() && **g > 0.0).sum();
+    if !(total > 0.0 && width.is_finite() && width > 0.0) || t.grid.iter().any(|g| !g.is_finite() || *g <= 0.0) {
+        return;
+    }
+    let k = width / total;
+    t.grid.iter_mut().for_each(|g| *g = (*g * k).max(6.0));
+    t.props.fixed = false;
+    t.props.width = None;
+    t.props.width_pct = Some(100.0);
+    super::table::sync_cell_widths(t);
+}
+
 /// Turn an imported document into a fragment of the session's document: bring over the media,
 /// lists and styles it refers to (renumbered so they can't collide with ours).
 fn adopt(s: &mut Session, src: Document) -> Fragment {
@@ -392,9 +408,20 @@ fn adopt(s: &mut Session, src: Document) -> Fragment {
     let max_w = crate::io::text_width(&s.doc);
     for b in &mut blocks {
         crate::io::fit_block_pictures(b, max_w);
+        // Pasted tables fit the text column (owner, 2026-11-25), as Table Layout › AutoFit Window.
+        if let Block::Table(t) = b {
+            fit_table_to_window(t, max_w);
+        }
     }
     for b in &mut blocks {
         each_para(b, 0, &mut |p| {
+            // A paragraph keeps the alignment it had in its source (Word's and a browser's
+            // default is left) instead of taking ours: in a KhianKrub document the default is
+            // Thai Distributed, which spreads a wrapped Thai line letter by letter (owner,
+            // 2026-11-25).
+            if p.props.align.is_none() {
+                p.props.align = Some(src.styles.resolve_para(&p.props).align);
+            }
             if let Some(n) = p.props.numbering.as_mut()
                 && n.num != 0
             {

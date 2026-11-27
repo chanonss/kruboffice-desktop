@@ -1018,6 +1018,25 @@ const T_BRACES: Glyph = Glyph {
     ],
     fills: &[],
 };
+/// Tabler `browser`.
+const T_BROWSER: Glyph = Glyph {
+    strokes: &[
+        M(4.0, 8.0),
+        L(20.0, 8.0),
+        M(4.0, 6.0),
+        C(4.0, 4.895, 4.895, 4.0, 6.0, 4.0),
+        L(18.0, 4.0),
+        C(19.105, 4.0, 20.0, 4.895, 20.0, 6.0),
+        L(20.0, 18.0),
+        C(20.0, 19.105, 19.105, 20.0, 18.0, 20.0),
+        L(6.0, 20.0),
+        C(4.895, 20.0, 4.0, 19.105, 4.0, 18.0),
+        L(4.0, 6.0),
+        M(8.0, 4.0),
+        L(8.0, 8.0),
+    ],
+    fills: &[],
+};
 /// Tabler `brush`.
 const T_BRUSH: Glyph = Glyph {
     strokes: &[
@@ -1948,6 +1967,23 @@ const T_DEVICE_FLOPPY: Glyph = Glyph {
         L(14.0, 8.0),
         L(8.0, 8.0),
         L(8.0, 4.0),
+    ],
+    fills: &[],
+};
+/// Tabler `device-laptop`.
+const T_DEVICE_LAPTOP: Glyph = Glyph {
+    strokes: &[
+        M(3.0, 19.0),
+        L(21.0, 19.0),
+        M(5.0, 7.0),
+        C(5.0, 6.448, 5.448, 6.0, 6.0, 6.0),
+        L(18.0, 6.0),
+        C(18.552, 6.0, 19.0, 6.448, 19.0, 7.0),
+        L(19.0, 15.0),
+        C(19.0, 15.552, 18.552, 16.0, 18.0, 16.0),
+        L(6.0, 16.0),
+        C(5.448, 16.0, 5.0, 15.552, 5.0, 15.0),
+        L(5.0, 7.0),
     ],
     fills: &[],
 };
@@ -6472,6 +6508,29 @@ const T_WORLD_SEARCH: Glyph = Glyph {
     ],
     fills: &[],
 };
+/// Tabler `writing`.
+const T_WRITING: Glyph = Glyph {
+    strokes: &[
+        M(20.0, 17.0),
+        L(20.0, 5.0),
+        C(20.0, 3.879, 19.121, 3.0, 18.0, 3.0),
+        C(16.879, 3.0, 16.0, 3.879, 16.0, 5.0),
+        L(16.0, 17.0),
+        L(18.0, 19.0),
+        L(20.0, 17.0),
+        M(16.0, 7.0),
+        L(20.0, 7.0),
+        M(18.0, 19.0),
+        L(5.0, 19.0),
+        C(3.895, 19.0, 3.0, 18.105, 3.0, 17.0),
+        C(3.0, 15.895, 3.895, 15.0, 5.0, 15.0),
+        L(9.0, 15.0),
+        C(10.105, 15.0, 11.0, 14.105, 11.0, 13.0),
+        C(11.0, 11.895, 10.105, 11.0, 9.0, 11.0),
+        L(6.0, 11.0),
+    ],
+    fills: &[],
+};
 /// Tabler `writing-sign`.
 const T_WRITING_SIGN: Glyph = Glyph {
     strokes: &[
@@ -6624,6 +6683,7 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "group" => "box-multiple",
         "cellMargins" => "box-padding",
         "addressBlock" | "greetingLine" | "highlightFields" | "matchFields" | "mergeField" | "rules" => "braces",
+        "this-browser" => "browser",
         "animation-painter" | "borderPainter" | "brush" | "format-painter" | "painter" | "quick-styles" | "styles" => "brush",
         "design-ideas" => "bulb",
         "calc" => "calculator",
@@ -6678,6 +6738,7 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "trim-media" => "cut",
         "device" | "optionsDisplay" => "device-desktop",
         "optionsSave" | "save" => "device-floppy",
+        "this-device" => "device-laptop",
         "size" => "dimensions",
         "more" => "dots",
         "download" => "download",
@@ -6906,6 +6967,7 @@ pub fn tabler_name(name: &str) -> Option<&'static str> {
         "artistic-effects" => "wand",
         "webLayout" => "world",
         "onlinePicture" => "world-search",
+        "keep-writing" => "writing",
         "editor" => "writing-sign",
         "close" | "closeFile" => "x",
         "zoom" | "zoom-glass" => "zoom",
@@ -6974,6 +7036,7 @@ fn glyph(tabler: &str) -> Option<&'static Glyph> {
         "box-multiple" => &T_BOX_MULTIPLE,
         "box-padding" => &T_BOX_PADDING,
         "braces" => &T_BRACES,
+        "browser" => &T_BROWSER,
         "brush" => &T_BRUSH,
         "bulb" => &T_BULB,
         "calculator" => &T_CALCULATOR,
@@ -7028,6 +7091,7 @@ fn glyph(tabler: &str) -> Option<&'static Glyph> {
         "cut" => &T_CUT,
         "device-desktop" => &T_DEVICE_DESKTOP,
         "device-floppy" => &T_DEVICE_FLOPPY,
+        "device-laptop" => &T_DEVICE_LAPTOP,
         "dimensions" => &T_DIMENSIONS,
         "dots" => &T_DOTS,
         "download" => &T_DOWNLOAD,
@@ -7256,6 +7320,7 @@ fn glyph(tabler: &str) -> Option<&'static Glyph> {
         "wand" => &T_WAND,
         "world" => &T_WORLD,
         "world-search" => &T_WORLD_SEARCH,
+        "writing" => &T_WRITING,
         "writing-sign" => &T_WRITING_SIGN,
         "x" => &T_X,
         "zoom" => &T_ZOOM,

@@ -103,15 +103,16 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut LayoutDialog) -> bool {
 /// The accent button and Cancel; returns (ok, cancel).
 fn buttons(ui: &mut Ui, ok: &str, ok_enabled: bool) -> (bool, bool) {
     let mut r = (false, false);
-    ui.add_space(8.0);
+    // The shared button row (owner, 2026-11-24: one dialog look): OK at the far right.
+    krub_icons::dialog::footer(ui);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                r.1 = true;
-            }
             let okb = ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!(ok)));
             if okb.clicked() {
                 r.0 = true;
+            }
+            if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                r.1 = true;
             }
         });
     });

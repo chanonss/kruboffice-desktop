@@ -8821,6 +8821,36 @@ fn pasting_copied_cells_into_a_cell_fills_the_cells() {
     assert_eq!(body_table_cells(&s)[0][8], "B2", "one undo step");
 }
 
+/// Owner's bug (2026-11-22): text copied from a cell and pasted over several selected cells
+/// fills every selected cell, as in Word, not just the first; so does one copied cell.
+#[test]
+fn pasting_text_over_selected_cells_fills_each_cell() {
+    let mut s = table3_doc();
+    run(&mut s, "select.text", json!({"text": "B2"}));
+    run(&mut s, "edit.copy", json!({}));
+    // Part of a column (cells not one run of the text).
+    select_table_cells(&mut s, (0, 2), (0, 0));
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["B2", "B1", "C1", "B2", "B2", "C2", "B2", "B3", "C3"])]);
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
+    assert!(t.rows.iter().flat_map(|r| &r.cells).all(|c| c.blocks.len() == 1), "no extra paragraphs in the cells");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"])], "one undo step");
+    // Cells of one row (one run of the text), with Merge Formatting too.
+    select_table_cells(&mut s, (2, 2), (1, 2));
+    run(&mut s, "edit.pasteMerge", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B2", "B2"])]);
+    // A whole copied cell over a block of cells.
+    select_table_cells(&mut s, (0, 0), (2, 2));
+    run(&mut s, "edit.copy", json!({}));
+    select_table_cells(&mut s, (0, 1), (0, 1));
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s), vec![row_cells(&["C1", "C1", "C1", "C1", "C1", "C2", "A3", "B2", "B2"])]);
+    // One selected cell: as before, the text goes into it.
+    run(&mut s, "edit.paste", json!({"text": "x"}));
+    assert_eq!(body_table_cells(&s).len(), 1);
+}
+
 /// With cells selected, the paste starts at the selection's first cell; outside a table, copied
 /// cells still paste as a table.
 #[test]
@@ -8834,4 +8864,59 @@ fn pasting_copied_cells_over_selected_cells_and_outside_a_table() {
     run(&mut s, "caret.docStart", json!({}));
     run(&mut s, "edit.paste", json!({}));
     assert_eq!(body_table_cells(&s).len(), 2, "a new table before the first");
+}
+
+#[test]
+fn a_table_pasted_from_word_fits_the_window_keeping_its_column_proportions() {
+    // Word's HTML gives 200 / 200 / 80 pt columns, wider than our text column.
+    let html = "<table border=1 style='border-collapse:collapse'><tr>\
+        <td style='width:200pt;border:solid #C00000 1pt'>a</td><td style='width:200pt;border:solid #C00000 1pt'>b</td>\
+        <td style='width:80pt;border:solid #C00000 1pt'>c</td></tr></table>";
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "edit.paste", json!({"text": "a\tb\tc", "html": html}));
+    let tw = crate::io::text_width(&s.doc);
+    let t = s
+        .doc
+        .body
+        .iter()
+        .find_map(|b| match &**b {
+            wordcraft_doc::Block::Table(t) => Some(t.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(t.props.width_pct, Some(100.0));
+    assert!(!t.props.fixed);
+    let sum: f32 = t.grid.iter().sum();
+    assert!((sum - tw).abs() < 0.01, "{:?} vs {tw}", t.grid);
+    assert!((t.grid[0] / t.grid[2] - 2.5).abs() < 0.01 && (t.grid[0] - t.grid[1]).abs() < 0.01, "{:?}", t.grid);
+    assert_eq!(t.rows[0].cells[2].props.width, Some(t.grid[2]));
+}
+
+#[test]
+fn pasted_paragraphs_keep_their_source_alignment_not_thai_distributed() {
+    // In a KhianKrub blank document paragraphs default to Thai Distributed. A Word cell's
+    // paragraph (left, no alignment of its own in the HTML) wrapped in a narrow column was spread
+    // letter by letter ("อื่ น ๆ โ ป ร ด"); it keeps Word's left now. An alignment the source
+    // gives is kept too.
+    let html = "<p class=MsoNormal style='text-align:justify'>ย่อหน้าเต็มแนว</p><table border=1 style='border-collapse:collapse'><tr>\
+        <td style='width:300pt'>4. อาชีพ</td><td style='width:100pt'>อื่น ๆ โปรดระบุ ....................</td>\
+        <td style='width:80pt'>อื่น ๆ</td></tr></table>";
+    let mut doc = wordcraft_doc::Document::new();
+    doc.apply_khiankrub_blank_defaults();
+    let mut s = Session::new(doc);
+    run(&mut s, "edit.paste", json!({"text": "x", "html": html}));
+    let mut aligns = Vec::new();
+    for b in &s.doc.body {
+        let mut b = (**b).clone();
+        crate::cmd::paste::each_para(&mut b, 0, &mut |p| {
+            if !p.text.trim().is_empty() {
+                aligns.push((p.text.clone(), s.doc.styles.resolve_para(&p.props).align));
+            }
+        });
+    }
+    use wordcraft_doc::Align;
+    assert!(aligns.iter().any(|(t, a)| t.starts_with("อื่น ๆ โปรด") && *a == Align::Left), "{aligns:?}");
+    assert!(aligns.iter().any(|(t, a)| t == "ย่อหน้าเต็มแนว" && *a == Align::Justify), "{aligns:?}");
+    // Typing a new paragraph in the document still gets its Thai Distributed default.
+    assert_eq!(s.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps::default()).align, Align::ThaiDistribute);
 }

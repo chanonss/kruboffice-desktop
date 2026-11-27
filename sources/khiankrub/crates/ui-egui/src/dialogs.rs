@@ -1434,13 +1434,35 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     // The SmartArt picker keeps its own buttons in view in short windows.
     let own_height = matches!(&d, Dialog::Insert(i) if matches!(**i, crate::dialogs_insert::InsertDialog::SmartArt(_)));
     let tall = !own_height && ctx.data(|d| d.get_temp::<bool>(tall_key)).unwrap_or(false);
-    let mut window = egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false);
+    // One dialog look for the three apps (owner, 2026-11-24, draft A): a grey body with a rim,
+    // sections on white cards, the buttons in a row of their own (`krub_icons::dialog`).
+    let frame = krub_icons::dialog::window_frame(&ctx.global_style());
+    let mut window = egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false).frame(frame);
     if tall {
         window = window.max_height(max_h).vscroll(true);
     }
+    // Dialogs drawn in sections; the others sit on one card.
+    let sectioned = sectioned(&d);
+    let width_key = id.with("content width");
+    krub_icons::dialog::begin(ctx, ctx.data(|m| m.get_temp::<f32>(width_key)));
     let shown = place_dialog(ctx, id, window).open(&mut open).show(ctx, |ui| {
-        ui.set_min_width(340.0);
-        close = body(app, ui, &mut d);
+        krub_icons::dialog::rim(ui, |ui| {
+            krub_icons::dialog::field_style(ui.style_mut());
+            ui.set_min_width(340.0);
+            if sectioned {
+                close = body(app, ui, &mut d);
+            } else {
+                let at = ui.painter().add(egui::Shape::Noop);
+                let pad = krub_icons::dialog::CARD_PAD;
+                let inner = egui::Frame::new().inner_margin(egui::Margin::same(pad as i8)).show(ui, |ui| body(app, ui, &mut d));
+                close = inner.inner;
+                let r = inner.response.rect;
+                let bottom = krub_icons::dialog::footer_top(ui.ctx()).map_or(r.max.y, |y| y - krub_icons::dialog::CARD_GAP + pad);
+                krub_icons::dialog::card_behind(ui, at, r.shrink(pad), bottom.min(r.max.y));
+            }
+            let w = ui.min_rect().width();
+            ui.ctx().data_mut(|m| m.insert_temp(width_key, w));
+        })
     });
     if !tall && !own_height && shown.as_ref().is_some_and(|r| r.response.rect.height() > max_h) {
         ctx.data_mut(|d| d.insert_temp(tall_key, true));
@@ -1459,6 +1481,16 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     } else {
         app.canvas.want_focus = true;
     }
+}
+
+/// The width of each of Page Setup's two columns of cards (points).
+const PAGE_SETUP_COLUMN: f32 = 360.0;
+
+/// Whether dialog `d` draws its own section cards (`krub_icons::dialog::section`); the others
+/// sit on one card.
+fn sectioned(d: &Dialog) -> bool {
+    matches!(d, Dialog::PageSetup { .. } | Dialog::Paragraph { .. } | Dialog::Find { .. } | Dialog::Borders { .. } | Dialog::Font { .. })
+        || matches!(d, Dialog::Insert(i) if matches!(**i, crate::dialogs_insert::InsertDialog::Columns(_)))
 }
 
 /// Back to Define New Bullet from a Character or Symbol dialog it opened, when `d` is one (#2786).
@@ -1669,7 +1701,6 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
     let unit = crate::options::unit();
     let ppu = unit.pt_per_unit();
     let l = &PAPER_LABELS;
-    ui.label(egui::RichText::new(tl!(l.group)).font(semibold(12.5)));
     ui.horizontal(|ui| {
         let label = ui.label(tl!(l.size));
         let entry = paper_entry(*paper).filter(|_| !*custom);
@@ -1704,22 +1735,35 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
 }
 
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
+    let (ok, cancel, _) = buttons_with(ui, ok, None);
+    (ok, cancel)
+}
+
+/// [`buttons`] with one more button at the row's left (Paragraph's Tabs…): (OK, Cancel, it).
+pub(crate) fn buttons_with(ui: &mut Ui, ok: &str, extra: Option<&str>) -> (bool, bool, bool) {
     let mut r = (false, false);
-    ui.add_space(8.0);
+    let mut extra_clicked = false;
+    krub_icons::dialog::footer(ui);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Enter and Escape belong to the Colors dialog while it is open above this one.
             let keys = !crate::colors::is_open(ui.ctx());
-            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
-                r.1 = true;
-            }
+            // OK at the far right, Cancel beside it (owner, 2026-11-24: one dialog look).
             let okb = ui.add(crate::widgets::primary_button(ui, ok));
             if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 r.0 = true;
             }
+            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                r.1 = true;
+            }
+            if let Some(extra) = extra {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    extra_clicked = ui.button(extra).clicked();
+                });
+            }
         });
     });
-    r
+    (r.0, r.1, extra_clicked)
 }
 
 /// Returns true to close.
@@ -1771,117 +1815,123 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             mixed,
             ..
         } => {
-            ui.horizontal(|ui| {
-                for (k, name) in ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].into_iter().enumerate() {
-                    if ui.steady_label(*tab as usize == k, tl!(name)).clicked() {
-                        *tab = k as u8;
-                    }
-                }
-            });
-            ui.separator();
+            // Tabs as one segmented control (owner, 2026-11-24: one dialog look); no Asian
+            // Typography tab (no East Asian layout).
+            if *tab > 1 {
+                *tab = 0;
+            }
+            let names = [tl!("Indents and Spacing").to_string(), tl!("Line and Page Breaks").to_string()];
+            if let Some(k) = krub_icons::dialog::tabs(ui, &names, *tab as usize) {
+                *tab = k as u8;
+            }
             match *tab {
                 0 => {
-                    ui.label(egui::RichText::new(tl!("General")).font(semibold(12.5)));
-                    ui.horizontal(|ui| {
-                        ui.label(tl!("Direction:"));
-                        // Neither while the selected paragraphs differ.
-                        let blank = mixed.contains("bidi");
-                        for (value, text) in [(true, tl!("Right-to-left")), (false, tl!("Left-to-right"))] {
-                            if ui.radio(!blank && *rtl == value, text).clicked() {
-                                *rtl = value;
-                                mixed.remove("bidi");
-                            }
-                        }
-                    });
-                    const ALIGNS: [(&str, &str); 6] = [
-                        ("left", "Left"),
-                        ("center", "Center"),
-                        ("right", "Right"),
-                        ("justify", "Justify"),
-                        ("distribute", "Distributed"),
-                        ("thaiDistribute", "Thai Distribution"),
-                    ];
-                    ui.horizontal(|ui| {
-                        ui.label(tl!("Alignment:"));
-                        let shown = if mixed.contains("align") {
-                            ""
-                        } else {
-                            ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l))
-                        };
-                        egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
-                            for (v, l) in ALIGNS {
-                                if ui.steady_value(align, v.to_string(), tl!(l)).clicked() {
-                                    mixed.remove("align");
+                    krub_icons::dialog::section(ui, tl!("General"), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(tl!("Direction:"));
+                            // Neither while the selected paragraphs differ.
+                            let blank = mixed.contains("bidi");
+                            for (value, text) in [(true, tl!("Right-to-left")), (false, tl!("Left-to-right"))] {
+                                if ui.radio(!blank && *rtl == value, text).clicked() {
+                                    *rtl = value;
+                                    mixed.remove("bidi");
                                 }
                             }
                         });
-                    });
-                    ui.label(egui::RichText::new(tl!("Indentation")).font(semibold(12.5)));
-                    // Mirrored indents are the inside and outside ones (they swap on even pages).
-                    let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
-                    egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
-                        ui.label(tl!(l_label));
-                        para_number(ui, left, ParaNumber::Length, "left", mixed);
-                        ui.label(tl!(r_label));
-                        para_number(ui, right, ParaNumber::Length, "right", mixed);
-                        ui.end_row();
-                        // As in Word: Special (none, First line, Hanging) and By, its size. The
-                        // model keeps one signed first-line indent; hanging is a negative one.
-                        ui.label(tl!("Special:"));
-                        let blank = mixed.contains("indentFirst");
-                        let special = special_indent(*first);
-                        let shown = if blank { "" } else { tl!(special.label()) };
-                        egui::ComboBox::from_id_salt("para_special").selected_text(shown).show_ui(ui, |ui| {
-                            for s in [SpecialIndent::None, SpecialIndent::FirstLine, SpecialIndent::Hanging] {
-                                if ui.steady_label(!blank && s == special, tl!(s.label())).clicked() {
-                                    *first = s.with_size(first.abs());
-                                    if *first == 0.0 && s != SpecialIndent::None {
-                                        // Word's default size: 0.5" (1.27 cm).
-                                        *first = s.with_size(36.0 / crate::options::unit().pt_per_unit());
+                        const ALIGNS: [(&str, &str); 6] = [
+                            ("left", "Left"),
+                            ("center", "Center"),
+                            ("right", "Right"),
+                            ("justify", "Justify"),
+                            ("distribute", "Distributed"),
+                            ("thaiDistribute", "Thai Distribution"),
+                        ];
+                        ui.horizontal(|ui| {
+                            ui.label(tl!("Alignment:"));
+                            let shown = if mixed.contains("align") {
+                                ""
+                            } else {
+                                ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l))
+                            };
+                            egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
+                                for (v, l) in ALIGNS {
+                                    if ui.steady_value(align, v.to_string(), tl!(l)).clicked() {
+                                        mixed.remove("align");
                                     }
-                                    mixed.remove("indentFirst");
+                                }
+                            });
+                        });
+                    });
+                    krub_icons::dialog::section(ui, tl!("Indentation"), |ui| {
+                        // Mirrored indents are the inside and outside ones (they swap on even pages).
+                        let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
+                        egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
+                            ui.label(tl!(l_label));
+                            para_number(ui, left, ParaNumber::Length, "left", mixed);
+                            ui.label(tl!(r_label));
+                            para_number(ui, right, ParaNumber::Length, "right", mixed);
+                            ui.end_row();
+                            // As in Word: Special (none, First line, Hanging) and By, its size. The
+                            // model keeps one signed first-line indent; hanging is a negative one.
+                            ui.label(tl!("Special:"));
+                            let blank = mixed.contains("indentFirst");
+                            let special = special_indent(*first);
+                            let shown = if blank { "" } else { tl!(special.label()) };
+                            egui::ComboBox::from_id_salt("para_special").selected_text(shown).show_ui(ui, |ui| {
+                                for s in [SpecialIndent::None, SpecialIndent::FirstLine, SpecialIndent::Hanging] {
+                                    if ui.steady_label(!blank && s == special, tl!(s.label())).clicked() {
+                                        *first = s.with_size(first.abs());
+                                        if *first == 0.0 && s != SpecialIndent::None {
+                                            // Word's default size: 0.5" (1.27 cm).
+                                            *first = s.with_size(36.0 / crate::options::unit().pt_per_unit());
+                                        }
+                                        mixed.remove("indentFirst");
+                                    }
+                                }
+                            });
+                            ui.label(tl!("By:"));
+                            if special == SpecialIndent::None && !blank {
+                                // Nothing to size: an empty, inactive box, as in Word.
+                                ui.add_enabled(false, crate::numfield::NumField::new(&mut 0.0).measure_blank(crate::options::unit()));
+                            } else {
+                                let mut by = first.abs();
+                                let before = by;
+                                para_number(ui, &mut by, ParaNumber::Length, "indentFirst", mixed);
+                                if by != before {
+                                    // A blank (mixed) box becomes a first-line indent, as Word does.
+                                    let kind = if blank { SpecialIndent::FirstLine } else { special };
+                                    *first = kind.with_size(by.abs());
                                 }
                             }
+                            ui.end_row();
                         });
-                        ui.label(tl!("By:"));
-                        if special == SpecialIndent::None && !blank {
-                            // Nothing to size: an empty, inactive box, as in Word.
-                            ui.add_enabled(false, crate::numfield::NumField::new(&mut 0.0).measure_blank(crate::options::unit()));
-                        } else {
-                            let mut by = first.abs();
-                            let before = by;
-                            para_number(ui, &mut by, ParaNumber::Length, "indentFirst", mixed);
-                            if by != before {
-                                // A blank (mixed) box becomes a first-line indent, as Word does.
-                                let kind = if blank { SpecialIndent::FirstLine } else { special };
-                                *first = kind.with_size(by.abs());
-                            }
-                        }
-                        ui.end_row();
+                        para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
                     });
-                    para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
-                    ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
-                    egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
-                        ui.label(tl!("Before:"));
-                        para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed);
-                        ui.label(tl!("Line spacing:"));
-                        para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed);
-                        ui.end_row();
-                        ui.label(tl!("After:"));
-                        para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed);
-                        ui.end_row();
+                    krub_icons::dialog::section(ui, tl!("Spacing"), |ui| {
+                        egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
+                            ui.label(tl!("Before:"));
+                            para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed);
+                            ui.label(tl!("Line spacing:"));
+                            para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed);
+                            ui.end_row();
+                            ui.label(tl!("After:"));
+                            para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed);
+                            ui.end_row();
+                        });
+                        para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
                     });
-                    para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
                 }
                 1 => {
-                    ui.label(egui::RichText::new(tl!("Line and Page Breaks")).font(semibold(12.5)));
-                    para_check(ui, widow, tl!("Widow/Orphan control"), "widowControl", mixed);
-                    para_check(ui, keep_next, tl!("Keep with next"), "keepNext", mixed);
-                    para_check(ui, keep_lines, tl!("Keep lines together"), "keepLines", mixed);
-                    para_check(ui, page_break, tl!("Page break before"), "pageBreakBefore", mixed);
-                    ui.label(egui::RichText::new(tl!("Formatting exceptions")).font(semibold(12.5)));
-                    para_check(ui, &mut opts[2], tl!("Suppress line numbers"), "suppressLineNumbers", mixed);
-                    para_check(ui, &mut opts[3], tl!("Don't hyphenate"), "suppressHyphens", mixed);
+                    krub_icons::dialog::section(ui, tl!("Line and Page Breaks"), |ui| {
+                        para_check(ui, widow, tl!("Widow/Orphan control"), "widowControl", mixed);
+                        para_check(ui, keep_next, tl!("Keep with next"), "keepNext", mixed);
+                        para_check(ui, keep_lines, tl!("Keep lines together"), "keepLines", mixed);
+                        para_check(ui, page_break, tl!("Page break before"), "pageBreakBefore", mixed);
+                    });
+                    krub_icons::dialog::section(ui, tl!("Formatting exceptions"), |ui| {
+                        para_check(ui, &mut opts[2], tl!("Suppress line numbers"), "suppressLineNumbers", mixed);
+                        para_check(ui, &mut opts[3], tl!("Don't hyphenate"), "suppressHyphens", mixed);
+                    });
                 }
                 _ => {
                     let [kinsoku, word_wrap, overflow, top_line, de, dn] = asian;
@@ -1898,9 +1948,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     para_check(ui, dn, tl!("Add space between Asian text and numbers"), "autoSpaceDN", mixed);
                 }
             }
-            ui.add_space(6.0);
-            let tabs = ui.button(tl!("Tabs…")).clicked();
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel, tabs) = buttons_with(ui, tl!("OK"), Some(tl!("Tabs…")));
             if ok || tabs {
                 apply_paragraph(app, d);
             }
@@ -1913,66 +1961,72 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::Tabs { form } => crate::dialogs_para::tabs(app, ui, form),
         Dialog::Borders { form } => crate::dialogs_para::borders(app, ui, form),
         Dialog::Find { query, replace, match_case, whole_word, regex, extra, tab, goto_what, goto_target, message, focus } => {
-            ui.horizontal(|ui| {
-                for (t, label) in [(FindTab::Find, "Find"), (FindTab::Replace, "Replace"), (FindTab::GoTo, "Go To")] {
-                    if ui.steady_label(*tab == t, tl!(label)).clicked() && *tab != t {
-                        *tab = t;
-                        message.clear();
-                    }
-                }
-            });
-            ui.separator();
+            // Tabs as one segmented control, the fields and the options on cards (owner,
+            // 2026-11-24: one dialog look).
+            let tabs = [FindTab::Find, FindTab::Replace, FindTab::GoTo];
+            let names = [tl!("Find").to_string(), tl!("Replace").to_string(), tl!("Go To").to_string()];
+            let current = tabs.iter().position(|t| t == tab).unwrap_or(0);
+            if let Some(k) = krub_icons::dialog::tabs(ui, &names, current)
+                && let Some(t) = tabs.get(k)
+            {
+                *tab = *t;
+                message.clear();
+            }
             if *tab == FindTab::GoTo {
                 return goto_body(app, ui, goto_what, goto_target, message);
             }
             let replace_mode = *tab == FindTab::Replace;
-            ui.horizontal(|ui| {
-                ui.label(tl!("Find what:"));
-                let r = ui.add(egui::TextEdit::singleline(query).id(egui::Id::new("find_what")).desired_width(240.0));
-                if std::mem::take(focus) {
-                    r.request_focus();
-                }
-                if r.gained_focus() {
+            krub_icons::dialog::section(ui, "", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(tl!("Find what:"));
+                    let r = ui.add(egui::TextEdit::singleline(query).id(egui::Id::new("find_what")).desired_width(240.0));
+                    if std::mem::take(focus) {
+                        r.request_focus();
+                    }
+                    if r.gained_focus() {
+                        extra.to_replace = false;
+                    }
+                });
+                if replace_mode {
+                    ui.horizontal(|ui| {
+                        ui.label(tl!("Replace with:"));
+                        if ui.add(egui::TextEdit::singleline(replace).desired_width(228.0)).gained_focus() {
+                            extra.to_replace = true;
+                        }
+                    });
+                } else {
                     extra.to_replace = false;
                 }
             });
-            if replace_mode {
+            krub_icons::dialog::section(ui, tl!("Search Options"), |ui| {
+                // Word greys out Match case and the word options with wildcards (they always match case).
+                let plain = !extra.wildcards;
                 ui.horizontal(|ui| {
-                    ui.label(tl!("Replace with:"));
-                    if ui.add(egui::TextEdit::singleline(replace).desired_width(228.0)).gained_focus() {
-                        extra.to_replace = true;
-                    }
+                    ui.add_enabled(plain, egui::Checkbox::new(match_case, tl!("Match case")));
+                    ui.add_enabled(plain, egui::Checkbox::new(whole_word, tl!("Whole words")));
+                    ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
                 });
-            } else {
-                extra.to_replace = false;
-            }
-            // Word greys out Match case and the word options with wildcards (they always match case).
-            let plain = !extra.wildcards;
-            ui.horizontal(|ui| {
-                ui.add_enabled(plain, egui::Checkbox::new(match_case, tl!("Match case")));
-                ui.add_enabled(plain, egui::Checkbox::new(whole_word, tl!("Whole words")));
-                ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
+                let arrow = if extra.more { "▾" } else { "▸" };
+                if ui.steady_label(extra.more, format!("{arrow} {}", tl!("More options"))).clicked() {
+                    extra.more = !extra.more;
+                }
+                if extra.more {
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(plain, egui::Checkbox::new(&mut extra.prefix, tl!("Match prefix")));
+                        ui.add_enabled(plain, egui::Checkbox::new(&mut extra.suffix, tl!("Match suffix")));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(plain, egui::Checkbox::new(&mut extra.ignore_punct, tl!("Ignore punctuation characters")));
+                        ui.add_enabled(plain, egui::Checkbox::new(&mut extra.ignore_space, tl!("Ignore white-space characters")));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(regex, tl!("Regular expressions"));
+                        if let Some(code) = special_menu(ui, extra) {
+                            if extra.to_replace { replace.push_str(code) } else { query.push_str(code) }
+                        }
+                    });
+                }
             });
-            let arrow = if extra.more { "▾" } else { "▸" };
-            if ui.steady_label(extra.more, format!("{arrow} {}", tl!("Search Options"))).clicked() {
-                extra.more = !extra.more;
-            }
-            if extra.more {
-                ui.horizontal(|ui| {
-                    ui.add_enabled(plain, egui::Checkbox::new(&mut extra.prefix, tl!("Match prefix")));
-                    ui.add_enabled(plain, egui::Checkbox::new(&mut extra.suffix, tl!("Match suffix")));
-                });
-                ui.horizontal(|ui| {
-                    ui.add_enabled(plain, egui::Checkbox::new(&mut extra.ignore_punct, tl!("Ignore punctuation characters")));
-                    ui.add_enabled(plain, egui::Checkbox::new(&mut extra.ignore_space, tl!("Ignore white-space characters")));
-                });
-                ui.horizontal(|ui| {
-                    ui.checkbox(regex, tl!("Regular expressions"));
-                    if let Some(code) = special_menu(ui, extra) {
-                        if extra.to_replace { replace.push_str(code) } else { query.push_str(code) }
-                    }
-                });
-            }
             let opts = json!({
                 "text": query,
                 "with": replace,
@@ -1985,8 +2039,14 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 "ignorePunct": extra.ignore_punct,
                 "ignoreSpace": extra.ignore_space,
             });
-            if !replace_mode {
-                ui.horizontal(|ui| {
+            if !message.is_empty() {
+                ui.label(egui::RichText::new(message.as_str()).weak());
+            }
+            // The button row: Reading Highlight at its left, Find Next at the far right.
+            let mut close = false;
+            krub_icons::dialog::footer(ui);
+            ui.horizontal(|ui| {
+                if !replace_mode {
                     let lit = app.session.find.highlight;
                     if ui.steady_label(lit, tl!("Reading Highlight")).clicked() {
                         let mut v = opts.clone();
@@ -1997,34 +2057,31 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                             Err(e) => *message = e,
                         }
                     }
-                });
-            }
-            if !message.is_empty() {
-                ui.label(egui::RichText::new(message.as_str()).weak());
-            }
-            let mut close = false;
-            ui.horizontal(|ui| {
-                if replace_mode {
-                    if ui.button(tl!("Replace All")).clicked() {
-                        match app.run("edit.replaceAll", opts.clone()) {
-                            Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let next = ui.add(crate::widgets::primary_button(ui, tl!("Find Next")));
+                    if next.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        // One step per click: `edit.find` would select a match itself, and the step after it skip one.
+                        match app.run("edit.findNext", opts.clone()) {
+                            Ok(r) => *message = format!("Match {} of {}", r["index"].as_u64().unwrap_or(0) + 1, r["count"]),
                             Err(e) => *message = e,
                         }
                     }
-                    if ui.button(tl!("Replace")).clicked() {
-                        let _ = app.run("edit.replace", opts.clone());
+                    if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        close = true;
                     }
-                }
-                if ui.button(tl!("Find Next")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    // One step per click: `edit.find` would select a match itself, and the step after it skip one.
-                    match app.run("edit.findNext", opts.clone()) {
-                        Ok(r) => *message = format!("Match {} of {}", r["index"].as_u64().unwrap_or(0) + 1, r["count"]),
-                        Err(e) => *message = e,
+                    if replace_mode {
+                        if ui.button(tl!("Replace")).clicked() {
+                            let _ = app.run("edit.replace", opts.clone());
+                        }
+                        if ui.button(tl!("Replace All")).clicked() {
+                            match app.run("edit.replaceAll", opts.clone()) {
+                                Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
+                                Err(e) => *message = e,
+                            }
+                        }
                     }
-                }
-                if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    close = true;
-                }
+                });
             });
             close
         }
@@ -2118,121 +2175,138 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             message,
             valign,
         } => {
-            ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
-            egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
-                ui.label(tl!("Top:"));
-                ui.add(
-                    crate::numfield::NumField::new(top)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .measure(crate::options::unit())
-                        .max_decimals(2),
-                );
-                ui.label(tl!("Bottom:"));
-                ui.add(
-                    crate::numfield::NumField::new(bottom)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .measure(crate::options::unit())
-                        .max_decimals(2),
-                );
-                ui.end_row();
-                ui.label(if *mirror { tl!("Inside:") } else { tl!("Left:") });
-                ui.add(
-                    crate::numfield::NumField::new(left)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .measure(crate::options::unit())
-                        .max_decimals(2),
-                );
-                ui.label(if *mirror { tl!("Outside:") } else { tl!("Right:") });
-                ui.add(
-                    crate::numfield::NumField::new(right)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .measure(crate::options::unit())
-                        .max_decimals(2),
-                );
-                ui.end_row();
-                ui.label(tl!("Gutter:"));
-                ui.add(
-                    crate::numfield::NumField::new(gutter)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .measure(crate::options::unit())
-                        .max_decimals(2),
-                );
-                ui.end_row();
-            });
-            ui.label(egui::RichText::new(tl!("Orientation")).font(semibold(12.5)));
-            // A booklet's sheet is always landscape, folded in half: the page itself stays as it is.
-            ui.add_enabled_ui(!*book_fold, |ui| {
-                ui.horizontal(|ui| {
-                    ui.radio_value(landscape, false, tl!("Portrait"));
-                    ui.radio_value(landscape, true, tl!("Landscape"));
-                });
-            });
-            ui.label(egui::RichText::new(tl!("Pages")).font(semibold(12.5)));
-            ui.horizontal(|ui| {
-                ui.label(tl!("Multiple pages:"));
-                let name = |mirror: bool, book: bool| {
-                    if book {
-                        tl!("Book fold")
-                    } else if mirror {
-                        tl!("Mirror margins")
-                    } else {
-                        tl!("Normal")
-                    }
-                };
-                egui::ComboBox::from_id_salt("ps_multiple").selected_text(name(*mirror, *book_fold)).show_ui(ui, |ui| {
-                    if ui.selectable_label(!*mirror && !*book_fold, tl!("Normal")).clicked() {
-                        (*mirror, *book_fold) = (false, false);
-                    }
-                    if ui.selectable_label(*mirror && !*book_fold, tl!("Mirror margins")).clicked() {
-                        (*mirror, *book_fold) = (true, false);
-                    }
-                    if ui.selectable_label(*book_fold, tl!("Book fold")).clicked() {
-                        (*mirror, *book_fold) = (true, true);
-                    }
-                });
-            });
-            if *book_fold {
-                ui.horizontal(|ui| {
-                    ui.label(tl!("Sheets in booklet:"));
-                    let shown = if *sheets == 0 { tl!("All").to_string() } else { sheets.to_string() };
-                    egui::ComboBox::from_id_salt("ps_sheets").selected_text(shown).show_ui(ui, |ui| {
-                        if ui.selectable_label(*sheets == 0, tl!("All")).clicked() {
-                            *sheets = 0;
-                        }
-                        for n in 1..=wordcraft_doc::MAX_BOOK_FOLD_SHEETS {
-                            if ui.selectable_label(*sheets == n, n.to_string()).clicked() {
-                                *sheets = n;
-                            }
+            // Sections on cards (owner, 2026-11-24: one dialog look).
+            // Two columns of cards, so Page Setup fits a short window with its buttons in view.
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(PAGE_SETUP_COLUMN);
+                    krub_icons::dialog::section(ui, tl!("Margins and Orientation"), |ui| {
+                        egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
+                            ui.label(tl!("Top:"));
+                            ui.add(
+                                crate::numfield::NumField::new(top)
+                                    .speed(3.6 / crate::options::unit().pt_per_unit())
+                                    .measure(crate::options::unit())
+                                    .max_decimals(2),
+                            );
+                            ui.label(tl!("Bottom:"));
+                            ui.add(
+                                crate::numfield::NumField::new(bottom)
+                                    .speed(3.6 / crate::options::unit().pt_per_unit())
+                                    .measure(crate::options::unit())
+                                    .max_decimals(2),
+                            );
+                            ui.end_row();
+                            ui.label(if *mirror { tl!("Inside:") } else { tl!("Left:") });
+                            ui.add(
+                                crate::numfield::NumField::new(left)
+                                    .speed(3.6 / crate::options::unit().pt_per_unit())
+                                    .measure(crate::options::unit())
+                                    .max_decimals(2),
+                            );
+                            ui.label(if *mirror { tl!("Outside:") } else { tl!("Right:") });
+                            ui.add(
+                                crate::numfield::NumField::new(right)
+                                    .speed(3.6 / crate::options::unit().pt_per_unit())
+                                    .measure(crate::options::unit())
+                                    .max_decimals(2),
+                            );
+                            ui.end_row();
+                            ui.label(tl!("Gutter:"));
+                            ui.add(
+                                crate::numfield::NumField::new(gutter)
+                                    .speed(3.6 / crate::options::unit().pt_per_unit())
+                                    .measure(crate::options::unit())
+                                    .max_decimals(2),
+                            );
+                            ui.end_row();
+                        });
+                        // A booklet's sheet is always landscape, folded in half: the page itself stays as it is.
+                        ui.add_enabled_ui(!*book_fold, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(tl!("Orientation:"));
+                                ui.radio_value(landscape, false, tl!("Portrait"));
+                                ui.radio_value(landscape, true, tl!("Landscape"));
+                            });
+                        });
+                    });
+                    krub_icons::dialog::section(ui, tl!("Pages"), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(tl!("Multiple pages:"));
+                            let name = |mirror: bool, book: bool| {
+                                if book {
+                                    tl!("Book fold")
+                                } else if mirror {
+                                    tl!("Mirror margins")
+                                } else {
+                                    tl!("Normal")
+                                }
+                            };
+                            egui::ComboBox::from_id_salt("ps_multiple").selected_text(name(*mirror, *book_fold)).show_ui(ui, |ui| {
+                                if ui.selectable_label(!*mirror && !*book_fold, tl!("Normal")).clicked() {
+                                    (*mirror, *book_fold) = (false, false);
+                                }
+                                if ui.selectable_label(*mirror && !*book_fold, tl!("Mirror margins")).clicked() {
+                                    (*mirror, *book_fold) = (true, false);
+                                }
+                                if ui.selectable_label(*book_fold, tl!("Book fold")).clicked() {
+                                    (*mirror, *book_fold) = (true, true);
+                                }
+                            });
+                        });
+                        if *book_fold {
+                            ui.horizontal(|ui| {
+                                ui.label(tl!("Sheets in booklet:"));
+                                let shown = if *sheets == 0 { tl!("All").to_string() } else { sheets.to_string() };
+                                egui::ComboBox::from_id_salt("ps_sheets").selected_text(shown).show_ui(ui, |ui| {
+                                    if ui.selectable_label(*sheets == 0, tl!("All")).clicked() {
+                                        *sheets = 0;
+                                    }
+                                    for n in 1..=wordcraft_doc::MAX_BOOK_FOLD_SHEETS {
+                                        if ui.selectable_label(*sheets == n, n.to_string()).clicked() {
+                                            *sheets = n;
+                                        }
+                                    }
+                                });
+                            });
+                            book_fold_preview(ui);
+                            ui.label(
+                                egui::RichText::new(tl!("In a booklet the paper size below is one page; the sheet is twice as wide.")).small().weak(),
+                            );
                         }
                     });
                 });
-                book_fold_preview(ui);
-                ui.label(egui::RichText::new(tl!("In a booklet the paper size below is one page; the sheet is twice as wide.")).small().weak());
-            }
-            page_paper_group(ui, paper, landscape, paper_custom);
-            ui.label(egui::RichText::new(tl!("Document Grid")).font(semibold(12.5)));
-            ui.horizontal_wrapped(|ui| {
-                ui.radio_value(&mut grid.0, 0, tl!("No grid"));
-                ui.radio_value(&mut grid.0, 1, tl!("Lines only"));
-                ui.radio_value(&mut grid.0, 2, tl!("Lines and characters"));
-                ui.radio_value(&mut grid.0, 3, tl!("Text snaps to characters"));
-            });
-            egui::Grid::new("ps_grid").num_columns(4).show(ui, |ui| {
-                ui.add_enabled(grid.0 >= 2, egui::Label::new(tl!("Characters per line:")));
-                ui.add_enabled(grid.0 >= 2, crate::numfield::NumField::new(&mut grid.2).range(1..=1000));
-                ui.add_enabled(grid.0 >= 1, egui::Label::new(tl!("Lines per page:")));
-                ui.add_enabled(grid.0 >= 1, crate::numfield::NumField::new(&mut grid.1).range(1..=1000));
-                ui.end_row();
-            });
-            ui.horizontal(|ui| {
-                ui.label(tl!("Section direction:"));
-                ui.radio_value(rtl, false, tl!("Left-to-right"));
-                ui.radio_value(rtl, true, tl!("Right-to-left"));
+                ui.vertical(|ui| {
+                    ui.set_width(PAGE_SETUP_COLUMN);
+                    krub_icons::dialog::section(ui, tl!(PAPER_LABELS.group), |ui| page_paper_group(ui, paper, landscape, paper_custom));
+                    krub_icons::dialog::section(ui, tl!("Document Grid"), |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.radio_value(&mut grid.0, 0, tl!("No grid"));
+                            ui.radio_value(&mut grid.0, 1, tl!("Lines only"));
+                            ui.radio_value(&mut grid.0, 2, tl!("Lines and characters"));
+                            ui.radio_value(&mut grid.0, 3, tl!("Text snaps to characters"));
+                        });
+                        egui::Grid::new("ps_grid").num_columns(4).show(ui, |ui| {
+                            ui.add_enabled(grid.0 >= 2, egui::Label::new(tl!("Characters per line:")));
+                            ui.add_enabled(grid.0 >= 2, crate::numfield::NumField::new(&mut grid.2).range(1..=1000));
+                            ui.add_enabled(grid.0 >= 1, egui::Label::new(tl!("Lines per page:")));
+                            ui.add_enabled(grid.0 >= 1, crate::numfield::NumField::new(&mut grid.1).range(1..=1000));
+                            ui.end_row();
+                        });
+                    });
+                    krub_icons::dialog::section(ui, tl!("Layout"), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(tl!("Section direction:"));
+                            ui.radio_value(rtl, false, tl!("Left-to-right"));
+                            ui.radio_value(rtl, true, tl!("Right-to-left"));
+                        });
+                        page_valign_combo(ui, valign);
+                    });
+                });
             });
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
             }
-            page_valign_combo(ui, valign);
             let (mut ok, cancel) = buttons(ui, tl!("OK"));
             if ok {
                 // Everything OK changes is one undo step; a refused command applies nothing.
@@ -3195,7 +3269,10 @@ fn table_properties(app: &WordApp, ui: &mut Ui, f: &mut TableForm) {
                 ui.horizontal(|ui| {
                     let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
                     let tokens = Tokens::get(ui.ctx());
-                    crate::icons::paint(ui.painter(), rect, icon, tokens.icon, tokens.accent);
+                    // Accent colours (owner, 2026-11-25: style A), as on the ribbon.
+                    krub_icons::tabler_colour::with_colour(ui.ctx(), true, || {
+                        crate::icons::paint(ui.painter(), rect, icon, tokens.icon, tokens.accent)
+                    });
                     if ui.steady_label(f.page == page, tl!(label)).clicked() {
                         f.page = page;
                     }
@@ -3882,35 +3959,37 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
     } else {
         Vec::new()
     };
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.label(tl!("Go to what:"));
-            for (w, label) in [(GoToWhat::Page, "Page"), (GoToWhat::Bookmark, "Bookmark")] {
-                if ui.steady_label(*what == w, tl!(label)).clicked() && *what != w {
-                    *what = w;
-                    target.clear();
-                    message.clear();
-                }
-            }
-        });
-        ui.add_space(16.0);
-        ui.vertical(|ui| match what {
-            GoToWhat::Page => {
-                ui.label(tl!("Enter page number:"));
-                ui.add(egui::TextEdit::singleline(target).desired_width(220.0)).request_focus();
-                ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());
-            }
-            GoToWhat::Bookmark => {
-                ui.label(tl!("Enter bookmark name:"));
-                egui::ComboBox::from_id_salt("goto_bookmark").width(220.0).selected_text(target.as_str()).show_ui(ui, |ui| {
-                    for b in &bookmarks {
-                        ui.steady_value(target, b.clone(), b.as_str());
+    krub_icons::dialog::section(ui, "", |ui| {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.label(tl!("Go to what:"));
+                for (w, label) in [(GoToWhat::Page, "Page"), (GoToWhat::Bookmark, "Bookmark")] {
+                    if ui.steady_label(*what == w, tl!(label)).clicked() && *what != w {
+                        *what = w;
+                        target.clear();
+                        message.clear();
                     }
-                });
-                if bookmarks.is_empty() {
-                    ui.label(egui::RichText::new(tl!("This document has no bookmarks.")).weak());
                 }
-            }
+            });
+            ui.add_space(16.0);
+            ui.vertical(|ui| match what {
+                GoToWhat::Page => {
+                    ui.label(tl!("Enter page number:"));
+                    ui.add(egui::TextEdit::singleline(target).desired_width(220.0)).request_focus();
+                    ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());
+                }
+                GoToWhat::Bookmark => {
+                    ui.label(tl!("Enter bookmark name:"));
+                    egui::ComboBox::from_id_salt("goto_bookmark").width(220.0).selected_text(target.as_str()).show_ui(ui, |ui| {
+                        for b in &bookmarks {
+                            ui.steady_value(target, b.clone(), b.as_str());
+                        }
+                    });
+                    if bookmarks.is_empty() {
+                        ui.label(egui::RichText::new(tl!("This document has no bookmarks.")).weak());
+                    }
+                }
+            });
         });
     });
     if !message.is_empty() {
@@ -3919,29 +3998,32 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
     let mut close = false;
     let mut go: Option<Value> = None;
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-    ui.add_space(8.0);
+    // The button row (owner, 2026-11-24: one dialog look): Next or Go To at the far right.
+    krub_icons::dialog::footer(ui);
     ui.horizontal(|ui| {
-        let page_step = *what == GoToWhat::Page && target.trim().is_empty();
-        if page_step && ui.button(tl!("Previous")).clicked() {
-            go = Some(json!({"pageBy": -1}));
-        }
-        let label = if page_step { tl!("Next") } else { tl!("Go To") };
-        if ui.button(label).clicked() || enter {
-            go = match what {
-                GoToWhat::Page => match goto_page(target) {
-                    Some(p) => Some(p),
-                    None => {
-                        *message = tl!("Type a page number, or +2 / -1.").to_string();
-                        None
-                    }
-                },
-                GoToWhat::Bookmark if !target.is_empty() => Some(json!({"bookmark": target.clone()})),
-                GoToWhat::Bookmark => None,
-            };
-        }
-        if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close = true;
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let page_step = *what == GoToWhat::Page && target.trim().is_empty();
+            let label = if page_step { tl!("Next") } else { tl!("Go To") };
+            if ui.add(crate::widgets::primary_button(ui, label)).clicked() || enter {
+                go = match what {
+                    GoToWhat::Page => match goto_page(target) {
+                        Some(p) => Some(p),
+                        None => {
+                            *message = tl!("Type a page number, or +2 / -1.").to_string();
+                            None
+                        }
+                    },
+                    GoToWhat::Bookmark if !target.is_empty() => Some(json!({"bookmark": target.clone()})),
+                    GoToWhat::Bookmark => None,
+                };
+            }
+            if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                close = true;
+            }
+            if page_step && ui.button(tl!("Previous")).clicked() {
+                go = Some(json!({"pageBy": -1}));
+            }
+        })
     });
     if let Some(params) = go {
         match app.run("edit.goto", params) {

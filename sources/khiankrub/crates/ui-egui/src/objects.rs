@@ -71,7 +71,7 @@ fn line_selected(app: &WordApp) -> bool {
 /// layout.
 fn connector_ends(app: &WordApp, layout: &DocLayout) -> Option<(ObjectHit, (f32, f32), (f32, f32))> {
     let (pos, InlineObject::Shape { kind, float, w, h, .. }) = selected(app)? else { return None };
-    if !kind.is_connector() && !line_selected(app) {
+    if float.locked || (!kind.is_connector() && !line_selected(app)) {
         return None;
     }
     let (flip_h, flip_v) = (float.flip_h, float.flip_v);
@@ -130,7 +130,19 @@ fn active_story(app: &WordApp, layout: &DocLayout) -> StoryRef {
 /// handles, no move cursor and no drag.
 fn fixed(app: &WordApp, hit: &ObjectHit) -> bool {
     let pos = hit.pos();
-    matches!(app.session.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)), Some(InlineObject::Graphic { .. }))
+    matches!(app.session.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)), Some(InlineObject::Graphic { .. })) || locked(app, hit)
+}
+
+/// A locked object (owner, 2026-11-23): no handles, no drag; it shows the shared locked look.
+fn locked(app: &WordApp, hit: &ObjectHit) -> bool {
+    let pos = hit.pos();
+    app.session.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).and_then(InlineObject::frame).is_some_and(|f| f.2.locked)
+}
+
+/// Where a press on a locked object went down, while the button is held: moving away from it
+/// shows the refusal (the object stays).
+fn locked_press_id() -> egui::Id {
+    egui::Id::new("krub_locked_press")
 }
 
 /// The story of the selected text box.
@@ -162,6 +174,18 @@ fn screen(pages: &[Rect], scale: f32, page: usize, r: wordcraft_geom::Rect) -> O
 pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect], layout: &DocLayout, scale: f32, at: Pos2) -> bool {
     if let Some(taken) = crate::crop::pointer(app, ui, resp, pages, layout, scale, at) {
         return taken;
+    }
+    // Held on a locked object: a drag away from the press is refused (owner, 2026-11-23).
+    if let Some(p0) = ui.ctx().data(|d| d.get_temp::<Pos2>(locked_press_id())) {
+        if !ui.input(|i| i.pointer.primary_down()) {
+            ui.ctx().data_mut(|d| d.remove::<Pos2>(locked_press_id()));
+        } else {
+            if (at - p0).length() > 4.0 {
+                krub_icons::object_lock::ask();
+                ui.ctx().data_mut(|d| d.remove::<Pos2>(locked_press_id()));
+            }
+            return true;
+        }
     }
     if let Some(mut d) = app.canvas.obj_drag.take() {
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -218,6 +242,8 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             d.copy = ui.input(|i| i.modifiers.command) && d.drag.grab == Grab::Move;
             if d.drag.grab == Grab::Rotate {
                 d.drag.turn_to(at, pages, scale, shift);
+            } else if d.drag.grab == Grab::Corner {
+                d.drag.corner_to(at, pages, scale);
             } else {
                 // Pictures keep their proportions from a corner unless Shift; shapes only with Shift.
                 d.drag.update(at, pages, scale, d.min, d.picture != shift);
@@ -305,11 +331,14 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             Some((_, o)) => (wordcraft_engine::cmd::objects::min_size(o), matches!(o, InlineObject::Image { .. })),
             None => return true,
         };
+        if locked(app, &object) {
+            ui.ctx().data_mut(|d| d.insert_temp(locked_press_id(), at));
+        }
         // Objects in table cells can be selected and resized, not moved; charts neither.
         if !fixed(app, &object) && (grab != Grab::Move || movable(app, &object)) {
             let copy = grab == Grab::Move && ui.input(|i| i.modifiers.command);
             app.canvas.obj_drag = Some(ObjectDrag {
-                drag: Drag::new(grab, object.page, object.rect, object.spin.deg, at),
+                drag: Drag::new(grab, object.page, object.rect, object.spin.deg, at).with_corner(corner_of(app, &object).unwrap_or(0.0)),
                 object,
                 min,
                 picture,
@@ -496,6 +525,11 @@ fn grab_at(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Po
         if frame::rotate_handle_at(f, o.spin.deg, at) {
             return Some((o, Grab::Rotate));
         }
+        if let Some(r) = corner_of(app, &o).filter(|_| !locked(app, &o))
+            && frame::corner_handle_wins(f, o.spin.deg, frame::corner_handle(f, o.spin.deg, r * scale), at)
+        {
+            return Some((o, Grab::Corner));
+        }
         frame::handle_at(f, o.spin.deg, at).map(|h| (o, Grab::Resize(h)))
     });
     handle.or_else(|| {
@@ -518,6 +552,21 @@ fn grab_at(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Po
     })
 }
 
+/// The corner radius (points) the corner handle being dragged would drop, while it is dragged.
+pub(crate) fn corner_dragged(app: &WordApp) -> Option<f32> {
+    app.canvas.obj_drag.as_ref().filter(|d| d.drag.grab == Grab::Corner && d.drag.moved).map(|d| d.drag.corner)
+}
+
+/// A rounded rectangle's corner radius (points), for its corner handle; `None` for anything else.
+fn corner_of(app: &WordApp, o: &ObjectHit) -> Option<f32> {
+    match app.session.doc.para_at(&o.pos()).and_then(|p| p.object_at(o.off))? {
+        InlineObject::Shape { kind: wordcraft_doc::para::ShapeKind::RoundedRectangle, extra, .. } => {
+            Some(wordcraft_doc::connector::corner_radius(extra.corner, o.rect.w, o.rect.h))
+        }
+        _ => None,
+    }
+}
+
 /// Objects that can be dragged to a new place: those in the own paragraphs of the body or of a
 /// header/footer.
 fn movable(app: &WordApp, o: &ObjectHit) -> bool {
@@ -533,7 +582,7 @@ fn behind_body_drag(obj: &InlineObject) -> bool {
 
 /// Whether the object at `o` is a Behind Text picture, shape or group that grabbing its body moves.
 fn behind_draggable(app: &WordApp, o: &ObjectHit) -> bool {
-    app.session.doc.para_at(&o.pos()).and_then(|p| p.object_at(o.pos().off)).is_some_and(behind_body_drag)
+    !locked(app, o) && app.session.doc.para_at(&o.pos()).and_then(|p| p.object_at(o.pos().off)).is_some_and(behind_body_drag)
 }
 
 /// The topmost Behind Text picture, shape or group of the story being edited under `at`, even
@@ -585,6 +634,10 @@ fn drop(app: &mut WordApp, d: &ObjectDrag) {
     let params = match d.drag.grab {
         Grab::Rotate => {
             let _ = app.run("arrange.rotation", json!({"degrees": d.drag.deg}));
+            return;
+        }
+        Grab::Corner => {
+            let _ = app.run("shape.cornerRadius", json!({"radius": d.drag.corner}));
             return;
         }
         Grab::Move if d.copy => {
@@ -680,6 +733,15 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
             frame::paint_turning(painter, t, to, d.drag.deg);
             return;
         }
+        if d.drag.grab == Grab::Corner {
+            frame::paint(painter, t, to, d.drag.deg, false, false, false);
+            frame::paint_cornering(painter, t, to, d.drag.deg, d.drag.corner * scale);
+            // The radius as it changes, as the Shape pane's box shows it (owner, 2026-11-24).
+            let tr = |s: &str| tl!(s).to_string();
+            let text = krub_icons::shape_pane::corner_readout_text(&tr, &crate::object_pane::corner_number(d.drag.corner));
+            krub_icons::shape_pane::paint_corner_readout(painter, frame::corner_handle(to, d.drag.deg, d.drag.corner * scale), text);
+            return;
+        }
         if !shows_pixels(d) {
             frame::paint_outline(painter, t, to, d.drag.deg);
         } else if let Some(tex) = &d.preview {
@@ -716,10 +778,36 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     if let Some((o, editing)) = active(app, layout)
         && let Some(f) = screen(pages, scale, o.page, o.rect)
     {
-        // Handles where it can be resized and turned (body and header/footer objects,
-        // not charts): else a plain frame.
-        let handles = selectable_story(app, o.story) && !fixed(app, &o);
-        frame::paint(painter, t, f, o.spin.deg, editing, handles, handles);
+        if locked(app, &o) && !editing {
+            // Locked (owner, 2026-11-23): the shared look, a grey frame and a padlock.
+            let corners = frame::corners(f, o.spin.deg);
+            if krub_icons::object_lock::take_ask() {
+                krub_icons::object_lock::refuse(painter.ctx(), krub_icons::object_lock::badge_rect(corners).right_top());
+            }
+            krub_icons::object_lock::paint_selected(painter.ctx(), painter, corners);
+        } else {
+            // Handles where it can be resized and turned (body and header/footer objects,
+            // not charts): else a plain frame.
+            let handles = selectable_story(app, o.story) && !fixed(app, &o);
+            frame::paint(painter, t, f, o.spin.deg, editing, handles, handles);
+            if handles && let Some(r) = corner_of(app, &o) {
+                frame::paint_corner_handle(painter, t, frame::corner_handle(f, o.spin.deg, r * scale));
+            }
+        }
+    }
+    // A refusal asked for where nothing locked is drawn (a command from elsewhere) is dropped.
+    let _ = krub_icons::object_lock::take_ask();
+    krub_icons::object_lock::show_note(painter.ctx(), tl!("Locked. Unlock it from the right-click menu."));
+}
+
+/// The faint padlock on a locked object under the pointer that isn't selected (owner, 2026-11-23).
+pub fn paint_locked_hover(app: &WordApp, painter: &Painter, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) {
+    let Some((o, _)) = grab_at(app, layout, pages, scale, at) else { return };
+    if !locked(app, &o) || selected(app).is_some_and(|(p, _)| p == o.pos()) {
+        return;
+    }
+    if let Some(f) = screen(pages, scale, o.page, o.rect) {
+        krub_icons::object_lock::paint_hover(painter, frame::corners(f, o.spin.deg));
     }
 }
 
@@ -803,6 +891,15 @@ pub fn key(app: &mut WordApp, key: egui::Key, m: egui::Modifiers) -> bool {
         egui::Key::Enter => return enter_text_box(app),
         _ => return false,
     };
+    // A locked floating object stays put: the arrows show the refusal (owner, 2026-11-23).
+    if let Some((_, o)) = selected(app)
+        && let Some((_, _, f)) = o.frame()
+        && f.locked
+        && f.wrap != wordcraft_doc::para::Wrap::Inline
+    {
+        krub_icons::object_lock::ask();
+        return true;
+    }
     // Inline objects move with the text: arrows move the caret as usual.
     let ok = app.run("arrange.nudge", json!({"dx": dx, "dy": dy})).is_ok();
     if ok && let Some(ctx) = &app.ctx {
@@ -814,6 +911,11 @@ pub fn key(app: &mut WordApp, key: egui::Key, m: egui::Modifiers) -> bool {
 /// With a text box selected, put the caret at the end of its text (typing goes there).
 pub fn enter_text_box(app: &mut WordApp) -> bool {
     let Some(id) = selected_text_box(app) else { return false };
+    // A locked text box's text stays as it is (owner, 2026-11-23).
+    if wordcraft_engine::cmd::objects::selection_locked(&app.session) {
+        krub_icons::object_lock::ask();
+        return true;
+    }
     // A box linked from another shows (and edits) the first box's story.
     let id = app.session.doc.text_box_chain(id).and_then(|c| c.first().copied()).unwrap_or(id);
     let end = app.session.doc.end_of(StoryRef::Part(id));

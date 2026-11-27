@@ -147,6 +147,9 @@ pub struct CanvasState {
     balloon_h: f32,
     /// Screen rects of the comment balloons last frame (for the control channel and tests).
     pub balloon_rects: Vec<(u32, Rect)>,
+    /// Screen rects of the comment markers last frame: a narrow window shows them at the page's
+    /// edge instead of the comment column ([`compact_comments`]).
+    pub comment_markers: Vec<(u32, Rect)>,
     /// A paste event arrived since the last Mod+V release (see `keys::canvas_events`).
     pub(crate) pasted: bool,
     /// Draw Table or Eraser is on (`table_pen`): presses draw instead of moving the caret.
@@ -275,6 +278,7 @@ impl Default for CanvasState {
             balloon_reply: false,
             balloon_h: 0.0,
             balloon_rects: Vec::new(),
+            comment_markers: Vec::new(),
             table_tool: None,
             painting: None,
             table_stroke: None,
@@ -388,8 +392,38 @@ const FLOAT_WIDTH: f32 = 216.0;
 fn floating_comments(app: &WordApp) -> bool {
     let s = &app.session;
     let m = &s.prefs.markup;
-    s.balloons_shown() && m.comments && m.comment_display == CommentDisplay::Selected && !s.doc.comments.is_empty() && markup_width(app) <= 0.0
+    s.balloons_shown()
+        && m.comments
+        && (m.comment_display == CommentDisplay::Selected || compact_comments(app))
+        && !s.doc.comments.is_empty()
+        && markup_width(app) <= 0.0
 }
+
+/// The comment column doesn't fit beside the page (owner, 2026-11-24: a 1400 pt window with
+/// both side panels at 100%), and only comments need it: they show as markers at the page's
+/// edge, and the one clicked (or under the caret) as a floating card. Revisions in balloons keep
+/// the column (it is where their text is).
+pub(crate) fn compact_comments(app: &WordApp) -> bool {
+    let [comments, others] = markup_needs(app);
+    comments && !others && !column_fits(app)
+}
+
+/// Whether the page and the comment column fit across the document area at this zoom, as the
+/// last frame laid it out. The fit zooms make room for the column themselves.
+fn column_fits(app: &WordApp) -> bool {
+    if matches!(app.session.view.fit.as_str(), "pageWidth" | "onePage" | "multiplePages") {
+        return true;
+    }
+    let Some(area) = app.canvas.canvas_rect else { return true };
+    let page = app.canvas.page_rects.iter().map(|r| r.width()).fold(0.0_f32, f32::max);
+    if page <= 0.0 {
+        return true;
+    }
+    page + COLUMN * app.canvas.scale + 2.0 * GAP + 20.0 <= area.width()
+}
+
+/// The comment and revision column's width (points).
+const COLUMN: f32 = 216.0;
 
 /// The comment shown when only the selected one is: the clicked balloon, else the comment whose
 /// range holds the caret.
@@ -399,11 +433,15 @@ fn shown_comment(app: &WordApp) -> Option<u32> {
 
 /// Width of the markup area beside each page for comment and revision balloons (points), or 0.
 pub fn markup_width(app: &WordApp) -> f32 {
-    // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
-    // Changes Options can put every revision inline (`Session::balloons_shown`).
+    let [comments, others] = markup_needs(app);
+    if others || (comments && !compact_comments(app)) { COLUMN } else { 0.0 }
+}
+
+/// What needs the markup column: [comments, revisions (formatting, moves, deletions)].
+fn markup_needs(app: &WordApp) -> [bool; 2] {
     let s = &app.session;
     if !s.balloons_shown() {
-        return 0.0;
+        return [false, false];
     }
     let m = &s.prefs.markup;
     let comments = m.comments && !s.doc.comments.is_empty() && m.comment_display == CommentDisplay::Margin;
@@ -419,7 +457,7 @@ pub fn markup_width(app: &WordApp) -> f32 {
     let formats = m.formatting && has_formats;
     let moves = m.insertions_deletions && has_moves;
     let deletions = s.revisions_in_balloons() && has_deletions;
-    if s.balloons_shown() && (comments || formats || moves || deletions) { 216.0 } else { 0.0 }
+    [comments, formats || moves || deletions]
 }
 
 /// A page dimension (points) safe to lay out: finite, at least 1 pt, at most `cap`.
@@ -440,34 +478,52 @@ fn columns_for(avail_w: f32, slot_px: f32, pages: usize, min_cols: usize, auto: 
     fit.max(min_cols).min(pages.max(1)).max(1)
 }
 
-/// Place pages (sizes in points) in rows of `cols`, left to right then top to bottom, each in a slot
-/// as wide as the widest page plus `markup` and centred in `avail_w`. Returns the screen-space rects
-/// (relative to the content's top-left) and the content size.
-fn place_pages(sizes: &[(f32, f32)], markup: f32, scale: f32, cols: usize, avail: egui::Vec2) -> (Vec<Rect>, egui::Vec2) {
+/// Place pages (sizes in points) in rows, left to right then top to bottom, as Word's Print
+/// Layout does when zoomed out: each row takes the next pages at their own widths (plus `markup`)
+/// while they fit across `avail_w`, at most `cols` and at least `min_cols` of them, and is centred;
+/// pages of different heights are centred on the row. So a landscape page among portrait ones
+/// widens only its own row, and portrait pages elsewhere stay close together. Returns the
+/// screen-space rects (relative to the content's top-left), the content size and the most pages
+/// in a row.
+fn place_pages(sizes: &[(f32, f32)], markup: f32, scale: f32, cols: usize, min_cols: usize, avail: egui::Vec2) -> (Vec<Rect>, egui::Vec2, usize) {
     let cols = cols.max(1);
+    let min_cols = min_cols.clamp(1, cols);
     let scale = if scale.is_finite() { scale.clamp(0.01, 10.0) } else { PX_PER_PT };
     let markup = if markup.is_finite() { markup.clamp(0.0, 10_000.0) } else { 0.0 };
     let avail = vec2(if avail.x.is_finite() { avail.x.max(0.0) } else { 0.0 }, if avail.y.is_finite() { avail.y.max(0.0) } else { 0.0 });
-    let maxw = sizes.iter().map(|&(w, _)| sane_dim(w, 1e5)).fold(0.0f32, f32::max).max(72.0) + markup;
-    let slot = maxw * scale;
-    let row_w = cols as f32 * slot + (cols as f32 - 1.0) * GAP;
-    let content_w = (row_w + 2.0 * GAP).max(avail.x);
+    let sizes: Vec<(f32, f32)> = sizes.iter().map(|&(w, h)| (sane_dim(w, 1e5), sane_dim(h, 1e6))).collect();
+    let slot = |w: f32| (w + markup) * scale;
+    let budget = avail.x - 2.0 * GAP;
+    // Rows by page index range, with their width and height on screen.
+    let mut rows: Vec<(std::ops::Range<usize>, f32, f32)> = Vec::new();
+    let mut i = 0;
+    while i < sizes.len() {
+        let (start, mut w, mut h) = (i, 0.0f32, 0.0f32);
+        while let Some(&(pw, ph)) = sizes.get(i) {
+            let n = i - start;
+            let wider = if n == 0 { slot(pw) } else { w + GAP + slot(pw) };
+            if n > 0 && (n >= cols || (n >= min_cols && wider > budget)) {
+                break;
+            }
+            (w, h) = (wider, h.max(ph * scale));
+            i += 1;
+        }
+        rows.push((start..i, w, h));
+    }
+    let widest = rows.iter().map(|r| r.1).fold(0.0f32, f32::max);
+    let content_w = (widest + 2.0 * GAP).max(avail.x);
     let mut rects = Vec::with_capacity(sizes.len());
     let mut y = GAP;
-    for row in sizes.chunks(cols) {
+    for (range, row_w, row_h) in &rows {
         let mut x = (content_w - row_w) / 2.0;
-        let mut h = 0.0f32;
-        for &(w, ph) in row {
-            let (w, ph) = (sane_dim(w, 1e5), sane_dim(ph, 1e6));
-            // Pages narrower than the widest keep their markup area beside them.
-            let px = x + (maxw - markup - w).max(0.0) * scale / 2.0;
-            rects.push(Rect::from_min_size(pos2(px, y), vec2(w * scale, ph * scale)));
-            h = h.max(ph * scale);
-            x += slot + GAP;
+        for &(w, ph) in sizes.get(range.clone()).unwrap_or_default() {
+            rects.push(Rect::from_min_size(pos2(x, y + (row_h - ph * scale) / 2.0), vec2(w * scale, ph * scale)));
+            x += slot(w) + GAP;
         }
-        y += h + GAP;
+        y += row_h + GAP;
     }
-    (rects, vec2(content_w, y.max(avail.y)))
+    let most = rows.iter().map(|r| r.0.len()).max().unwrap_or(1).max(1);
+    (rects, vec2(content_w, y.max(avail.y)), most)
 }
 
 /// Reading columns use readable text at the user's chosen zoom. The window holds roughly 3–5
@@ -627,9 +683,11 @@ pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
     } else {
         (1, true)
     };
-    let cols = columns_for(avail.x, maxw * scale, l.pages.len(), min_cols, auto);
+    // As many across as the narrowest pages allow; wider (landscape) pages take fewer in their row.
+    let minw = l.pages.iter().map(|p| sane_dim(p.w, 1e5)).fold(f32::INFINITY, f32::min).min(maxw - markup).max(1.0) + markup;
+    let cap = columns_for(avail.x, minw * scale, l.pages.len(), min_cols, auto);
     let sizes: Vec<(f32, f32)> = l.pages.iter().map(|p| (p.w, p.h)).collect();
-    let (mut rects, mut size) = place_pages(&sizes, markup, scale, cols, avail);
+    let (mut rects, mut size, cols) = place_pages(&sizes, markup, scale, cap, min_cols, avail);
     let mut bands: Vec<(f32, f32)> = rects.iter().map(|r| (0.0, r.height())).collect();
     if hide_white_space {
         let bodies: Vec<(f32, f32)> = l.pages.iter().map(|p| (p.body.y, p.body.bottom())).collect();
@@ -1326,7 +1384,27 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 // (or footer) text and the body at any zoom.
                 let k = page_scale.clamp(0.55, 1.0);
                 let (tag_h, font) = (18.0 * k, regular(11.0 * k));
-                for ((y, header), (label, linked)) in [(hy, true), (fy, false)].into_iter().zip(labels) {
+                // A landscape page whose header and footer turn for binding: the header runs down
+                // its right edge and the footer down its left, so the lines stand there, and the
+                // tags sit at the top of those strips.
+                if page.hf_turned {
+                    let hx = visual_sr.min.x + sect_body.right() * page_scale + 4.0;
+                    let fx = visual_sr.min.x + sect_body.x * page_scale - 4.0;
+                    for ((x, header), (label, linked)) in [(hx, true), (fx, false)].into_iter().zip(labels.clone()) {
+                        dashed(&painter, pos2(x, visual_sr.min.y), pos2(x, visual_sr.max.y), Stroke::new(1.0, t.accent));
+                        let mut top = visual_sr.min.y + 2.0;
+                        for text in std::iter::once(hf_label(&label)).chain(linked.then(|| tl!("Same as Previous").to_string())) {
+                            let galley = painter.layout_no_wrap(text, font.clone(), t.accent_text);
+                            let w = galley.size().x + 12.0 * k;
+                            let tx = if header { visual_sr.max.x - 2.0 - w } else { visual_sr.min.x + 2.0 };
+                            let tr = Rect::from_min_size(pos2(tx, top), vec2(w, tag_h));
+                            painter.rect_filled(tr, 2.0, t.checked);
+                            painter.galley(pos2(tr.min.x + 6.0 * k, tr.center().y - galley.size().y / 2.0), galley, t.accent_text);
+                            top += tag_h + 2.0;
+                        }
+                    }
+                }
+                for ((y, header), (label, linked)) in [(hy, true), (fy, false)].into_iter().zip(labels).filter(|_| !page.hf_turned) {
                     dashed(&painter, pos2(visual_sr.min.x, y), pos2(visual_sr.max.x, y), Stroke::new(1.0, t.accent));
                     // In the margin, clear of the body's first and last lines: the header's tags
                     // sit on its line, the footer's hang from its line.
@@ -1580,6 +1658,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         crate::objects::paint(app, &painter, &t, &layout, &rects, geo.scale);
+        if let Some(at) = ui.input(|i| i.pointer.hover_pos()) {
+            crate::objects::paint_locked_hover(app, &painter, &layout, &rects, geo.scale, at);
+        }
         crate::ink::paint(app, &painter, &rects, &layout, geo.scale);
         crate::table_pen::paint(app, &painter, &t, &layout, &rects, geo.scale);
         crate::table_resize::paint(app, &painter, &t, &layout, &rects, geo.scale);
@@ -1741,7 +1822,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         Some(p) => menu.at_position(p),
         None => menu.at_pointer_fixed(),
     };
-    menu.show(|ui| context_menu(app, ui));
+    // Accent colours (owner, 2026-11-25: style A): the menu repeats ribbon commands.
+    menu.show(|ui| krub_icons::tabler_colour::with_colour(&ui.ctx().clone(), true, || context_menu(app, ui)));
     // Stand down while the context menu owns the pointer so the two never double up; the open
     // state also covers the click that dismisses the menu.
     app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
@@ -1756,7 +1838,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             && (app.canvas.unit_drag.as_ref().is_some_and(|d| d.unit == "line")
                 || latest.and_then(|p| page_at(&rects, &layout, geo.scale, p)).is_some_and(|(pg, x, y)| layout.selection_bar_at(pg, x, y).is_some()));
         let fallback = if in_bar { egui::CursorIcon::Default } else { egui::CursorIcon::Text };
-        ui.ctx().set_cursor_icon(over_object.unwrap_or(fallback));
+        // While a locked object's refusal shows, the pointer says "not allowed" (owner, 2026-11-23).
+        let cursor = if krub_icons::object_lock::flashing(ui.ctx()) { egui::CursorIcon::NotAllowed } else { over_object.unwrap_or(fallback) };
+        ui.ctx().set_cursor_icon(cursor);
     }
     crate::table_resize::cursor(app, ui, &resp, &layout, &rects, geo.scale);
     crate::table_mouse::cursor(app, ui, &resp, &layout, &rects, geo.scale);
@@ -1806,7 +1890,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 /// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
 fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
     app.canvas.balloon_rects.clear();
+    app.canvas.comment_markers.clear();
     let mw = markup_width(app);
+    let compact = compact_comments(app);
     let float = floating_comments(app);
     if app.canvas.balloon.is_some_and(|id| (mw <= 0.0 && !float) || !app.session.doc.comments.contains_key(&id)) {
         deselect_balloon(app, ui.ctx());
@@ -1816,7 +1902,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     }
     let t = Tokens::get(ui.ctx());
     let clip = view;
-    let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected;
+    let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected || compact;
     let shown = shown_comment(app);
     // Replies hang under the comment they answer rather than getting balloons of their own.
     let is_reply = |c: &wordcraft_doc::Comment| c.parent.is_some_and(|p| app.session.doc.comments.contains_key(&p));
@@ -1832,12 +1918,20 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let mut by_page: HashMap<usize, Vec<(f32, f32, Balloon, Pos)>> = HashMap::new();
     let m = &app.session.prefs.markup;
     let comments = if m.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
+    // A narrow window: a marker at the page's edge for each comment (its card opens on a click).
+    let mut markers: Vec<(usize, f32, u32, Pos)> = Vec::new();
     for (id, pos) in comments {
         let Some(pos) = pos else { continue };
-        if app.session.doc.comments.get(&id).is_some_and(is_reply) || (only_shown && shown != Some(id)) {
+        if app.session.doc.comments.get(&id).is_some_and(is_reply) {
             continue;
         }
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
+        if compact {
+            markers.push((c.page, c.top + c.height / 2.0, id, pos.clone()));
+        }
+        if only_shown && shown != Some(id) {
+            continue;
+        }
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Comment(id), pos));
     }
     let formats = if m.formatting { wordcraft_engine::cmd::review::format_changes(&app.session) } else { Vec::new() };
@@ -1872,6 +1966,33 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             painter.rect_filled(area, 0.0, Color32::from_rgb(0xF3, 0xF3, 0xF3));
             painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, Color32::from_rgb(0xE0, 0xE0, 0xE0)));
         }
+    }
+    for (pi, y, id, pos) in markers {
+        let Some(pr) = rects.get(pi) else { continue };
+        let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
+        let side = (18.0 * page_scale / PX_PER_PT).clamp(14.0, 26.0);
+        // At the page's right edge, or the view's when the page runs past it.
+        let right = pr.max.x.min(view.max.x - 6.0);
+        let mark = Rect::from_center_size(pos2(right - side, pr.min.y + y * page_scale), vec2(side, side));
+        if !mark.intersects(clip) {
+            continue;
+        }
+        let on = shown == Some(id);
+        let r = ui.interact(mark, ui.id().with(("comment_marker", id)), Sense::click());
+        let fill = if on || r.hovered() { Color32::from_rgb(0xFF, 0xF1, 0xB8) } else { Color32::from_rgb(0xFF, 0xF8, 0xD9) };
+        painter.rect(mark, 4.0, fill, Stroke::new(1.0, Color32::from_rgb(0xC9, 0xA2, 0x27)), egui::StrokeKind::Inside);
+        crate::icons::paint(painter, mark.shrink(side * 0.18), "markup", Color32::from_rgb(0x7A, 0x5B, 0x00), Color32::from_rgb(0x7A, 0x5B, 0x00));
+        let author = app.session.doc.comments.get(&id).map(|c| author_name(&c.author)).unwrap_or_default();
+        let name = format!("{} {author}", tl!("Comment by"));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        let r = r.on_hover_text(&name);
+        if r.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if r.clicked() {
+            clicked = Some((id, pos));
+        }
+        app.canvas.comment_markers.push((id, mark));
     }
     let mut pages: Vec<usize> = by_page.keys().copied().collect();
     pages.sort_unstable();
@@ -2202,7 +2323,7 @@ pub fn select_balloon(app: &mut WordApp, ctx: &egui::Context, id: u32) {
 
 /// A press over a balloon card belongs to the card, though the canvas under it also contains the pointer (#1013).
 fn over_balloon(app: &WordApp, p: Pos2) -> bool {
-    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p))
+    app.canvas.balloon_rects.iter().chain(&app.canvas.comment_markers).any(|(_, r)| r.contains(p))
 }
 
 /// Leave the selected balloon, writing back what was typed in it (its fields may not be drawn
@@ -2355,7 +2476,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     // Double-click in the header/footer area edits it (creating it when the page has none, #960);
     // double-click in the body leaves it. Print Layout only: the other views show no margins.
     let hf_zone = if app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode {
-        layout.header_footer_zone(page, y)
+        layout.header_footer_zone(page, x, y)
     } else {
         None
     };
@@ -3183,6 +3304,55 @@ fn paint_context_icon(ui: &Ui, rect: Rect, icon: &str, enabled: bool) {
     crate::icons::paint(ui.painter(), rect, icon, ink, accent);
 }
 
+/// The right-click menu's Paste Options (owner, 2026-11-24): a heading, then one button per way
+/// to paste (Keep Source Formatting, Merge Formatting, Keep Text Only), each a clipboard with its
+/// own badge and its name in the tooltip.
+fn paste_options(app: &mut WordApp, ui: &mut Ui) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let on = crate::widgets::enabled(app, "edit.paste");
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        let atom = egui::vec2(18.0, 18.0);
+        let (r, _) = ui.allocate_exact_size(atom, Sense::hover());
+        paint_context_icon(ui, r, "paste", on);
+        let color = if on { t.text } else { t.text_disabled };
+        ui.label(egui::RichText::new(tl!("Paste Options:")).strong().color(color));
+    });
+    ui.horizontal(|ui| {
+        ui.add_space(26.0);
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (badge, name, id) in [
+            ("painter", "Keep Source Formatting", "edit.paste"),
+            ("merge", "Merge Formatting", "edit.pasteMerge"),
+            ("A", "Keep Text Only", "edit.pasteText"),
+        ] {
+            let enabled = on && crate::widgets::enabled(app, id);
+            let (r, resp) = ui.allocate_exact_size(egui::vec2(32.0, 30.0), if enabled { Sense::click() } else { Sense::hover() });
+            if enabled && resp.hovered() {
+                ui.painter().rect_filled(r, 4.0, t.hover);
+            }
+            let (ink, accent) = if enabled { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
+            let clip = Rect::from_center_size(r.center() - egui::vec2(2.0, 1.0), egui::vec2(20.0, 20.0));
+            crate::icons::paint(ui.painter(), clip, "paste", ink, accent);
+            // The badge, bottom right, on the menu's colour so it reads over the clipboard.
+            let b = Rect::from_center_size(egui::pos2(r.max.x - 9.0, r.max.y - 9.0), egui::vec2(13.0, 13.0));
+            ui.painter().rect_filled(b.expand(1.0), 2.0, t.menu);
+            if badge == "A" {
+                ui.painter().text(b.center(), egui::Align2::CENTER_CENTER, "A", crate::theme::semibold(12.0), accent);
+            } else {
+                crate::icons::paint(ui.painter(), b, badge, accent, accent);
+            }
+            let name = tl!(name);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            let resp = resp.on_hover_text(name);
+            if resp.clicked() {
+                let _ = app.run(id, json!({}));
+                ui.close();
+            }
+        }
+    });
+}
+
 fn context_submenu(ui: &mut Ui, icon: &str, label: &str, contents: impl FnOnce(&mut Ui)) {
     let atom = ui.id().with(("context submenu icon", label));
     let padding = ui.spacing().button_padding.x;
@@ -3194,8 +3364,17 @@ fn context_submenu(ui: &mut Ui, icon: &str, label: &str, contents: impl FnOnce(&
 fn context_menu_icon(id: &str, params: &serde_json::Value) -> &'static str {
     match id {
         "edit.cut" => "cut",
+        // Lock shows the padlock it will leave (owner, 2026-11-23).
+        "shape.lock" => {
+            if params.get("locked").and_then(|v| v.as_bool()) == Some(false) {
+                "lock"
+            } else {
+                // `unlock` is the open padlock's name (`lock-open` is Tabler's, which finds nothing).
+                "unlock"
+            }
+        }
         "edit.copy" => "copy",
-        "edit.paste" => "paste",
+        "edit.paste" | "edit.pasteSpecial" => "paste",
         "ui.dialog" => match params.get("name").and_then(|v| v.as_str()) {
             Some("font") => "fonts",
             Some("paragraph") => "pilcrow",
@@ -3304,7 +3483,8 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     item(ui, app, "Cut", "edit.cut", json!({}));
     item(ui, app, "Copy", "edit.copy", json!({}));
-    item(ui, app, "Paste", "edit.paste", json!({}));
+    paste_options(app, ui);
+    item(ui, app, "Paste Special…", "edit.pasteSpecial", json!({}));
     ui.separator();
     // After Thai Digits, the selected text that must stay Arabic goes back to 0–9.
     if wordcraft_engine::cmd::format::selection_has_thai_digits(&app.session) {
@@ -3374,6 +3554,9 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     if object {
         context_submenu(ui, "textBox", tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
+        // Lock / Unlock (owner, 2026-11-23).
+        let locked = wordcraft_engine::cmd::objects::selection_locked(&app.session);
+        item(ui, app, if locked { "Unlock" } else { "Lock" }, "shape.lock", json!({"locked": !locked}));
     }
     if app.session.sel.focus.path.cell().is_some() {
         // The table's items follow what is selected, as in Word (2019, Windows).
@@ -3570,6 +3753,16 @@ fn is_followable_link(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The right-click Lock item draws a padlock both ways: the open one used to ask for
+    /// `lock-open`, which no icon is called, and showed nothing (2026-11-25).
+    #[test]
+    fn the_lock_item_draws_a_padlock_either_way() {
+        for locked in [true, false] {
+            let name = context_menu_icon("shape.lock", &serde_json::json!({"locked": locked}));
+            assert!(krub_icons::tabler::tabler_name(name).is_some(), "{name} has no drawing");
+        }
+    }
 
     /// Upstream #6048 (#5967): gridlines show only where a cell has no printed border, as in Word; drawn over the
     /// border they tinted every bordered table blue.
@@ -4139,6 +4332,7 @@ mod tests {
 
     /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that
     /// leaves the balloon): a new comment with no text resolves and deletes from its balloon.
+    // 1700 pt wide: both side panels (280 pt each), the page and its comment margin fit side by side.
     #[test]
     fn an_empty_comment_balloon_deletes() {
         for body in ["", "Some text here"] {
@@ -4149,7 +4343,7 @@ mod tests {
             }
             let id = a.run("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
             a.run("view.commentsPane", json!({"value": false})).unwrap();
-            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1700.0, 900.0)).build_ui_state(
                 |ui, app: &mut WordApp| {
                     let ctx = ui.ctx().clone();
                     app.logic(&ctx);
@@ -4277,6 +4471,7 @@ mod tests {
         assert_eq!(visual_row(&info, p, text, 0..text.len() + 5), "");
     }
 
+    // 1700 pt wide: both side panels (280 pt each), the page and its comment margin fit side by side.
     #[test]
     fn a_balloon_edits_its_comment() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
@@ -4284,7 +4479,7 @@ mod tests {
         a.run("select.text", json!({"text": "text"})).unwrap();
         let id = a.run("review.newComment", json!({"text": "Original"})).unwrap()["id"].as_u64().unwrap() as u32;
         a.run("view.commentsPane", json!({"value": false})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1700.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -4489,6 +4684,47 @@ mod tests {
 
     /// After Thai Digits, right-clicking selected Thai digits offers Change to Arabic Digits, which
     /// puts only the selection back to 0–9; without Thai digits in the selection it isn't offered.
+    /// The right-click menu's Paste Options (owner, 2026-11-24): a heading, a button for each way
+    /// to paste, then Paste Special…; Keep Text Only pastes the copied text without its bold.
+    #[test]
+    fn right_click_offers_paste_options() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Strong words here")), Default::default());
+        a.run("select.text", json!({"text": "Strong"})).unwrap();
+        a.run("format.bold", json!({})).unwrap();
+        a.run("edit.copy", json!({})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        let end = a.session.sel.focus.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let c = h.state_mut().session.layout().caret(&end).expect("laid out");
+        let at = page_to_screen(h.state_mut(), c.page, c.x - 4.0, c.top + c.height / 2.0).expect("on screen");
+        right_click(&mut h, at);
+        for label in ["Paste Options:", "Keep Source Formatting", "Merge Formatting", "Keep Text Only", "Paste Special…"] {
+            assert!(h.query_all_by_label_contains(label).next().is_some(), "the menu has {label}");
+        }
+        let keep = h.get_all_by_label("Keep Text Only").map(|n| n.rect()).max_by(|x, y| x.min.y.total_cmp(&y.min.y)).unwrap();
+        h.event(egui::Event::PointerMoved(keep.center()));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: keep.center(), button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(&mut h, 3);
+        let text = h.state().session.doc.plain_text(StoryRef::Body);
+        assert_eq!(text.matches("Strong").count(), 2, "pasted: {text:?}");
+        h.state_mut().run("select.text", json!({"text": "hereStrong"})).ok();
+        let st = h.state_mut().session.run("format.state", &json!({})).unwrap();
+        assert_ne!(st["bold"], json!(true), "pasted as plain text: {st}");
+    }
+
     #[test]
     fn context_menu_puts_selected_thai_digits_back_to_arabic() {
         use egui_kittest::kittest::Queryable;
@@ -5053,13 +5289,13 @@ mod tests {
         // Mixed sizes: a landscape page among portrait ones, three per row.
         let sizes = [(612.0, 792.0), (792.0, 612.0), (612.0, 792.0), (612.0, 792.0)];
         let scale = 0.25;
-        let (rects, size) = place_pages(&sizes, 0.0, scale, 3, vec2(1000.0, 600.0));
-        assert_eq!(rects.len(), 4);
-        assert_eq!(rects[0].top(), rects[1].top());
-        assert_eq!(rects[1].top(), rects[2].top());
+        let (rects, size, most) = place_pages(&sizes, 0.0, scale, 3, 1, vec2(1000.0, 600.0));
+        assert_eq!((rects.len(), most), (4, 3));
+        assert_eq!(rects[0].top(), rects[2].top());
+        assert_eq!(rects[1].center().y, rects[0].center().y, "a shorter page is centred on its row");
         assert!(rects[0].right() < rects[1].left() && rects[1].right() < rects[2].left(), "left to right: {rects:?}");
         assert!(rects[3].top() > rects[0].bottom(), "next row below the tallest page");
-        assert_eq!(rects[3].left(), rects[0].left(), "rows share columns");
+        assert!((rects[3].center().x - size.x / 2.0).abs() < 1e-3, "each row is centred");
         assert!((rects[1].width() - 792.0 * scale).abs() < 1e-3);
         assert!(size.x >= 1000.0 && size.y >= rects[3].bottom());
         // Each page's centre maps back to that page.
@@ -5069,11 +5305,39 @@ mod tests {
         // Hostile page sizes and scales stay finite.
         let bad = [(f32::NAN, f32::INFINITY), (-1.0, 0.0), (1e30, 1e30)];
         for scale in [f32::NAN, 0.0, -1.0, 1e9] {
-            let (rects, size) = place_pages(&bad, f32::NAN, scale, 0, vec2(f32::NAN, -1.0));
+            let (rects, size, _) = place_pages(&bad, f32::NAN, scale, 0, 3, vec2(f32::NAN, -1.0));
             assert_eq!(rects.len(), 3);
             assert!(size.x.is_finite() && size.y.is_finite());
             assert!(rects.iter().all(|r| r.min.x.is_finite() && r.max.y.is_finite()), "{rects:?}");
         }
+    }
+
+    /// A landscape page widens only its own row, as in Word: portrait pages elsewhere stay one gap
+    /// apart instead of sitting in slots as wide as the landscape page, and a row holds fewer
+    /// pages when a landscape one doesn't fit beside them. Multiple Pages still shows two a row.
+    #[test]
+    fn a_landscape_page_widens_only_its_row() {
+        let (p, l) = ((595.0, 842.0), (842.0, 595.0));
+        let scale = 0.5;
+        let (portrait, landscape) = (595.0 * scale, 842.0 * scale);
+        // Room for two portrait pages but not a portrait page and a landscape one.
+        let avail = vec2(2.0 * portrait + 3.0 * GAP + 20.0, 600.0);
+        let (rects, size, most) = place_pages(&[p, p, l, p, p], 0.0, scale, 2, 1, avail);
+        assert_eq!(most, 2);
+        assert!((rects[1].left() - rects[0].right() - GAP).abs() < 1e-3, "portrait pages one gap apart: {rects:?}");
+        assert_eq!(rects[0].top(), rects[1].top());
+        assert!(rects[2].top() > rects[1].bottom() && rects[3].top() > rects[2].bottom(), "the landscape page has its own row");
+        assert!((rects[2].center().x - size.x / 2.0).abs() < 1e-3 && (rects[2].width() - landscape).abs() < 1e-3);
+        assert!((rects[4].left() - rects[3].right() - GAP).abs() < 1e-3 && rects[3].top() == rects[4].top());
+        assert!(size.x <= avail.x + 1e-3, "nothing wider than the window");
+        // Wide enough for both: the landscape page sits beside a portrait one, centred on the row.
+        let wide = vec2(portrait + landscape + 3.0 * GAP + 10.0, 600.0);
+        let (rects, _, _) = place_pages(&[p, p, p, l, p], 0.0, scale, 2, 1, wide);
+        assert_eq!(rects[2].center().y, rects[3].center().y, "3 beside the landscape 4");
+        assert!((rects[3].left() - rects[2].right() - GAP).abs() < 1e-3);
+        // Multiple Pages keeps two a row even when they overflow.
+        let (rects, _, _) = place_pages(&[p, l, p], 0.0, scale, 2, 2, vec2(300.0, 600.0));
+        assert_eq!(rects[0].center().y, rects[1].center().y, "two a row");
     }
 
     #[test]
@@ -5488,7 +5752,7 @@ mod tests {
     fn hiding_white_space_stacks_page_bands_and_keeps_hit_testing() {
         let scale = 1.0;
         let sizes = [(612.0, 792.0); 3];
-        let (rects, _) = place_pages(&sizes, 0.0, scale, 1, vec2(800.0, 600.0));
+        let (rects, _, _) = place_pages(&sizes, 0.0, scale, 1, 1, vec2(800.0, 600.0));
         // Body from 72 to 720 pt on every page.
         let bodies = [(72.0, 720.0); 3];
         let (moved, bands, h) = collapse_white_space(&rects, &bodies, scale, 600.0);

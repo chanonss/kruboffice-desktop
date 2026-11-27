@@ -35,9 +35,12 @@ const GAP: f32 = 3.0;
 /// Distribution and Change to Arabic Digits. Sixteen allocations, so fifteen gaps; the two
 /// inside the split buttons are counted in `SPLIT_W`.
 const ROW2_W: f32 = 10.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 13.0 * SPACING;
-/// Row 1: font, size, grow, shrink. The font box takes what row 2 leaves, so both rows end
-/// together and the box starts at the bar's left edge.
-const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 2.0 * BTN_W + 3.0 * SPACING);
+/// Row 1 (owner, 2026-11-25, draft A of `ui-experiments/mini-toolbar-2026-11-25/`): font, size,
+/// grow, shrink | Format Painter, Clear All Formatting | Bullets, Numbering. The font box no
+/// longer stretches to row 2's width (about 277 pt for a name that needs about 110); it takes
+/// what the six buttons leave, so both rows still end together and the bar keeps its width.
+/// Twelve allocations, so eleven gaps.
+const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 6.0 * BTN_W + 2.0 * SEP_W + 9.0 * SPACING);
 
 /// The bar's size: fixed, so it never jitters as the selection changes, and wide enough for every
 /// control of both rows (#535: one row of a fixed width cut off everything after Align Left).
@@ -193,7 +196,8 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, selection: Rect, viewport: R
         let inner = bar.shrink2(Vec2::new(PAD_X, PAD_Y));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(Layout::top_down(Align::Min)));
         child.spacing_mut().item_spacing = Vec2::new(SPACING, ROW_GAP);
-        content(app, &mut child, &t);
+        // Accent colours (owner, 2026-11-25: style A), as on the ribbon.
+        krub_icons::tabler_colour::with_colour(&child.ctx().clone(), true, || content(app, &mut child, &t));
         let used = child.min_rect();
         ctx.data_mut(|d| d.insert_temp(shown_id(), [bar, used]));
     });
@@ -240,6 +244,16 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.add_space(GAP);
         widgets::small(ui, app, "grow", None, "Increase Font Size", "format.growFont", json!({}), false);
         widgets::small(ui, app, "shrink", None, "Decrease Font Size", "format.shrinkFont", json!({}), false);
+        sep(ui, t);
+        let painting = app.session.painter.is_some();
+        widgets::small(ui, app, "painter", None, "Format Painter", "edit.formatPainter", json!({}), painting);
+        widgets::small(ui, app, "clear", None, "Clear All Formatting", "format.clear", json!({}), false);
+        sep(ui, t);
+        // One click, as the ribbon's buttons do; their lists of styles stay on Home.
+        let rp = app.session.doc.para_at(&app.session.sel.focus).map(|p| app.session.doc.styles.resolve_para(&p.props));
+        let lists = wordcraft_engine::cmd::para::list_buttons(&app.session.doc, rp.as_ref().and_then(|r| r.numbering));
+        widgets::small(ui, app, "bullets", None, "Bullets", "para.bullets", json!({}), lists.bullets);
+        widgets::small(ui, app, "numbering", None, "Numbering", "para.numbering", json!({}), lists.numbering);
     });
 
     row(ui, app, &|ui, app| {

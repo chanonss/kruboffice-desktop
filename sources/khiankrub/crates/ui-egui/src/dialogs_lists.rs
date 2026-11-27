@@ -419,7 +419,7 @@ fn preview(ui: &mut Ui, f: &ListForm) {
         let on = i == f.level;
         let ink = if on { egui::Color32::BLACK } else { egui::Color32::from_gray(150) };
         let label = f.sample(i);
-        let font = egui::FontId::proportional(10.5);
+        let font = egui::FontId::proportional(12.0);
         let galley = p.layout_no_wrap(label, font, ink);
         let w = galley.size().x;
         let x = x_of(l.aligned_at);

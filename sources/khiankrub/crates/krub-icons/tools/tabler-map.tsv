@@ -1,5 +1,5 @@
 # KrubOffice icon name<TAB>Tabler Icons outline icon (MIT, see ../LICENSE-tabler.txt).
-# Names not listed keep their KrubOffice drawing. Approved by the owner on 2026-11-14 (batch 1: catalog icons; batch 2: options, picture, table and page icons).
+# Names not listed keep their KrubOffice drawing. Approved by the owner on 2026-11-14 (batch 1: catalog icons; batch 2: options, picture, table and page icons). Batch 3 (2026-11-22): draft and file card menu icons.
 accept	file-check
 accessibility	accessible
 account	user-circle
@@ -289,6 +289,7 @@ insertRight	column-insert-right
 interfaceTheme	palette
 italic	italic
 justify	align-justified
+keep-writing	writing
 labels	tags
 landscape	rectangle
 language	language
@@ -372,7 +373,7 @@ outlineBody	align-left
 outlineCollapse	minus
 outlineDemote	arrow-bar-right
 outlineDown	arrow-down
-outlineExpand	minus
+outlineExpand	plus
 outlinePromote	arrow-bar-left
 outlineTop	arrow-bar-to-up
 outlineUp	arrow-up
@@ -566,6 +567,8 @@ theme	palette
 themes	palette
 thesaurus	book
 thickness	line-height
+this-browser	browser
+this-device	device-laptop
 toText	table-export
 toc	list-numbers
 trace	arrows-right

@@ -46,10 +46,31 @@ fn paint_math(app: &mut WordApp, ui: &Ui, r: Rect, key: &str, linear: &str, node
     }
 }
 
-/// A big ribbon button whose picture is an equation; opens `menu`.
-fn math_menu_button(ui: &mut Ui, app: &mut WordApp, picture: &str, label: &str, menu: impl FnOnce(&mut Ui, &mut WordApp)) {
+/// A big ribbon button whose picture is an equation; opens `menu`. On the one-line ribbon
+/// (owner, 2026-11-24): a small button with the picture and a menu marker, kept by `key`.
+fn math_menu_button(ui: &mut Ui, app: &mut WordApp, key: &str, picture: &str, label: &str, menu: impl FnOnce(&mut Ui, &mut WordApp)) {
+    if !crate::widgets::kept_est(ui, key, "", 52.0, label) {
+        return;
+    }
     let label = tl!(label);
     let t = Tokens::get(ui.ctx());
+    if crate::widgets::line(ui).is_some() {
+        let h = crate::widgets::line_button().0;
+        let (r, resp) = ui.allocate_exact_size(vec2(50.0, h), Sense::click());
+        crate::widgets::ribbon_control_bg(ui, r, &resp, false, &t);
+        let pic = Rect::from_min_size(pos2(r.min.x + 4.0, r.min.y + 3.0), vec2(32.0, h - 6.0));
+        paint_math(app, ui, pic, &format!("btn:{picture}"), picture, None, false, 10.0);
+        let d = crate::widgets::DROPDOWN;
+        crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 8.0, r.center().y), vec2(d, d)), "dropdown", t.icon, t.icon);
+        let name = label.replace('\n', " ");
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        let resp = resp.on_hover_text(&name);
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_min_width(260.0);
+            menu(ui, app);
+        });
+        return;
+    }
     let galley_w =
         label.split('\n').map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x)).fold(0.0, f32::max);
     let w = (galley_w + 22.0).max(46.0);
@@ -149,6 +170,10 @@ pub fn builtin_menu(ui: &mut Ui, app: &mut WordApp) {
 
 /// Insert › Symbols › Equation: a split button (insert a new equation, or pick a ready-made one).
 pub fn insert_button(ui: &mut Ui, app: &mut WordApp) {
+    if crate::widgets::compact(ui) {
+        // One-line ribbon (UI experiment): a small split button.
+        return crate::widgets::split(ui, app, "equation", "Equation", "insert.equation", json!({}), false, None, builtin_menu);
+    }
     let t = Tokens::get(ui.ctx());
     let label = tl!("Equation");
     let w = (ui.ctx().fonts_mut(|f| f.layout_no_wrap(label.to_string(), regular(11.5), t.text).size().x) + 22.0).max(48.0);
@@ -179,6 +204,9 @@ pub fn insert_button(ui: &mut Ui, app: &mut WordApp) {
 
 /// The Symbols group: a strip of the current set's symbols, and a menu with every set.
 fn symbols(ui: &mut Ui, app: &mut WordApp) {
+    if crate::widgets::line(ui).is_some() {
+        return symbols_button(ui, app);
+    }
     let id = egui::Id::new("eq_symbol_set");
     let set = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or(0).min(SYMBOL_SETS.len().saturating_sub(1));
     let Some((_, chars)) = SYMBOL_SETS.get(set) else { return };
@@ -252,6 +280,59 @@ fn symbols(ui: &mut Ui, app: &mut WordApp) {
     });
 }
 
+/// The one-line ribbon's Symbols (owner, 2026-11-24): one button whose panel has the symbol sets
+/// as chips and the chosen set's symbols (the set is remembered).
+fn symbols_button(ui: &mut Ui, app: &mut WordApp) {
+    if !crate::widgets::kept_est(ui, "eq.symbols", "", 100.0, "Symbols") {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let label = tl!("Symbols");
+    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(12.5), t.text);
+    let h = crate::widgets::line_button().0;
+    let d = crate::widgets::DROPDOWN;
+    let (r, resp) = ui.allocate_exact_size(vec2(26.0 + galley.size().x + d + 14.0, h), Sense::click());
+    crate::widgets::ribbon_control_bg(ui, r, &resp, false, &t);
+    ui.painter().text(pos2(r.min.x + 14.0, r.center().y), Align2::CENTER_CENTER, "Ω", regular(16.0), t.icon);
+    let gs = galley.size();
+    ui.painter().galley(pos2(r.min.x + 26.0, r.center().y - gs.y / 2.0), galley, t.text);
+    crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 4.0 - d / 2.0, r.center().y), vec2(d, d)), "dropdown", t.icon, t.icon);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let resp = resp.on_hover_text(tl!("Insert a symbol"));
+    egui::Popup::menu(&resp).show(|ui| symbol_panel(ui, app));
+}
+
+/// The symbol sets as chips, then the chosen set's symbols; a click inserts one.
+fn symbol_panel(ui: &mut Ui, app: &mut WordApp) {
+    let t = Tokens::get(ui.ctx());
+    let id = egui::Id::new("eq_symbol_set");
+    ui.set_width(420.0);
+    ui.horizontal_wrapped(|ui| {
+        let set = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or(0);
+        for (i, (name, _)) in SYMBOL_SETS.iter().enumerate() {
+            // Each name on one line (a chip), the row wrapping between them.
+            if ui.add(egui::Button::selectable(i == set, tl!(name)).wrap_mode(egui::TextWrapMode::Extend)).clicked() {
+                ui.data_mut(|d| d.insert_temp(id, i));
+            }
+        }
+    });
+    ui.separator();
+    let set = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or(0);
+    if let Some((_, chars)) = SYMBOL_SETS.get(set) {
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                for c in chars.chars() {
+                    if symbol_button(ui, app, c, &t) {
+                        let _ = app.run("equation.insertSymbol", json!({"char": c.to_string()}));
+                        app.canvas.want_focus = true;
+                    }
+                }
+            });
+        });
+    }
+}
+
 fn symbol_button(ui: &mut Ui, app: &mut WordApp, c: char, t: &Tokens) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
     ui.painter().rect_filled(r, 2.0, t.input);
@@ -268,7 +349,7 @@ fn symbol_button(ui: &mut Ui, app: &mut WordApp, c: char, t: &Tokens) -> bool {
 /// The Equation tab.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Tools", app, |ui, app| {
-        math_menu_button(ui, app, "∑_(i=1)^n", "Equation", builtin_menu);
+        math_menu_button(ui, app, "eq.builtin", "∑_(i=1)^n", "Equation", builtin_menu);
         crate::ribbon::stack(ui, |ui| {
             let latex = app.session.math_latex;
             crate::widgets::row(ui, |ui| {
@@ -321,7 +402,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Structures", app, |ui, app| {
         for g in STRUCTURES {
             let id = g.id;
-            math_menu_button(ui, app, button_picture(id), g.label, |ui, app| structure_menu(ui, app, id));
+            let key = format!("eq.{id}");
+            math_menu_button(ui, app, &key, button_picture(id), g.label, |ui, app| structure_menu(ui, app, id));
         }
     });
     group(ui, "Equation Options", app, |ui, app| {
@@ -384,7 +466,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     }
                 },
             );
-            if ui.button(tl!("Close Equation")).on_hover_text(tl!("Leave the equation (Esc)")).clicked() {
+            if crate::widgets::line(ui).is_some() {
+                // The one-line ribbon: a small button like the rest.
+                if small(ui, app, "close", None, "Close Equation", "equation.exit", json!({}), false).clicked() {
+                    app.canvas.want_focus = true;
+                }
+            } else if ui.button(tl!("Close Equation")).on_hover_text(tl!("Leave the equation (Esc)")).clicked() {
                 let _ = app.run("equation.exit", json!({}));
                 app.canvas.want_focus = true;
             }

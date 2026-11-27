@@ -960,6 +960,7 @@ impl Reader<'_> {
             }
         }
         let gd = c.child("a:graphic").and_then(|g| g.child("a:graphicData"))?;
+        float.locked = drawing_locked(c, gd);
         // Checked by URI before the blip search: a diagram's data can hold a blip further down.
         let uri = gd.attr("uri").unwrap_or("");
         if uri == INK_URI {
@@ -1668,6 +1669,17 @@ fn collect<'a>(e: &'a El, name: &str, out: &mut Vec<(&'a El, ControlWrap)>, pend
 /// Placeholder text as read from a control showing it: one line, bounded.
 fn placeholder_of(s: &str) -> String {
     s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(wordcraft_doc::control::MAX_CONTROL_TEXT).collect::<String>().trim().to_string()
+}
+
+/// Whether a drawing is locked (owner, 2026-11-23): its frame's `a:graphicFrameLocks`, or the
+/// picture's `a:picLocks` / the shape's `a:spLocks`, forbid both moving and resizing. A lone
+/// `noMove` or `noResize` (another program's partial lock) isn't Lock, as in PhutKrub.
+fn drawing_locked(c: &El, gd: &El) -> bool {
+    let both = |e: Option<&El>| e.is_some_and(|l| on_off_attr(l, "noMove") && on_off_attr(l, "noResize"));
+    let frame = c.child("wp:cNvGraphicFramePr").and_then(|n| n.child("a:graphicFrameLocks"));
+    let pic = gd.child("pic:pic").and_then(|p| p.child("pic:nvPicPr")).and_then(|n| n.child("pic:cNvPicPr")).and_then(|n| n.child("a:picLocks"));
+    let sp = gd.child("wps:wsp").and_then(|p| p.child("wps:cNvSpPr")).and_then(|n| n.child("a:spLocks"));
+    both(frame) || both(pic) || both(sp)
 }
 
 fn on_off_attr(e: &El, name: &str) -> bool {
