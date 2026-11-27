@@ -7624,3 +7624,33 @@ fn shape_adjust_and_quick_style_reject_invalid_index() {
     assert_eq!(s.doc().unwrap().shape(id).unwrap().style, before.style);
     s.execute("shape.adjust", &json!({"value": 0.4})).unwrap();
 }
+
+/// The file name menu's Rename (owner, 2026-11-27): an unsaved presentation takes the name as its
+/// title; a saved one is renamed in its folder and never replaces another file.
+#[test]
+fn rename_names_an_unsaved_presentation_and_renames_a_saved_file() {
+    let mut s = session();
+    s.execute("file.rename", &json!({"name": "  แผนการสอน 2570 "})).unwrap();
+    assert_eq!(s.doc().unwrap().title(), "แผนการสอน 2570");
+    assert!(!s.doc().unwrap().is_dirty(), "a name is not an edit to the slides");
+    for bad in ["", "  ", "a/b", "a\\b", "dot.", "..", "tab\tname", &"ก".repeat(201)] {
+        assert!(s.execute("file.rename", &json!({"name": bad})).is_err(), "{bad:?}");
+    }
+    assert_eq!(s.doc().unwrap().title(), "แผนการสอน 2570");
+
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let dir = std::env::temp_dir().join(format!("deckcraft-rename-{}-{nonce}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("deck.pptx");
+    s.execute("file.saveAs", &json!({"path": path.to_string_lossy()})).unwrap();
+    s.execute("file.rename", &json!({"name": "Lesson 1.2"})).unwrap();
+    let renamed = dir.join("Lesson 1.2.pptx");
+    assert_eq!(s.doc().unwrap().path.as_deref(), Some(renamed.to_string_lossy().as_ref()));
+    assert_eq!(s.doc().unwrap().title(), "Lesson 1.2");
+    assert!(renamed.exists() && !path.exists());
+    std::fs::write(dir.join("Taken.pptx"), b"other").unwrap();
+    assert!(s.execute("file.rename", &json!({"name": "Taken"})).is_err());
+    assert_eq!(std::fs::read(dir.join("Taken.pptx")).unwrap(), b"other");
+    assert!(renamed.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

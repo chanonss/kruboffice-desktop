@@ -36,6 +36,11 @@ pub struct MacMenu {
     _menu: Menu,
     actions: HashMap<String, Action>,
     chosen: mpsc::Receiver<String>,
+    /// The key of the last shortcut the menu took, whose real release is still to come. AppKit
+    /// gives the menu the key press only, but winit forwards the release of every ⌘ key to the
+    /// window as well (its `sendEvent:` override). The menu already sent the app a release of its
+    /// own, so the real one is dropped: on ⌘V it pasted a second time (owner, 2026-11-27).
+    pending_release: Option<egui::Key>,
 }
 
 /// An item: label, shortcut (as the command registry writes it: `Mod+Shift+S`) and what it does.
@@ -323,30 +328,34 @@ impl MacMenu {
         menu.init_for_nsapp();
         window.set_as_windows_menu_for_nsapp();
         help.set_as_help_menu_for_nsapp();
-        Some(MacMenu { _menu: menu, actions, chosen })
+        Some(MacMenu { _menu: menu, actions, chosen, pending_release: None })
     }
 
     /// Before a frame: what was chosen since the last one, as key presses for the frame to see.
     pub fn take_keys(&mut self, raw: &mut egui::RawInput, app: &mut WordApp, ctx: &egui::Context) {
+        // The menu's events go in after this frame's own, whose forwarded releases are dropped.
+        let mut events = Vec::new();
         while let Ok(id) = self.chosen.try_recv() {
             let Some(action) = self.actions.get(&id).cloned() else { continue };
             match action {
                 Action::Key(key, modifiers) => {
+                    self.pending_release = Some(key);
                     for pressed in [true, false] {
-                        raw.events.push(egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers });
+                        events.push(egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers });
                     }
                 }
-                Action::Cut => raw.events.push(egui::Event::Cut),
-                Action::Copy => raw.events.push(egui::Event::Copy),
+                Action::Cut => events.push(egui::Event::Cut),
+                Action::Copy => events.push(egui::Event::Copy),
                 Action::Paste => {
+                    self.pending_release = Some(egui::Key::V);
                     // As ⌘V arrives: the clipboard's text, if any, then the key's release, on which
                     // the app pastes a picture when there was no text.
                     let text = app.services.clipboard_text.as_ref().and_then(|f| f()).unwrap_or_default();
                     if !text.is_empty() {
-                        raw.events.push(egui::Event::Paste(text));
+                        events.push(egui::Event::Paste(text));
                     }
                     let cmd = egui::Modifiers { mac_cmd: true, command: true, ..Default::default() };
-                    raw.events.push(egui::Event::Key {
+                    events.push(egui::Event::Key {
                         key: egui::Key::V,
                         physical_key: Some(egui::Key::V),
                         pressed: false,
@@ -365,6 +374,26 @@ impl MacMenu {
                 Action::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }
         }
+        if let Some(key) = self.pending_release
+            && drop_forwarded_release(&mut raw.events, key)
+        {
+            self.pending_release = None;
+        }
+        raw.events.extend(events);
+    }
+}
+
+/// Remove the first release of `key` with ⌘ held from `events`: the real release AppKit's menu
+/// would otherwise hand the app on top of the menu's own (see `MacMenu::pending_release`).
+/// Whether there was one.
+fn drop_forwarded_release(events: &mut Vec<egui::Event>, key: egui::Key) -> bool {
+    let forwarded = |e: &egui::Event| matches!(e, egui::Event::Key { key: k, pressed: false, modifiers, .. } if *k == key && modifiers.command);
+    match events.iter().position(forwarded) {
+        Some(i) => {
+            events.remove(i);
+            true
+        }
+        None => false,
     }
 }
 
@@ -390,5 +419,19 @@ mod tests {
         assert_eq!(key, egui::Key::S);
         assert!(m.command && m.shift && !m.alt);
         assert!(parse_key("Mod+F12").is_none(), "keys the menu can't show are left out");
+    }
+
+    /// ⌘V chosen through the menu: the window still gets the key's real release (winit forwards
+    /// ⌘ key releases), which pasted the clipboard a second time. It is dropped; other keys and a
+    /// V released without ⌘ stay.
+    #[test]
+    fn the_real_release_of_a_menu_shortcut_is_dropped() {
+        let cmd = egui::Modifiers { mac_cmd: true, command: true, ..Default::default() };
+        let release = |key, modifiers| egui::Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers };
+        let mut events = vec![release(egui::Key::B, cmd), release(egui::Key::V, egui::Modifiers::NONE), release(egui::Key::V, cmd)];
+        assert!(drop_forwarded_release(&mut events, egui::Key::V));
+        assert_eq!(events, vec![release(egui::Key::B, cmd), release(egui::Key::V, egui::Modifiers::NONE)]);
+        assert!(!drop_forwarded_release(&mut events, egui::Key::V), "nothing more to drop");
+        assert_eq!(events.len(), 2);
     }
 }

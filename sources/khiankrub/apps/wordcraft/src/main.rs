@@ -50,6 +50,9 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         apple_events::poll(&self.4, &mut self.0, ctx);
+        // In line with the one bar's tabs and buttons (AppKit puts them higher).
+        #[cfg(target_os = "macos")]
+        traffic_lights::centre_at(f64::from(wordcraft_ui_egui::chrome::MAC_LIGHTS_CENTRE_Y));
         self.0.logic(ctx);
         self.3.show(frame);
         // A window that doesn't fit on its screen (the default size on a laptop) shrinks to fit

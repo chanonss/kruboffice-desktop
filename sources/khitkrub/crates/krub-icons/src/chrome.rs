@@ -29,6 +29,10 @@ pub const TAB_STRIP_H: f32 = 30.0;
 pub const ONE_BAR_GAP: f32 = 8.0;
 /// The one bar: the gap and the tabs.
 pub const ONE_BAR_H: f32 = ONE_BAR_GAP + TAB_STRIP_H;
+/// Where the macOS traffic lights' centres go, below the top of the window: the middle of the
+/// tabs' row, in line with File, the tabs, the file pill and the user icon. AppKit puts them about
+/// 16 points down, which looked too high (owner, 2026-11-27), so the apps move them here.
+pub const MAC_LIGHTS_CENTRE_Y: f32 = ONE_BAR_GAP + TAB_STRIP_H / 2.0;
 /// The buttons' area: two 28-point rows and the gap between them, or a large button.
 pub const CONTENT_H: f32 = 60.0;
 /// Space above and below the buttons.
@@ -144,6 +148,13 @@ pub fn file_card_with_icons(ui: &mut Ui, card: &FileCard, icons: &FileCardIcons)
     let Some(label) = card.action else { return false };
     ui.add_space(2.0);
     ui.separator();
+    card_row(ui, icons.action, label)
+}
+
+/// One more action under the file card, drawn like its own (an icon in the card's icon column and
+/// the label): Save As, Comments. `true` when clicked.
+pub fn card_row(ui: &mut Ui, icon_name: Option<&str>, label: &str) -> bool {
+    let text = ui.visuals().text_color();
     // A menu row: icon and label inside one clickable, highlighted on hover.
     let font = egui::TextStyle::Button.resolve(ui.style());
     let text_size = ui.painter().layout_no_wrap(label.to_string(), font.clone(), text).size();
@@ -155,7 +166,7 @@ pub fn file_card_with_icons(ui: &mut Ui, card: &FileCard, icons: &FileCardIcons)
         ui.painter().rect_filled(r, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
     }
     let icon = Rect::from_min_size(pos2(r.left() + pad.x, r.center().y - CARD_ICON / 2.0), vec2(CARD_ICON, CARD_ICON));
-    if let Some(name) = icons.action {
+    if let Some(name) = icon_name {
         crate::paint_named(ui.painter(), icon, name, text, true, false);
     }
     // A label, as on the avatar, so assistive technology reads the action; clicks pass through

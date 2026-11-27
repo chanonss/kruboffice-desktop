@@ -1144,6 +1144,24 @@ fn restored_mode(old: u32, group_kept: bool) -> u32 {
     if group_kept { old & 0o7777 } else { old & 0o707 }
 }
 
+/// Renames a saved workbook's file (`file.rename`), refusing to replace another file.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn rename_file(from: &str, to: &str) -> Result<()> {
+    script_sandbox_check(from)?;
+    script_sandbox_check(to)?;
+    if std::fs::symlink_metadata(to).is_ok() {
+        return Err(EngineError::Other(format!("{to}: a file with that name already exists")));
+    }
+    std::fs::rename(from, to).map_err(|e| EngineError::Other(format!("{from}: {e}")))
+}
+
+/// The browser has no folders: a workbook's path there is only its name, so renaming it only
+/// renames the workbook.
+#[cfg(target_arch = "wasm32")]
+pub fn rename_file(from: &str, _to: &str) -> Result<()> {
+    script_sandbox_check(from)
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
     script_sandbox_check(path)?;

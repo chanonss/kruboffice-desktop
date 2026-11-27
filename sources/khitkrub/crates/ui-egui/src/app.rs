@@ -203,6 +203,12 @@ impl SheetApp {
 
     /// Lays out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.ui_frame(ui);
+        // Last, once every widget has asked for its cursor: the chosen arrow, if any.
+        crate::pointer::paint(ui.ctx(), self.ui.pointer);
+    }
+
+    fn ui_frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         if !self.fonts_ready || self.fonts_rebind {
             ctx.request_repaint();

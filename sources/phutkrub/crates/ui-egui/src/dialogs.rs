@@ -45,6 +45,7 @@ fn title(id: &str) -> &'static str {
         "reuseSlides" => "Reuse Slides",
         "renameShape" => "Rename",
         "renameLayout" => "Rename Layout",
+        "renamePresentation" => "Rename Presentation",
         "paragraph" => "Paragraph",
         "tabs" => "Tabs",
         "font" => "Font",

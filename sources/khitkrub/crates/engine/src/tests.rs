@@ -7143,3 +7143,36 @@ fn save_as_picture_writes_the_pictures_own_bytes() {
     assert!(s.execute("picture.save", json!({"id": id})).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The file name menu's Rename (owner, 2026-11-27): an unsaved workbook takes the name as its
+/// title (the web keeps a downloaded workbook's extension); a saved one is renamed in its folder
+/// and never replaces another file.
+#[test]
+fn rename_names_an_unsaved_workbook_and_renames_a_saved_file() {
+    let mut s = s();
+    s.execute("file.rename", json!({"name": "  งบประมาณ 2570 "})).unwrap();
+    assert_eq!(s.doc().unwrap().display_title(), "งบประมาณ 2570");
+    assert!(!s.doc().unwrap().is_dirty(), "a name is not an edit to the cells");
+    for bad in ["", "  ", "a/b", "a\\b", "dot.", "..", "tab\tname", &"ก".repeat(201)] {
+        assert!(s.execute("file.rename", json!({"name": bad})).is_err(), "{bad:?}");
+    }
+    assert_eq!(s.doc().unwrap().display_title(), "งบประมาณ 2570");
+    s.doc_mut().unwrap().title = "Book1.xlsx".into();
+    s.execute("file.rename", json!({"name": "Sales"})).unwrap();
+    assert_eq!(s.doc().unwrap().display_title(), "Sales.xlsx");
+
+    let nonce = unique_nonce();
+    let dir = std::env::temp_dir().join(format!("gridcraft-rename-{}-{nonce}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("book.xlsx");
+    s.execute("file.save", json!({"path": path.to_string_lossy()})).unwrap();
+    s.execute("file.rename", json!({"name": "Budget"})).unwrap();
+    let renamed = dir.join("Budget.xlsx");
+    assert_eq!(s.doc().unwrap().path.as_deref(), Some(renamed.to_string_lossy().as_ref()));
+    assert!(renamed.exists() && !path.exists());
+    std::fs::write(dir.join("Taken.xlsx"), b"other").unwrap();
+    assert!(s.execute("file.rename", json!({"name": "Taken"})).is_err());
+    assert_eq!(std::fs::read(dir.join("Taken.xlsx")).unwrap(), b"other");
+    assert!(renamed.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -2062,3 +2062,14 @@ pane tile	AutoFit	พอดีอัตโนมัติ
 	Orientation:	แนวกระดาษ:
 	Margins and Orientation	ระยะขอบและแนวกระดาษ
 	Insert a symbol	แทรกสัญลักษณ์
+	Mouse pointer:	ตัวชี้เมาส์:
+	System pointer	ตามระบบ
+	White arrow	ลูกศรขาว
+	Black arrow	ลูกศรดำ
+	Gold arrow	ลูกศรทอง
+	Large arrow	ลูกศรใหญ่
+	Cat	แมว
+	Rabbit	กระต่าย
+	Chick	ลูกเจี๊ยบ
+	Elephant	ช้าง
+	Changes only the arrow. The pointers for typing text, links and resizing stay the system's.	เปลี่ยนเฉพาะลูกศร ตัวชี้สำหรับพิมพ์ข้อความ ลิงก์ และปรับขนาด ยังเป็นแบบของระบบ

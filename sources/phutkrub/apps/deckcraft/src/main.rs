@@ -25,6 +25,8 @@ mod graphics;
 mod logging;
 #[cfg(not(target_arch = "wasm32"))]
 mod pasteboard;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 use deckcraft_engine::Session;
 use deckcraft_ui_egui::{Services, SlideApp};
@@ -40,6 +42,9 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         apple_events::poll(&self.1, &mut self.0, ctx);
+        // In line with the one bar's tabs and buttons (AppKit puts them higher).
+        #[cfg(target_os = "macos")]
+        traffic_lights::centre_at(f64::from(deckcraft_ui_egui::ribbon::MAC_LIGHTS_CENTRE_Y));
         self.0.logic(ctx);
     }
     /// Forward native raw input to the wrapped application once per pass.

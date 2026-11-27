@@ -1060,6 +1060,11 @@ pub(super) const DIALOGS: &[(&str, &str)] = &[
 /// Labels of the ribbon menus, pop-ups and palettes that the reference catalog does not cover. Kept
 /// apart so the two catalogs above keep the same key set; it never overlaps them.
 pub(super) const EXTRA: &[(&str, &str)] = &[
+    // The file name menu's Rename (owner, 2026-11-27), worded as KhianKrub's.
+    ("Rename…", "เปลี่ยนชื่อ…"),
+    ("Rename Workbook", "เปลี่ยนชื่อเวิร์กบุ๊ก"),
+    ("Workbook name:", "ชื่อเวิร์กบุ๊ก:"),
+    ("Enter a valid workbook name (up to 200 characters, without path separators).", "ใส่ชื่อเวิร์กบุ๊กที่ใช้ได้ (ไม่เกิน 200 ตัวอักษร และไม่มีเครื่องหมายแบ่งโฟลเดอร์)"),
     ("Pinned Fonts", "ฟอนต์ที่ปักหมุด"),
     ("All Fonts", "ฟอนต์ทั้งหมด"),
     ("Pin to Top", "ปักหมุดไว้ด้านบน"),
@@ -1918,6 +1923,21 @@ pub(super) const EXTRA: &[(&str, &str)] = &[
         "ลบแล้วหายไปเลยนะ กู้คืนไม่ได้แล้ว ถ้ามีงานไหนอยากเก็บไว้ ดาวน์โหลดสำเนาไว้ก่อนได้เลย จะลบฉบับร่างทั้งหมดตอนนี้เลยไหม?",
     ),
     ("Delete them all", "ลบทั้งหมดเลย"),
+    // File ▸ Options ▸ General: the mouse pointer (`pointer.rs`).
+    ("Mouse pointer", "ตัวชี้เมาส์"),
+    ("System pointer", "ตามระบบ"),
+    ("White arrow", "ลูกศรขาว"),
+    ("Black arrow", "ลูกศรดำ"),
+    ("Gold arrow", "ลูกศรทอง"),
+    ("Large arrow", "ลูกศรใหญ่"),
+    ("Cat", "แมว"),
+    ("Rabbit", "กระต่าย"),
+    ("Chick", "ลูกเจี๊ยบ"),
+    ("Elephant", "ช้าง"),
+    (
+        "Changes only the arrow. The pointers for typing text, links and resizing stay the system's.",
+        "เปลี่ยนเฉพาะลูกศร ตัวชี้สำหรับพิมพ์ข้อความ ลิงก์ และปรับขนาด ยังเป็นแบบของระบบ",
+    ),
 ];
 
 /// Translates an interface label; `None` for a label the catalog does not know, so `i18n.rs` can

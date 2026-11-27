@@ -69,6 +69,25 @@ pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Renames the presentation's file (`file.rename`), inside the automation write root when there
+/// is one, refusing to replace another file.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn rename_file(from: &str, to: &str) -> Result<(), String> {
+    crate::file_access::check_write(from)?;
+    crate::file_access::check_write(to)?;
+    if std::fs::symlink_metadata(to).is_ok() {
+        return Err(format!("{to}: a file with that name already exists"));
+    }
+    std::fs::rename(from, to).map_err(|e| format!("{from}: {e}"))
+}
+
+/// The browser has no folders: a presentation's path there is only the name it was downloaded
+/// as, so renaming it only renames the presentation.
+#[cfg(target_arch = "wasm32")]
+pub fn rename_file(_from: &str, _to: &str) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn write_file(path: &str, _bytes: &[u8]) -> Result<(), String> {
     Err(format!("{path}: saving to a path is not available in the browser"))

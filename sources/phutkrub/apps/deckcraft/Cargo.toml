@@ -41,6 +41,11 @@ winit = { version = "0.30", default-features = false }
 # GridCraft, PdfCraft and PhotoCraft) registers the handler (Objective-C interop needs unsafe, which
 # our workspace forbids) behind a safe API. Pinned exactly: review the diff before bumping.
 fmv-macos-events = "=0.1.0"
+# traffic_lights.rs moves the window buttons in line with the one bar (safe AppKit calls). Already
+# in Cargo.lock (winit); pinned exactly to the same versions.
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow", "NSButton", "NSControl", "NSView"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["x11"] }

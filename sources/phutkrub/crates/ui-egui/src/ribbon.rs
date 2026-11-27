@@ -56,6 +56,8 @@ use smartart::smartart_design;
 pub use table::paint_table_style;
 use table::{table_design, table_layout};
 pub use title_bar::{MAC_CONTENT_LEFT, MAC_TITLE_BAR, TITLE_H, title_bar};
+/// Where the apps put the macOS traffic lights' centres (`krub_icons::chrome::MAC_LIGHTS_CENTRE_Y`).
+pub const MAC_LIGHTS_CENTRE_Y: f32 = krub_icons::chrome::MAC_LIGHTS_CENTRE_Y;
 #[cfg(test)]
 use title_bar::{MAC_LIGHT, MAC_LIGHT_PITCH, MAC_LIGHTS_LEFT, title_geometry};
 pub use transitions::paint_transition_tile;

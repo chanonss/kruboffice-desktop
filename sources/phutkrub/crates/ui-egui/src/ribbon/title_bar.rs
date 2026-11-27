@@ -144,10 +144,33 @@ pub(super) fn file_pill(app: &mut SlideApp, ui: &mut Ui, area: Rect) {
     // Named as the old title was ("Trip plan (draft) — Saving…", "Presentation1 — Edited").
     let label = document_title(app);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+    let place_icon = match (&d.path, draft) {
+        (Some(_), _) => Some("folder"),
+        (None, Some(_)) => Some("this-browser"),
+        (None, None) => None,
+    };
+    // The same menu as KhianKrub's (owner, 2026-11-27): icons, Rename…, then Save As… and Comments.
     egui::Popup::menu(&resp).show(|ui| {
-        let card = krub_icons::chrome::FileCard { name: &name, state: &state, place: place.as_deref(), action: Some(tl!("Save As…")) };
-        if krub_icons::chrome::file_card(ui, &card) {
+        let card = krub_icons::chrome::FileCard { name: &name, state: &state, place: place.as_deref(), action: Some(tl!("Rename…")) };
+        let icons = krub_icons::chrome::FileCardIcons {
+            name: Some("file-name"),
+            state: draft.is_some().then_some("this-device"),
+            place: place_icon,
+            action: Some("pencil"),
+        };
+        if krub_icons::chrome::file_card_with_icons(ui, &card, &icons) {
+            let mut d = crate::dialogs::Dialog::new("renamePresentation");
+            d.params = json!({"name": name});
+            app.dialog = Some(d);
+            ui.close();
+        }
+        if krub_icons::chrome::card_row(ui, Some("save-as"), tl!("Save As…")) {
             app.open_backstage(crate::backstage::Page::SaveAs);
+            ui.close();
+        }
+        ui.separator();
+        if krub_icons::chrome::card_row(ui, Some("comment"), tl!("Comments")) {
+            let _ = app.run("view.pane", json!({"pane": "comments", "toggle": true}));
             ui.close();
         }
     });

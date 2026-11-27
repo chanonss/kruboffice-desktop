@@ -298,6 +298,12 @@ impl SlideApp {
     /// no-document paths, reaches the same outer reset observation and finalizer below. No early
     /// route may publish or inspect IME output on its own.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.ui_frame(ui);
+        // Last, once every widget has asked for its cursor: the chosen arrow, if any.
+        crate::pointer::paint(ui.ctx(), self.ui.pointer);
+    }
+
+    fn ui_frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         if !Self::root_viewport_admitted(&ctx) {
             log::debug!("ignoring SlideApp::ui for render-only viewport {:?}", ctx.viewport_id());

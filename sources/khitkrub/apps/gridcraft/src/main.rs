@@ -19,6 +19,8 @@ mod logging;
 mod native_menu;
 mod opener;
 mod print;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -35,6 +37,8 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         {
+            // In line with the one bar's tabs and buttons (AppKit puts them higher).
+            traffic_lights::centre_at(f64::from(gridcraft_ui_egui::ribbon::MAC_LIGHTS_CENTRE_Y));
             if self.2.is_none() && std::env::var_os("GRIDCRAFT_NO_NATIVE_MENU").is_none() {
                 self.2 = Some(native_menu::NativeMenu::install(ctx));
             }

@@ -24,6 +24,8 @@ deckcraft-format = { workspace = true }
 deckcraft-media = { workspace = true }
 egui = { workspace = true, features = ["default_fonts", "monochrome_emoji_fonts"] }
 egui_extras = { workspace = true }
+# Decodes the mouse pointer pictures (`src/pointer.rs`); already in the workspace.
+image = { workspace = true }
 craft-ui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

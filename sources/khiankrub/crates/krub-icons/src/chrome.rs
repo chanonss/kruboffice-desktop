@@ -29,6 +29,10 @@ pub const TAB_STRIP_H: f32 = 30.0;
 pub const ONE_BAR_GAP: f32 = 8.0;
 /// The one bar: the gap and the tabs.
 pub const ONE_BAR_H: f32 = ONE_BAR_GAP + TAB_STRIP_H;
+/// Where the macOS traffic lights' centres go, below the top of the window: the middle of the
+/// tabs' row, in line with File, the tabs, the file pill and the user icon. AppKit puts them about
+/// 16 points down, which looked too high (owner, 2026-11-27), so the apps move them here.
+pub const MAC_LIGHTS_CENTRE_Y: f32 = ONE_BAR_GAP + TAB_STRIP_H / 2.0;
 /// The buttons' area: two 28-point rows and the gap between them, or a large button.
 pub const CONTENT_H: f32 = 60.0;
 /// Space above and below the buttons.

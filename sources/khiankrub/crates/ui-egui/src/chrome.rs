@@ -176,6 +176,8 @@ pub(crate) fn qat_menu(ui: &mut Ui, app: &mut WordApp) {
 /// calls (`unsafe`, which the workspace forbids). So the title bar is that band: the lights sit
 /// vertically centred in it, with the controls beside them.
 pub const MAC_TITLE_BAR: f32 = 28.0;
+/// Where the apps put the macOS traffic lights' centres (`krub_icons::chrome::MAC_LIGHTS_CENTRE_Y`).
+pub const MAC_LIGHTS_CENTRE_Y: f32 = krub_icons::chrome::MAC_LIGHTS_CENTRE_Y;
 /// The traffic lights as AppKit lays them out: button diameter, centre-to-centre pitch and the
 /// first button's left edge (8–10 pt depending on the macOS version; the larger value keeps the
 /// gap after them from shrinking).

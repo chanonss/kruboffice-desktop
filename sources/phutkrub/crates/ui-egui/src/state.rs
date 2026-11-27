@@ -89,6 +89,9 @@ pub struct UiState {
     /// for decks with clickable choices (#1445).
     pub show_keep_cursor: bool,
     pub ui_scale: f32,
+    /// The mouse pointer's arrow: the system's (the default) or one of KrubOffice's pictures
+    /// ([`crate::pointer`]). An unknown saved value reads as the system's.
+    pub pointer: crate::pointer::Pointer,
     /// Format Shape pane: tab (`fill`, `effects`, `size`, `picture`, `text`).
     pub format_tab: String,
     /// The Text Pane's current SmartArt line (Add Shape, Promote and Demote act on it).
@@ -135,6 +138,7 @@ impl Default for UiState {
             presenter_view: true,
             show_keep_cursor: false,
             ui_scale: 1.0,
+            pointer: crate::pointer::Pointer::System,
             format_tab: "fill".into(),
             smartart_row: 0,
             smartart_focus: None,

@@ -23,6 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "file.close", "Close", ["File"], Some("Cmd+W"), "{force?: bool, document?: bool} (closes the active window, or with `document` the workbook and all its windows; the workbook closes with its last window)", has_doc, close),
         cmd!(noundo "file.exportCsv", "Export as CSV", ["File", "Export"], None, "{path, sheet?, values?: bool} → {path, bytes}: writes the cells as displayed, like Excel's Save As CSV; `values: true` writes raw values instead (full-precision numbers, ISO 8601 dates and times, TRUE/FALSE)", has_doc, |s, p| export(s, p, "csv")),
         cmd!(noundo "file.exportHtml", "Save as Web Page", ["File", "Export"], None, "{path}", has_doc, |s, p| export(s, p, "html")),
+        cmd!(noundo "file.rename", "Rename Workbook", ["File"], None, "{name} (the workbook's name without its extension: a saved file is renamed in its folder; an unsaved workbook takes it for its title, its draft and its next save)", has_doc, rename),
         cmd!("file.properties", "Properties", ["File"], None, "{title?, subject?, author?, company?, keywords?, description?}", has_doc, properties),
         cmd!(
             query "file.options",
@@ -244,6 +245,50 @@ fn export(s: &mut Session, p: &Json, ext: &str) -> Result<Json> {
     };
     crate::io::write_file(&target, &bytes)?;
     Ok(json!({"path": target, "bytes": bytes.len()}))
+}
+
+/// The longest workbook name `file.rename` takes, in characters.
+pub const MAX_NAME_CHARS: usize = 200;
+
+/// Renames the workbook (owner, 2026-11-27, as KhianKrub's file name menu does): a saved file is
+/// renamed in its folder and keeps its extension; a workbook without a file (every workbook on the
+/// web) takes the name as its title, which its browser draft, the title bar and the next save use.
+fn rename(s: &mut Session, p: &Json) -> Result<Json> {
+    let name = str_param(p, "name").map(str::trim).unwrap_or_default();
+    if name.is_empty()
+        || name.chars().count() > MAX_NAME_CHARS
+        || name.ends_with(['.', ' '])
+        || matches!(name, "." | "..")
+        || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+    {
+        return Err(bad("file.rename", "Enter a valid workbook name (up to 200 characters, without path separators)."));
+    }
+    let d = s.doc_mut()?;
+    if let Some(path) = d.path.clone() {
+        let old = std::path::Path::new(&path);
+        let destination = match old.extension() {
+            Some(ext) => old.with_file_name(format!("{name}.{}", ext.to_string_lossy())),
+            None => old.with_file_name(name),
+        };
+        let destination = destination.to_string_lossy().to_string();
+        if destination != path {
+            crate::io::rename_file(&path, &destination)?;
+            d.path = Some(destination);
+        }
+    } else {
+        // A workbook downloaded on the web is titled with its file name ("Book1.xlsx"): the new
+        // name keeps that extension.
+        let ext = std::path::Path::new(&d.title)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .filter(|_| crate::io::FileKind::from_path(&d.title).is_some())
+            .map(str::to_string);
+        d.title = match ext {
+            Some(ext) => format!("{name}.{ext}"),
+            None => name.to_string(),
+        };
+    }
+    Ok(json!({"name": name, "title": d.display_title(), "path": d.path}))
 }
 
 fn properties(s: &mut Session, p: &Json) -> Result<Json> {

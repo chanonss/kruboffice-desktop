@@ -184,6 +184,7 @@
 	End Review	สิ้นสุดการตรวจทาน
 	End of slide show	จบการนำเสนอ
 	End\nReview	สิ้นสุด\nการตรวจทาน
+	Enter a valid presentation name (up to 200 characters, without path separators).	ใส่ชื่องานนำเสนอที่ใช้ได้ (ไม่เกิน 200 ตัวอักษร และไม่มีเครื่องหมายแบ่งโฟลเดอร์)
 	Equation	สมการ
 	Eraser	ยางลบ
 	Exit Edit Points	ออกจากการแก้ไขจุด
@@ -415,7 +416,9 @@
 	Remove the picture style	นำลักษณะรูปภาพออก
 	Remove\nBackground	นำ\nพื้นหลังออก
 	Rename	เปลี่ยนชื่อ
+	Rename Presentation	เปลี่ยนชื่องานนำเสนอ
 	Rename Section…	เปลี่ยนชื่อส่วน…
+	Rename…	เปลี่ยนชื่อ…
 	Repeated word	คำที่ซ้ำ
 	Replace	แทนที่
 	Replace Fonts…	แทนที่ฟอนต์…
@@ -1664,3 +1667,14 @@ shapes	Freeform: Scribble	รูปอิสระ: ลายเส้น
 	Locked. Unlock it from the right-click menu.	ล็อกอยู่ ปลดล็อกได้จากเมนูคลิกขวา
 	Locked: it can't be moved, resized or edited.	ล็อกอยู่ ย้าย ปรับขนาด และแก้ไขไม่ได้
 	Lock it so it can't be moved, resized or edited	ล็อกไว้ไม่ให้ย้าย ปรับขนาด หรือแก้ไข
+	Mouse pointer:	ตัวชี้เมาส์:
+	System pointer	ตามระบบ
+	White arrow	ลูกศรขาว
+	Black arrow	ลูกศรดำ
+	Gold arrow	ลูกศรทอง
+	Large arrow	ลูกศรใหญ่
+	Cat	แมว
+	Rabbit	กระต่าย
+	Chick	ลูกเจี๊ยบ
+	Elephant	ช้าง
+	Changes only the arrow. The pointers for typing text, links and resizing stay the system's.	เปลี่ยนเฉพาะลูกศร ตัวชี้สำหรับพิมพ์ข้อความ ลิงก์ และปรับขนาด ยังเป็นแบบของระบบ

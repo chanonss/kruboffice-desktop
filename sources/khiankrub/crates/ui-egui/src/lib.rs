@@ -80,6 +80,7 @@ pub mod objects;
 pub mod options;
 pub mod panes;
 pub mod paste_picture;
+pub mod pointer;
 pub mod previews;
 pub mod print_page;
 pub mod printing;
@@ -347,6 +348,9 @@ pub struct UiState {
     /// Animation effects (smooth scrolling, fades): on, off, or follow the system's setting, which
     /// is the default. An unknown saved value reads as the default.
     pub animations: theme::Animations,
+    /// The mouse pointer's arrow: the system's (the default) or one of KrubOffice's pictures
+    /// ([`pointer`]). An unknown saved value reads as the system's.
+    pub pointer: pointer::Pointer,
     /// The dark-mode switch `ui.json` held before `theme` (#115): read once to migrate, never written.
     #[serde(rename = "dark", skip_serializing)]
     pub(crate) legacy_dark: Option<bool>,
@@ -476,6 +480,7 @@ impl Default for UiState {
             interface_size: theme::InterfaceSize::default(),
             legacy_interface_size: None,
             animations: theme::Animations::default(),
+            pointer: pointer::Pointer::default(),
             legacy_dark: None,
             // UI experiment: the left panel opens on the page thumbnails.
             nav_tab: "pages".into(),
@@ -1801,6 +1806,20 @@ impl WordApp {
                 self.read_system_animations();
                 json!({"animations": self.ui.animations.code(), "enabled": self.animations_on(), "system": self.system_animations})
             }
+            "ui.pointer" => {
+                // `system` or a KrubOffice pointer (`white`, `cat`…); no value reads it.
+                if let Some(v) = s("value") {
+                    match pointer::Pointer::from_code(v) {
+                        Some(ptr) => self.ui.pointer = ptr,
+                        None => {
+                            return Some(Err(format!(
+                                "unknown pointer {v:?}; use system, white, black, gold, large, cat, rabbit, chick or elephant"
+                            )));
+                        }
+                    }
+                }
+                json!({"pointer": self.ui.pointer.code()})
+            }
             "ui.localRecovery" => {
                 if let Some(value) = p.get("value") {
                     let Some(enabled) = value.as_bool() else {
@@ -2598,6 +2617,12 @@ impl WordApp {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.ui_frame(ui);
+        // Last, once every widget has asked for its cursor: the chosen arrow, if any.
+        pointer::paint(ui.ctx(), self.ui.pointer);
+    }
+
+    fn ui_frame(&mut self, ui: &mut egui::Ui) {
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
@@ -3054,6 +3079,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.bandMotif"
             | "ui.interfaceSize"
             | "ui.animations"
+            | "ui.pointer"
             | "ui.language"
             | "ui.localRecovery"
             | "ui.recoveryDrafts"

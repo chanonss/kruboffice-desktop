@@ -146,7 +146,30 @@ fn general_options(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
             .response
             .labelled_by(label.id);
         ui.end_row();
+        let label = ui.label(lang.tr("Mouse pointer"));
+        let current = app.ui.pointer;
+        ui.horizontal(|ui| {
+            current.preview(ui, 20.0);
+            craft_ui::ComboBox::from_id_salt("backstage_pointer")
+                .width(160.0)
+                .selected_text(lang.tr(current.label()))
+                .show_ui(ui, |ui| {
+                    for p in crate::pointer::Pointer::ALL {
+                        let row = ui.horizontal(|ui| {
+                            p.preview(ui, 20.0);
+                            ui.selectable_label(current == p, lang.tr(p.label()))
+                        });
+                        if row.inner.clicked() {
+                            app.ui.pointer = p;
+                        }
+                    }
+                })
+                .response
+                .labelled_by(label.id);
+        });
+        ui.end_row();
     });
+    dim(ui, lang.tr("Changes only the arrow. The pointers for typing text, links and resizing stay the system's."));
 }
 
 /// The interface language picker.

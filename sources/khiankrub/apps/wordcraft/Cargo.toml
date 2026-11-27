@@ -43,7 +43,7 @@ objc2 = "0.6"
 # The clipboard's RTF (`public.rtf`) through NSPasteboard's safe `dataForType:` and
 # `setData:forType:`. Already in the build through arboard, at this version; this adds only the
 # NSString and NSData bindings.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSData"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSData", "NSArray"] }
 # Closing the window must quit through NSApplication rather than by dropping the NSWindow
 # inside the AppKit run loop (see `schedule_macos_terminate`).
 dispatch2 = "0.3"

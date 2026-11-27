@@ -349,6 +349,20 @@ impl Dialog {
                 vec![Number { key: "width", label: "Standard column width (pixels):" }],
                 json!({"width": 64}),
             ),
+            // The file name menu's Rename… (owner, 2026-11-27): the name without its extension.
+            "renameWorkbook" => Dialog::form(
+                "renameWorkbook",
+                "Rename Workbook",
+                "file.rename",
+                vec![Text { key: "name", label: "Workbook name:" }],
+                json!({"name": app.session.active().map(|d| {
+                    let title = d.display_title();
+                    match gridcraft_engine::io::FileKind::from_path(&title) {
+                        Some(_) => std::path::Path::new(&title).file_stem().map_or_else(|| title.clone(), |s| s.to_string_lossy().to_string()),
+                        None => title,
+                    }
+                })}),
+            ),
             "renameSheet" => Dialog::form(
                 "renameSheet",
                 "Rename Sheet",

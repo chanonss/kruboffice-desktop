@@ -322,10 +322,15 @@ pub fn show_full_preview(app: &mut WordApp, ui: &mut Ui) {
     let mut toolbar = egui::Panel::top("full_print_preview_toolbar");
     if mac {
         let left = bar.content_left as i8;
-        toolbar = toolbar.min_size(bar.height).frame(egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
+        // The buttons' row is centred on the traffic lights, which the app moves to the one bar's
+        // middle (`chrome::MAC_LIGHTS_CENTRE_Y`).
+        let style = ctx.global_style();
+        let centre = crate::chrome::MAC_LIGHTS_CENTRE_Y;
+        let top = (centre - style.spacing.interact_size.y / 2.0).clamp(3.0, f32::from(i8::MAX)) as i8;
+        toolbar = toolbar.min_size(bar.height.max(2.0 * centre)).frame(egui::Frame::side_top_panel(&style).inner_margin(egui::Margin {
             left,
             right: 8,
-            top: 3,
+            top,
             bottom: 3,
         }));
     }
@@ -716,9 +721,13 @@ mod full_preview_tests {
                 app,
             );
             h.run_steps(5);
-            let x = h.get_by_label("Close Preview").rect().min.x;
+            let close = h.get_by_label("Close Preview").rect();
+            let x = close.min.x;
             if mac {
                 assert!(x >= left, "Close Preview at {x}, the traffic lights end before {left}");
+                // The harness draws inside an 8 pt margin; the window has none.
+                let y = close.center().y - 8.0;
+                assert!((y - crate::chrome::MAC_LIGHTS_CENTRE_Y).abs() <= 1.0, "Close Preview's centre at {y}, in line with the traffic lights");
             } else {
                 assert!(x < left, "no inset without the macOS title bar: {x}");
             }

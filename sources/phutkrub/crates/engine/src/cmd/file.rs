@@ -73,6 +73,15 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(noundo "file.close", "Close", ["File"], Some("Cmd+W"), "{}", has_doc, close),
         cmd!(
+            noundo "file.rename",
+            "Rename Presentation",
+            ["File"],
+            None,
+            "{name} (the presentation's name without its extension: a saved file is renamed in its folder; an unsaved presentation takes it for its title, its draft and its next save)",
+            has_doc,
+            rename
+        ),
+        cmd!(
             "file.properties",
             "Properties",
             ["File"],
@@ -756,6 +765,40 @@ fn close(s: &mut Session, _p: &Value) -> Result<Value> {
         s.close_document(i);
     }
     ok()
+}
+
+/// The longest presentation name `file.rename` takes, in characters.
+pub const MAX_NAME_CHARS: usize = 200;
+
+/// Renames the presentation (owner, 2026-11-27, as KhianKrub's file name menu does): a saved file
+/// is renamed in its folder and keeps its extension (on the web, where a path is only the name it
+/// was downloaded as, the next download takes the new name); a presentation without a file takes
+/// the name as its title, which its browser draft, the title bar and the next save use.
+fn rename(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = str_param(p, "name").map(str::trim).unwrap_or_default();
+    if name.is_empty()
+        || name.chars().count() > MAX_NAME_CHARS
+        || name.ends_with(['.', ' '])
+        || matches!(name, "." | "..")
+        || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+    {
+        return Err(bad("file.rename", "Enter a valid presentation name (up to 200 characters, without path separators)."));
+    }
+    let d = s.doc_mut()?;
+    if let Some(path) = d.path.clone() {
+        let old = std::path::Path::new(&path);
+        let destination = match old.extension() {
+            Some(ext) => old.with_file_name(format!("{name}.{}", ext.to_string_lossy())),
+            None => old.with_file_name(name),
+        };
+        let destination = destination.to_string_lossy().to_string();
+        if destination != path {
+            crate::io::rename_file(&path, &destination).map_err(EngineError::Other)?;
+            d.path = Some(destination);
+        }
+    }
+    d.title = name.to_string();
+    Ok(json!({"name": name, "title": d.title(), "path": d.path}))
 }
 
 fn properties(s: &mut Session, p: &Value) -> Result<Value> {

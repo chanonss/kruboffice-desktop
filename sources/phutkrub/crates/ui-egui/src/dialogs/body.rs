@@ -38,7 +38,7 @@ pub(super) fn body(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         "altText" => dlg_alt_text(app, ui, d),
         "outline" => dlg_outline(app, ui, d),
         "reuseSlides" => dlg_reuse_slides(app, ui, d),
-        "renameSection" | "renameShape" | "renameLayout" => dlg_rename_section(app, ui, d),
+        "renameSection" | "renameShape" | "renameLayout" | "renamePresentation" => dlg_rename_section(app, ui, d),
         "font" => font_dialog(app, ui, d),
         "paragraph" => paragraph_dialog(app, ui, d),
         "tabs" => tabs_dialog(app, ui, d),
@@ -704,6 +704,11 @@ fn dlg_rename_section(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let (ok, cancel) = buttons(ui, "Rename");
     if ok {
         let name = d.get("name", "");
+        // The file name menu's Rename… (owner, 2026-11-27): a name it refuses keeps the dialog
+        // open, with the reason in the status bar.
+        if d.id == "renamePresentation" {
+            return app.run("file.rename", json!({"name": name})).is_ok() || cancel;
+        }
         match d.id.as_str() {
             "renameSection" => run(app, "section.rename", json!({"index": d.params.get("index").cloned().unwrap_or_default(), "name": name})),
             "renameShape" => run(app, "shape.rename", json!({"id": d.params.get("id").cloned().unwrap_or_default(), "name": name})),
@@ -1402,6 +1407,28 @@ fn preferences_general(app: &mut SlideApp, ui: &mut Ui) {
             .labelled_by(label.id);
     });
     options_note(ui, "Makes the ribbon, menus and dialogs larger or smaller. 100% follows your system's display scaling. Slide zoom is separate.");
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Mouse pointer:"));
+        let current = app.ui.pointer;
+        current.preview(ui, 20.0);
+        craft_ui::ComboBox::from_id_salt("mouse_pointer")
+            .width(220.0)
+            .selected_text(tl!(current.label()))
+            .show_ui(ui, |ui| {
+                for p in crate::pointer::Pointer::ALL {
+                    let row = ui.horizontal(|ui| {
+                        p.preview(ui, 20.0);
+                        ui.selectable_label(current == p, tl!(p.label()))
+                    });
+                    if row.inner.clicked() {
+                        app.ui.pointer = p;
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+    options_note(ui, "Changes only the arrow. The pointers for typing text, links and resizing stay the system's.");
     if let Some(load) = &app.services.load_system_ui_fonts {
         if ui.button(tl!("Use system interface fonts")).clicked() {
             load();

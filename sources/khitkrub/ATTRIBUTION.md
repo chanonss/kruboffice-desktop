@@ -61,6 +61,22 @@ Generated-in-code art is original and has no file to list: the UI icons not take
 |---|---|---|---|---|
 | `crates/krub-icons/src/lib.rs` | KrubOffice contributors | Original Quiet Glass Rust drawings, 24×24 grid, 2026-11-01 | MIT OR Apache-2.0 | Shared toolbar preview and glass letter treatment |
 | `assets/app-icon/khitkrub.svg` (Quiet Glass revision) | KrubOffice contributors; The Sarabun Project Authors | Original glass treatment of existing Sarabun Bold outline, 2026-11-01 | MIT OR Apache-2.0; letter outline SIL OFL 1.1 | Updated web icon master |
+| `assets/pointers/classic-white.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the white arrow mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/classic-white.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/classic-white.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/classic-black.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the black arrow mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/classic-black.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/classic-black.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/gold.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the gold arrow mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/gold.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/gold.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/big-white.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the large arrow mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/big-white.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/big-white.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-cat.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the cat mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-cat.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/animal-cat.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-rabbit.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the rabbit mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-rabbit.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/animal-rabbit.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-chick.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the chick mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-chick.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/animal-chick.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-elephant.svg` | Chanon Sarasuk with Claude | original drawing made for KrubOffice (2026-11-27): the elephant mouse pointer, 32 × 32, drawn in SVG | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
+| `assets/pointers/animal-elephant.png` | Chanon Sarasuk with Claude | rendered from `assets/pointers/animal-elephant.svg` at 96 × 96 (headless Chromium) | MIT OR Apache-2.0 | Mouse pointer picture (`pointer.rs`); no vendor assets |
 
 ## Quiet Glass shared catalog (2026-11-01)
 

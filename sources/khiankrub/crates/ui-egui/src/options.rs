@@ -163,6 +163,7 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     theme_picker(app, ui);
     band_pickers(app, ui);
     interface_size_picker(app, ui);
+    pointer_picker(app, ui);
     if let Some(load) = &app.services.load_system_ui_fonts {
         if ui.button(tl!("Use system interface fonts")).clicked() {
             load();
@@ -700,6 +701,29 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
         .small()
         .weak(),
     );
+}
+
+/// The mouse pointer's arrow: the system's or one of KrubOffice's eight pictures, each shown
+/// beside its name.
+fn pointer_picker(app: &mut WordApp, ui: &mut Ui) {
+    use crate::pointer::Pointer;
+    let current = app.ui.pointer;
+    ui.horizontal(|ui| {
+        ui.label(tl!("Mouse pointer:"));
+        current.preview(ui, 20.0);
+        egui::ComboBox::from_id_salt("mouse_pointer").selected_text(tl!(current.label())).width(220.0).show_ui(ui, |ui| {
+            for p in Pointer::ALL {
+                let row = ui.horizontal(|ui| {
+                    p.preview(ui, 20.0);
+                    ui.steady_label(current == p, tl!(p.label()))
+                });
+                if row.inner.clicked() {
+                    let _ = app.run("ui.pointer", json!({"value": p.code()}));
+                }
+            }
+        });
+    });
+    note(ui, "Changes only the arrow. The pointers for typing text, links and resizing stay the system's.");
 }
 
 /// Animation effects: on, off, or follow the system's setting (the default). Under "Use system

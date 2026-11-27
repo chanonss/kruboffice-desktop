@@ -11,7 +11,7 @@ mod ribbon_layout;
 /// KhitKrub's own version number, shown on the Account page and in the About dialog and read by
 /// `packaging/web/publish.sh`. The GridCraft version this fork is based on is in the crates' own
 /// `Cargo.toml` (0.14.2 at the fork) and in `FORK-CHANGES.md`; change this one for each release.
-pub const APP_VERSION: &str = "0.8.1";
+pub const APP_VERSION: &str = "0.8.2";
 
 /// GridCraft as craft-update knows it, with its 128 px icon and accent colour: the update
 /// prompt shows both, and an AppImage's menu entry gets the icon.
@@ -58,6 +58,7 @@ pub mod outline;
 pub mod panes;
 pub mod paper_view;
 pub mod pivot_pane;
+pub mod pointer;
 pub mod printing;
 pub mod ribbon;
 pub mod selection_glide;
@@ -161,6 +162,9 @@ pub struct UiState {
     /// [`INTERFACE_SCALE_MIN`]..=[`INTERFACE_SCALE_MAX`]; a malformed saved value reads as 100.
     #[serde(deserialize_with = "lenient_interface_scale")]
     pub interface_scale: u16,
+    /// The mouse pointer's arrow: the system's (the default) or one of KrubOffice's pictures
+    /// ([`pointer`]). An unknown saved value reads as the system's.
+    pub pointer: pointer::Pointer,
 }
 
 pub const INTERFACE_SCALE_MIN: u16 = 75;
@@ -201,6 +205,7 @@ impl Default for UiState {
             keytip_invoke_next: None,
             language: i18n::Language::En,
             interface_scale: 100,
+            pointer: pointer::Pointer::System,
         }
     }
 }
