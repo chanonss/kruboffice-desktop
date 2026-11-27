@@ -68,13 +68,14 @@ impl App {
         }
     }
 
-    /// The folder name of this program's settings, which hold its recent files (`ui.json`).
-    /// KhianKrub keeps WordCraft's folder so settings from KhianKrub 0.9 carry over.
-    pub fn settings_folder(self) -> &'static str {
+    /// The folder names of this program's settings, which hold its recent files (`ui.json`),
+    /// in the order they are looked for. KhianKrub moved from WordCraft's folder to its own in
+    /// 0.19; WordCraft's is read only while KhianKrub's doesn't exist yet.
+    pub fn settings_folders(self) -> &'static [&'static str] {
         match self {
-            App::KhianKrub => "WordCraft",
-            App::KhitKrub => "KhitKrub",
-            App::PhutKrub => "PhutKrub",
+            App::KhianKrub => &["KhianKrub", "WordCraft"],
+            App::KhitKrub => &["KhitKrub"],
+            App::PhutKrub => &["PhutKrub"],
         }
     }
 
