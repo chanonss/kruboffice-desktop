@@ -130,6 +130,22 @@ impl Pointer {
     }
 }
 
+/// The width for a combo box that lists every pointer as a `side`-point picture and its name
+/// (`names`, in the interface language): the widest row, the list's scroll bar and the menu's
+/// margins, so the open list is no wider than what it shows. Inside the list, call
+/// `ui.set_min_width(ui.available_width())` before the rows, so the list fills the menu and the
+/// mouse wheel scrolls it anywhere over the menu, not only over the rows.
+pub fn picker_width(ui: &egui::Ui, side: f32, names: impl IntoIterator<Item = impl Into<egui::WidgetText>>) -> f32 {
+    let spacing = ui.spacing();
+    let widest = names
+        .into_iter()
+        .map(|name| name.into().into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button).size().x)
+        .fold(0.0, f32::max);
+    let row = side + spacing.item_spacing.x + 2.0 * spacing.button_padding.x + widest;
+    let bar = spacing.scroll.bar_inner_margin + spacing.scroll.bar_width + spacing.scroll.bar_outer_margin;
+    (row + bar + spacing.menu_margin.sum().x).ceil()
+}
+
 fn full_uv() -> Rect {
     Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))
 }

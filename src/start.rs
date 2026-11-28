@@ -883,7 +883,9 @@ impl StartCenter {
         let mut chosen = None;
         ui.horizontal(|ui| {
             current.preview(ui, 20.0);
-            egui::ComboBox::from_id_salt("kruboffice-pointer").width(200.0).selected_text(pointer_name(current)).show_ui(ui, |ui| {
+            let width = crate::pointer::picker_width(ui, 20.0, Pointer::ALL.map(pointer_name));
+            egui::ComboBox::from_id_salt("kruboffice-pointer").width(width).selected_text(pointer_name(current)).show_ui(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 for ptr in Pointer::ALL {
                     let row = ui.horizontal(|ui| {
                         ptr.preview(ui, 20.0);
