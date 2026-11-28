@@ -1,11 +1,12 @@
-//! The Start Center's interface font: the operating system's own.
+//! The Start Center's interface font.
 //!
-//! Each platform's interface face is read from the system at runtime (nothing is bundled or
-//! compiled in): on macOS the system font (SF) with Thonburi for Thai, on Windows Segoe UI with
-//! Leelawadee UI for Thai, on Linux the desktop's interface font as fontconfig resolves it, with
-//! the Thai face fontconfig picks for it. A face that has no Thai is always followed by one that
-//! does; if the system has none, Sarabun from the app's `fonts` folder (put there by the
-//! packaging) keeps Thai from showing as boxes. egui's built-in fonts come last, for the rest.
+//! On macOS and Windows it is the operating system's own, read from the system at runtime: on
+//! macOS the system font (SF) with Thonburi for Thai, on Windows Segoe UI with Leelawadee UI for
+//! Thai. On Linux it is Sarabun from the app's `fonts` folder (put there by the packaging), the
+//! same on every distribution; behind it the desktop's interface font as fontconfig resolves it,
+//! with the Thai face fontconfig picks for it. A face that has no Thai is always followed by one
+//! that does; elsewhere, if the system has none, the bundled Sarabun keeps Thai from showing as
+//! boxes. egui's built-in fonts come last, for the rest.
 
 use std::path::{Path, PathBuf};
 
@@ -192,10 +193,13 @@ fn load(list: &[Face], weight: f32) -> Option<FontData> {
     })
 }
 
+/// Whether the interface leads with the bundled Sarabun (Linux) rather than the system font.
+const LINUX_SARABUN_UI: bool = !cfg!(any(target_os = "macos", windows));
+
 /// The bold family name used by [`install`].
 pub const BOLD: &str = "kruboffice-bold";
 
-/// Put the system's interface faces first in the proportional family, and a bold family for
+/// Put the interface faces (Sarabun on Linux, else the system's) first in the proportional family, and a bold family for
 /// headings. `resources` is the app's resources folder, where packaging may have placed Sarabun.
 pub fn install(ctx: &egui::Context, resources: Option<&Path>) {
     let (ui, thai) = system_slots();
@@ -218,9 +222,17 @@ pub fn install(ctx: &egui::Context, resources: Option<&Path>) {
         }
         has_regular
     };
+    // On Linux the interface is Sarabun, Latin and Thai, from the app's `fonts` folder: the
+    // desktop's own fonts are found differently on every distribution, and some (CachyOS, Arch)
+    // left Thai as boxes (owner, 2026-11-28). The system faces stay behind it, for a build
+    // without the folder.
+    let sarabun_ui = LINUX_SARABUN_UI && {
+        let bundled = bundled_slot(resources);
+        add("sarabun", load(&bundled.regular, REGULAR), load(&bundled.bold, SEMIBOLD))
+    };
     add("system-ui", load(&ui.regular, REGULAR), load(&ui.bold, SEMIBOLD));
     let thai_found = add("system-thai", load(&thai.regular, REGULAR), load(&thai.bold, SEMIBOLD));
-    if !thai_found {
+    if !thai_found && !sarabun_ui {
         let bundled = bundled_slot(resources);
         if !add("sarabun", load(&bundled.regular, REGULAR), load(&bundled.bold, SEMIBOLD)) {
             log::warn!("no Thai font found on this system; Thai text may not show");
